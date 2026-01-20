@@ -275,10 +275,11 @@ export function JobsPage() {
   const [customer, setCustomer] = useState("");
   const [tag, setTag] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const rows = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return mockRows.filter((r) => {
+    let filtered = mockRows.filter((r) => {
       if (!s) return true;
       return (
         r.id.toLowerCase().includes(s) ||
@@ -287,7 +288,26 @@ export function JobsPage() {
         r.customerName.toLowerCase().includes(s)
       );
     });
-  }, [search]);
+
+    // 将选中的行排到最前面
+    return filtered.sort((a, b) => {
+      const aSelected = selectedIds.has(a.id);
+      const bSelected = selectedIds.has(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return 0;
+    });
+  }, [search, selectedIds]);
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
 
   return (
     // <div className="space-y-4">
@@ -381,10 +401,14 @@ export function JobsPage() {
             </div>
 
             {/* rows */}
-            {rows.map((r, idx) => (
+            {rows.map((r, idx) => {
+              const isSelected = selectedIds.has(r.id);
+              return (
               <div
                 key={r.id}
-                className={`border-b border-[rgba(0,0,0,0.06)] hover:bg-[rgba(0,0,0,0.02)] bg-white}`}
+                className={`border-b border-[rgba(0,0,0,0.06)] ${
+                  isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
+                } hover:bg-[rgba(0,0,0,0.02)]`}
               >
                 <div
   className={`grid ${gridCols} gap-2 px-4 py-3 items-center`}
@@ -393,7 +417,12 @@ export function JobsPage() {
               
                 {/* 加载 */}
                 <div>
-                  <input type="checkbox" className="h-4 w-4 accent-[var(--ds-primary)]" />
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 accent-[var(--ds-primary)]"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(r.id)}
+                  />
                 </div>
 
                 {/* 汽车状态 */}
@@ -448,7 +477,8 @@ export function JobsPage() {
                 </div>
               </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
 
