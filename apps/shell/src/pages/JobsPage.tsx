@@ -456,7 +456,7 @@ export function JobsPage() {
 
                 {/* job id */}
                 <div className="min-w-0">
-                  <Link to={`/jobs/${r.id}`} className="text-[rgba(37,99,235,1)] font-semibold hover:underline">
+                  <Link to={`/jobs/${r.id}`} className="text-[rgba(37,99,235,1)] font-semibold underline">
                     {r.id}
                   </Link>
                 </div>
