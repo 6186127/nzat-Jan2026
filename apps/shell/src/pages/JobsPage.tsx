@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Pencil, Trash2, RotateCcw } from "lucide-react";
+import { Search, Archive, Trash2, RotateCcw } from "lucide-react";
 
 type JobStatus = "In Progress" | "Completed" | "Pending" | "Ready" | "Archived" | "Cancelled";
 
@@ -492,8 +492,8 @@ export function JobsPage() {
         
                 {/* actions */}
                 <div className="flex justify-end gap-3 pr-1">
-                  <button className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]" title="Edit">
-                    <Pencil size={16} />
+                  <button className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]" title="Archive">
+                    <Archive size={16} />
                   </button>
                   <button className="text-[rgba(239,68,68,1)] hover:opacity-80" title="Delete">
                     <Trash2 size={16} />
