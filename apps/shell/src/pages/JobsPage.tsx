@@ -61,7 +61,7 @@ const mockRows: JobRow[] = [
     paintPct: null,
     customerName: "王伟",
     customerPhone: "0218796689",
-    createdAt: "2025/12/06 10:55",
+    createdAt: "2026/01/20",
   },
   {
     id: "J-20251206-3",
@@ -74,7 +74,7 @@ const mockRows: JobRow[] = [
     paintPct: null,
     customerName: "王伟",
     customerPhone: "0218796689",
-    createdAt: "2025/12/06 10:55",
+    createdAt: "2026/01/06",
   },
 ];
 
@@ -295,22 +295,85 @@ function TagsCell({ tags }: { tags: string[] }) {
 
 export function JobsPage() {
   const [jobType, setJobType] = useState("");
-  const [time, setTime] = useState("");
+  const [timeRange, setTimeRange] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [customer, setCustomer] = useState("");
   const [tag, setTag] = useState("");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // 计算日期范围
+  const getDateRange = () => {
+    const today = new Date();
+    const start = new Date();
+    const end = new Date();
+
+    switch (timeRange) {
+      case "week":
+        const day = today.getDay() || 7;
+        start.setDate(today.getDate() - day + 1);
+        end.setDate(today.getDate() + (7 - day));
+        break;
+      case "lastWeek":
+        // 上周
+        const lastDay = new Date(today);
+        lastDay.setDate(today.getDate() - today.getDay());
+        start.setDate(lastDay.getDate() - 7);
+        end.setDate(lastDay.getDate() - 1);
+        break;
+      case "month":
+        // 本月
+        start.setDate(1);
+        end.setDate(31);
+        break;
+      case "custom":
+        // 自定义
+        if (startDate) start.setTime(new Date(startDate).getTime());
+        if (endDate) end.setTime(new Date(endDate).getTime());
+        break;
+      default:
+        return null;
+    }
+
+    return { start, end };
+  };
+
   const rows = useMemo(() => {
     const s = search.trim().toLowerCase();
     let filtered = mockRows.filter((r) => {
-      if (!s) return true;
-      return (
-        r.id.toLowerCase().includes(s) ||
-        r.plate.toLowerCase().includes(s) ||
-        r.vehicleModel.toLowerCase().includes(s) ||
-        r.customerName.toLowerCase().includes(s)
-      );
+      // 搜索过滤
+      if (s) {
+        const matchesSearch =
+          r.id.toLowerCase().includes(s) ||
+          r.plate.toLowerCase().includes(s) ||
+          r.vehicleModel.toLowerCase().includes(s) ||
+          r.customerName.toLowerCase().includes(s);
+        if (!matchesSearch) return false;
+      }
+
+      // Job Type 过滤
+      if (jobType && r.vehicleStatus !== jobType) {
+        return false;
+      }
+
+      // 日期范围过滤
+      if (timeRange) {
+        const dateRange = getDateRange();
+        if (dateRange) {
+          const rowDate = new Date(r.createdAt.split(" ")[0].replace(/\//g, "-"));
+          if (rowDate < dateRange.start || rowDate > dateRange.end) {
+            return false;
+          }
+        }
+      }
+
+      // 客户过滤
+      if (customer && !r.customerName.toLowerCase().includes(customer.toLowerCase())) {
+        return false;
+      }
+
+      return true;
     });
 
     // 将选中的行排到最前面
@@ -321,7 +384,7 @@ export function JobsPage() {
       if (!aSelected && bSelected) return 1;
       return 0;
     });
-  }, [search, selectedIds]);
+  }, [search, jobType, timeRange, customer, startDate, endDate, selectedIds]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -346,13 +409,49 @@ export function JobsPage() {
         <div className="grid grid-cols-12 gap-4 items-end">
           <div className="col-span-12 md:col-span-3 lg:col-span-2">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
-            <Input value={jobType} onChange={(e) => setJobType(e.target.value)} />
+            <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
+              <option value="">全部</option>
+              <option value="In Progress">进行中</option>
+              <option value="Completed">已完成</option>
+              <option value="Ready">可交车</option>
+              <option value="Archived">归档</option>
+              <option value="Cancelled">取消</option>
+            </Select>
           </div>
 
           <div className="col-span-12 md:col-span-3 lg:col-span-2">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
-            <Input value={time} onChange={(e) => setTime(e.target.value)} />
+            <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+              <option value="">全部</option>
+              <option value="week">本周</option>
+              <option value="lastWeek">上周</option>
+              <option value="month">本月</option>
+              <option value="custom">自定义</option>
+            </Select>
           </div>
+
+          {timeRange === "custom" && (
+            <>
+              <div className="col-span-12 md:col-span-3 lg:col-span-2">
+                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
+                <input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                />
+              </div>
+              <div className="col-span-12 md:col-span-3 lg:col-span-2">
+                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
+                <input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                />
+              </div>
+            </>
+          )}
 
           <div className="col-span-12 md:col-span-3 lg:col-span-2">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
@@ -381,7 +480,7 @@ export function JobsPage() {
             <Button
               onClick={() => {
                 setJobType("");
-                setTime("");
+                setTimeRange("");
                 setCustomer("");
                 setTag("");
                 setSearch("");
