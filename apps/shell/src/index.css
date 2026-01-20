@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* design tokens (minimal) */
+/* :root{
+  --ds-bg: #0b1220;
+  --ds-panel: #0f1a2c;
+  --ds-text: #e6edf7;
+  --ds-muted: #9fb0cc;
+  --ds-border: rgba(255,255,255,0.08);
+  --ds-primary: #4f7cff;
+  --ds-radius: 14px;
+} */
+/* design tokens (light theme) */
+:root{
+  --ds-bg: #f6f7f9;           
+  --ds-panel: #ffffff;        
+  --ds-text: #1f2937;          
+  --ds-muted: #6b7280;        
+  --ds-border: rgba(0,0,0,0.08); 
+  --ds-primary: #eb3925;       
+  --ds-radius: 14px;
+}
+
+
+html, body, #root { height: 100%; }
+/* body { background: var(--ds-bg); color: var(--ds-text); } */
+body { background: var(--ds-bg); color: var(--ds-text); font-size: 14px; }
+
