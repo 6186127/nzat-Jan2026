@@ -27,7 +27,7 @@ const gridCols =
   "sm:grid-cols-[30px_90px_110px_120px_80px_180px_64px_64px_64px_100px_64px] " +
 
   // ≥768 (md)：显示完整标签列
-  "md:grid-cols-[30px_100px_120px_140px_90px_200px_68px_68px_68px_120px_64px] " +
+  "md:grid-cols-[30px_100px_100px_130px_70px_130px_65px_65px_65px_80px_64px] " +
 
   // ≥1024 (lg)：显示客户电话
   "lg:grid-cols-[30px_100px_100px_130px_70px_130px_65px_65px_65px_80px_80px_64px] " +
@@ -402,12 +402,12 @@ export function JobsPage() {
 
       <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
 
-      {/* Filters */}
+      {/* Filters section */}
      {/* todo:hidden when at phone screen */}
 
       <Card className="p-4">
         <div className="grid grid-cols-12 gap-4 items-end">
-          <div className="col-span-12 md:col-span-3 lg:col-span-2">
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
             <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
               <option value="">全部</option>
@@ -419,7 +419,7 @@ export function JobsPage() {
             </Select>
           </div>
 
-          <div className="col-span-12 md:col-span-3 lg:col-span-2">
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
             <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
               <option value="">全部</option>
@@ -432,7 +432,7 @@ export function JobsPage() {
 
           {timeRange === "custom" && (
             <>
-              <div className="col-span-12 md:col-span-3 lg:col-span-2">
+              <div className="col-span-12 md:col-span-3 lg:col-span-3">
                 <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
                 <input 
                   type="date" 
@@ -441,7 +441,7 @@ export function JobsPage() {
                   className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
                 />
               </div>
-              <div className="col-span-12 md:col-span-3 lg:col-span-2">
+              <div className="col-span-12 md:col-span-3 lg:col-span-3">
                 <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
                 <input 
                   type="date" 
@@ -453,12 +453,12 @@ export function JobsPage() {
             </>
           )}
 
-          <div className="col-span-12 md:col-span-3 lg:col-span-2">
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
             <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
           </div>
          {/* todo: edit to MULTI-select tags */}
-          <div className="col-span-12 md:col-span-3 lg:col-span-2">
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
             <Select value={tag} onChange={(e) => setTag(e.target.value)}>
               <option value="">Select tags</option>
@@ -468,7 +468,7 @@ export function JobsPage() {
             </Select>
           </div>
  
-          <div className="col-span-12 md:col-span-6 lg:col-span-2">
+          <div className="col-span-12 md:col-span-6 lg:col-span-3">
             <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">搜索</div>
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.40)]" />
@@ -476,7 +476,11 @@ export function JobsPage() {
             </div>
           </div>
 
-          <div className="col-span-12 md:col-span-6 lg:col-span-2 flex gap-3 justify-end ">
+          <div className="
+    col-span-12
+    lg:col-start-10 lg:col-end-13
+    flex justify-end gap-3
+  ">
             <Button
               onClick={() => {
                 setJobType("");
