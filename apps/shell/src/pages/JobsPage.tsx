@@ -533,12 +533,14 @@ export function JobsPage() {
               return (
               <div
                 key={r.id}
-                className={`border-b border-[rgba(0,0,0,0.06)] ${
-                  isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
-                } hover:bg-[rgba(0,0,0,0.02)]`}
+                // className={`border-b border-[rgba(0,0,0,0.06)] ${
+                //   isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
+                // } hover:bg-[rgba(0,0,0,0.02)]`}
               >
                 <div
-  className={`grid ${gridCols} gap-2 px-4 py-3 items-center`}
+  className={`grid ${gridCols} gap-2 px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)] ${
+                  isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
+                } hover:bg-[rgba(0,0,0,0.02)]`}
                 >
 
               
