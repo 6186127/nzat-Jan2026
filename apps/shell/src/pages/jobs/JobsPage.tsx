@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../components/MultiTagSelect";
+import { Card, Input, Select, Button } from "../../components/ui";
+
+
+import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../../components/MultiTagSelect";
 
 
 type JobStatus = "In Progress" | "Completed" | "Pending" | "Ready" | "Archived" | "Cancelled";
@@ -270,71 +273,6 @@ const mockRows: JobRow[] = [
 ];
 
 
-function Card(props: { children: React.ReactNode; className?: string }) {
-    return (
-        <div
-            className={[
-                "rounded-[12px] border border-[var(--ds-border)] bg-white shadow-sm",
-                props.className || "",
-            ].join(" ")}
-        >
-            {props.children}
-        </div>
-    );
-}
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-    return (
-        <input
-            {...props}
-            className={[
-                "h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm",
-                "outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]",
-                props.className || "",
-            ].join(" ")}
-        />
-    );
-}
-
-function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-    return (
-        <select
-            {...props}
-            className={[
-                "h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm",
-                "outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]",
-                props.className || "",
-            ].join(" ")}
-        />
-    );
-}
-
-function Button(props: {
-    children: React.ReactNode;
-    onClick?: () => void;
-    variant?: "primary" | "ghost";
-    leftIcon?: React.ReactNode;
-}) {
-    const v = props.variant ?? "ghost";
-    const cls =
-        v === "primary"
-            ? "bg-[var(--ds-primary)] text-white hover:opacity-95"
-            : "bg-white text-[rgba(0,0,0,0.72)] border border-[rgba(0,0,0,0.10)] hover:bg-[rgba(0,0,0,0.03)]";
-
-    return (
-        <button
-            onClick={props.onClick}
-            className={[
-                "h-9 inline-flex items-center gap-2 rounded-[8px] px-3 text-sm font-medium transition",
-                cls,
-            ].join(" ")}
-            type="button"
-        >
-            {props.leftIcon}
-            {props.children}
-        </button>
-    );
-}
 
 function StatusPill({ status }: { status: JobStatus }) {
     const cfg =
