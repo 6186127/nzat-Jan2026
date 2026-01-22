@@ -498,7 +498,7 @@ export function JobsPage() {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 6;
-     const [isFilterOpen, setIsFilterOpen] = useState(true);
+     const [isFilterOpen, setIsFilterOpen] = useState(false);
     // 计算日期范围
     const getDateRange = () => {
         const today = new Date();
@@ -809,7 +809,7 @@ export function JobsPage() {
                                                 >
                                                     Reset
                                                 </Button>
-                                                <Button variant="primary">Apply</Button>
+                                               
                                             </div>
                                         </div>
                                     </div>
@@ -833,7 +833,7 @@ export function JobsPage() {
                         {/* header */}
 
                         <div
-                            className={`grid ${gridCols} gap-2 px-4 py-3 text-[12px] font-semibold
+                            className={`grid ${gridCols} w-full justify-between gap-0 px-4 py-3 text-[12px] font-semibold
   text-[rgba(0,0,0,0.55)] bg-[rgba(0,0,0,0.02)]
   border-b border-[rgba(0,0,0,0.06)]`}
                         >
@@ -864,7 +864,7 @@ export function JobsPage() {
                                 // } hover:bg-[rgba(0,0,0,0.02)]`}
                                 >
                                     <div
-                                        className={`grid ${gridCols} gap-2 px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)] ${isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
+                                        className={`grid ${gridCols} w-full justify-between gap-0 px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)] ${isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"
                                             } hover:bg-[rgba(0,0,0,0.02)]`}
                                     >
 
