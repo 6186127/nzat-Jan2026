@@ -2,23 +2,11 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, Input, Select, Button } from "@/components/ui";
 import { StatusPill, ProgressRing, TagsCell } from "@/components/jobs";
-import type { JobStatus } from "@/types/JobType";
-import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../../components/MultiTagSelect";
+import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react"; import { MultiTagSelect, type TagOption } from "../../components/MultiTagSelect";
+import type { JobsFilters, JobRow, JobStatus } from "@/types/JobType";
+import { filterJobs, sortSelected, paginate } from "@/utils/jobs.utils";
+import { useEffect } from "react";
 
-
-type JobRow = {
-    id: string;
-    vehicleStatus: JobStatus;
-    selectedTags: string[];
-    plate: string;
-    vehicleModel: string;
-    wofPct: number | null;
-    mechPct: number | null;
-    paintPct: number | null;
-    customerName: string;
-    customerPhone: string;
-    createdAt: string;
-};
 
 
 const gridCols =
@@ -284,99 +272,34 @@ export function JobsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 6;
     const [isFilterOpen, setIsFilterOpen] = useState(false);
-    // 计算日期范围
-    const getDateRange = () => {
-        const today = new Date();
-        const start = new Date();
-        const end = new Date();
 
-        switch (timeRange) {
-            case "week":
-                const day = today.getDay() || 7;
-                start.setDate(today.getDate() - day + 1);
-                end.setDate(today.getDate() + (7 - day));
-                break;
-            case "lastWeek":
-                // 上周
-                const lastDay = new Date(today);
-                lastDay.setDate(today.getDate() - today.getDay());
-                start.setDate(lastDay.getDate() - 7);
-                end.setDate(lastDay.getDate() - 1);
-                break;
-            case "month":
-                // 本月
-                start.setDate(1);
-                end.setDate(31);
-                break;
-            case "custom":
-                // 自定义
-                if (startDate) start.setTime(new Date(startDate).getTime());
-                if (endDate) end.setTime(new Date(endDate).getTime());
-                break;
-            default:
-                return null;
-        }
-
-        return { start, end };
-    };
+    
+    const filters = useMemo<JobsFilters>(() => ({
+        search,
+        jobType: (jobType as any) || "",
+        timeRange: (timeRange as any) || "",
+        startDate,
+        endDate,
+        customer,
+        selectedTags,
+    }), [search, jobType, timeRange, startDate, endDate, customer, selectedTags]);
 
     const rows = useMemo(() => {
-        const s = search.trim().toLowerCase();
-        let filtered = mockRows.filter((r) => {
-            // 搜索过滤
-            if (s) {
-                const matchesSearch =
-                    r.id.toLowerCase().includes(s) ||
-                    r.plate.toLowerCase().includes(s) ||
-                    r.vehicleModel.toLowerCase().includes(s) ||
-                    r.customerName.toLowerCase().includes(s);
-                if (!matchesSearch) return false;
-            }
+        const filtered = filterJobs(mockRows, filters);
+        return sortSelected(filtered, selectedIds);
+    }, [filters, selectedIds]);
 
-            // Job Type 过滤
-            if (jobType && r.vehicleStatus !== jobType) {
-                return false;
-            }
 
-            // 日期范围过滤
-            if (timeRange) {
-                const dateRange = getDateRange();
-                if (dateRange) {
-                    const rowDate = new Date(r.createdAt.split(" ")[0].replace(/\//g, "-"));
-                    if (rowDate < dateRange.start || rowDate > dateRange.end) {
-                        return false;
-                    }
-                }
-            }
-
-            // 客户过滤
-            if (customer && !r.customerName.toLowerCase().includes(customer.toLowerCase())) {
-                return false;
-            }
-
-            // Tag 过滤 - 修复：统一转换为小写进行比较
-            if (selectedTags.length > 0) {
-                const rowTagsLower = r.selectedTags.map(t => t.toLowerCase());
-                const selectedTagsLower = selectedTags.map(t => t.toLowerCase());
-                const hit = rowTagsLower.some((t) => selectedTagsLower.includes(t));
-                if (!hit) return false;
-            }
-
-            return true;
-        });
-
-        // 将选中的行排到最前面
-        return filtered.sort((a, b) => {
-            const aSelected = selectedIds.has(a.id);
-            const bSelected = selectedIds.has(b.id);
-            if (aSelected && !bSelected) return -1;
-            if (!aSelected && bSelected) return 1;
-            return 0;
-        });
-    }, [search, jobType, timeRange, customer, selectedTags, startDate, endDate, selectedIds]);
     //pageination
-    const totalPages = Math.ceil(rows.length / pageSize);
-    const paginatedRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    const { pageRows: paginatedRows, totalPages } = useMemo(
+        () => paginate(rows, currentPage, pageSize),
+        [rows, currentPage, pageSize]
+    );
+        useEffect(() => {
+  setCurrentPage(1);
+}, [filters]);
+
+
 
     const toggleSelect = (id: string) => {
         const newSelected = new Set(selectedIds);
@@ -389,123 +312,123 @@ export function JobsPage() {
     };
 
     return (
-    
+
         <div className="space-y-4 text-[14px]">
 
             <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
-   
+
             <Card>
-                            {/* Filter Header - Collapsible */}
-                            <div 
-                                className="flex items-c-enter justify-between px-4 py-3 cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition"
-                                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                            >
-                                <h2 className="font-semibold text-[rgba(0,0,0,0.72)]">筛选条件</h2>
-                                <ChevronDown 
-                                    size={20} 
-                                    className={`text-[rgba(0,0,0,0.55)] transition-transform ${isFilterOpen ? "rotate-180" : ""}`}
-                                />
-                            </div>
-            
-                            {/* Filter Content - Collapsible */}
-                            {isFilterOpen && (
-                                <>
-                                    <div className="border-t border-[rgba(0,0,0,0.06)]"></div>
-                                    <div className="p-4">
-                                        <div className="grid grid-cols-12 gap-4 items-end">
-                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
-                                                <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
-                                                    <option value="">全部</option>
-                                                    <option value="In Progress">进行中</option>
-                                                    <option value="Completed">已完成</option>
-                                                    <option value="Ready">可交车</option>
-                                                    <option value="Archived">归档</option>
-                                                    <option value="Cancelled">取消</option>
-                                                </Select>
-                                            </div>
-            
-                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
-                                                <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-                                                    <option value="">全部</option>
-                                                    <option value="week">本周</option>
-                                                    <option value="lastWeek">上周</option>
-                                                    <option value="month">本月</option>
-                                                    <option value="custom">自定义</option>
-                                                </Select>
-                                            </div>
-            
-                                            {timeRange === "custom" && (
-                                                <>
-                                                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
-                                                        <input
-                                                            type="date"
-                                                            value={startDate}
-                                                            onChange={(e) => setStartDate(e.target.value)}
-                                                            className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
-                                                        <input
-                                                            type="date"
-                                                            value={endDate}
-                                                            onChange={(e) => setEndDate(e.target.value)}
-                                                            className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-            
-                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
-                                                <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
-                                            </div>
-            
-                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
-                                                <MultiTagSelect
-                                                    options={tagOptions}
-                                                    value={selectedTags}
-                                                    onChange={setSelectedTags}
-                                                    placeholder="Select tags"
-                                                    maxChips={2}
-                                                />
-                                            </div>
-            
-                                            <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">搜索</div>
-                                                <div className="relative">
-                                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.40)]" />
-                                                    <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
-                                                </div>
-                                            </div>
-            
-                                            <div className="col-span-12 lg:col-start-10 lg:col-end-13 flex justify-end gap-3">
-                                                <Button
-                                                    onClick={() => {
-                                                        setJobType("");
-                                                        setTimeRange("");
-                                                        setCustomer("");
-                                                        setSelectedTags([]);
-                                                        setSearch("");
-                                                    }}
-                                                    leftIcon={<RotateCcw size={16} />}
-                                                >
-                                                    Reset
-                                                </Button>
-                                               
-                                            </div>
+                {/* Filter Header - Collapsible */}
+                <div
+                    className="flex items-c-enter justify-between px-4 py-3 cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition"
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                >
+                    <h2 className="font-semibold text-[rgba(0,0,0,0.72)]">筛选条件</h2>
+                    <ChevronDown
+                        size={20}
+                        className={`text-[rgba(0,0,0,0.55)] transition-transform ${isFilterOpen ? "rotate-180" : ""}`}
+                    />
+                </div>
+
+                {/* Filter Content - Collapsible */}
+                {isFilterOpen && (
+                    <>
+                        <div className="border-t border-[rgba(0,0,0,0.06)]"></div>
+                        <div className="p-4">
+                            <div className="grid grid-cols-12 gap-4 items-end">
+                                <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                    <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
+                                    <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
+                                        <option value="">全部</option>
+                                        <option value="In Progress">进行中</option>
+                                        <option value="Completed">已完成</option>
+                                        <option value="Ready">可交车</option>
+                                        <option value="Archived">归档</option>
+                                        <option value="Cancelled">取消</option>
+                                    </Select>
+                                </div>
+
+                                <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                    <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
+                                    <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+                                        <option value="">全部</option>
+                                        <option value="week">本周</option>
+                                        <option value="lastWeek">上周</option>
+                                        <option value="month">本月</option>
+                                        <option value="custom">自定义</option>
+                                    </Select>
+                                </div>
+
+                                {timeRange === "custom" && (
+                                    <>
+                                        <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                            <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
+                                            <input
+                                                type="date"
+                                                value={startDate}
+                                                onChange={(e) => setStartDate(e.target.value)}
+                                                className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                                            />
                                         </div>
+                                        <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                            <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
+                                            <input
+                                                type="date"
+                                                value={endDate}
+                                                onChange={(e) => setEndDate(e.target.value)}
+                                                className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                    <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
+                                    <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
+                                </div>
+
+                                <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                    <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
+                                    <MultiTagSelect
+                                        options={tagOptions}
+                                        value={selectedTags}
+                                        onChange={setSelectedTags}
+                                        placeholder="Select tags"
+                                        maxChips={2}
+                                    />
+                                </div>
+
+                                <div className="col-span-12 md:col-span-6 lg:col-span-3">
+                                    <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">搜索</div>
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.40)]" />
+                                        <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
                                     </div>
-                                </>
-                            )}
+                                </div>
+
+                                <div className="col-span-12 lg:col-start-10 lg:col-end-13 flex justify-end gap-3">
+                                    <Button
+                                        onClick={() => {
+                                            setJobType("");
+                                            setTimeRange("");
+                                            setCustomer("");
+                                            setSelectedTags([]);
+                                            setSearch("");
+                                        }}
+                                        leftIcon={<RotateCcw size={16} />}
+                                    >
+                                        Reset
+                                    </Button>
+
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
             </Card>
 
             <div className="flex justify-end">
-                 <Link to="/jobs/new">
+                <Link to="/jobs/new">
                     <Button variant="primary" leftIcon={<Plus size={16} />}>
                         Add New Job
                     </Button>
@@ -623,11 +546,11 @@ export function JobsPage() {
                 </div>
 
                 {/* footer */}
-                               <div className="flex items-center justify-between px-4 py-3 text-xs text-[rgba(0,0,0,0.50)]">
+                <div className="flex items-center justify-between px-4 py-3 text-xs text-[rgba(0,0,0,0.50)]">
                     <div>显示 {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, rows.length)} 项，共 {rows.length} 项</div>
 
                     <div className="flex items-center gap-2">
-                        <button 
+                        <button
                             className="h-8 px-3 rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50"
                             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                             disabled={currentPage === 1}
@@ -637,17 +560,16 @@ export function JobsPage() {
                         {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                             <button
                                 key={page}
-                                className={`h-8 w-8 rounded-[8px] ${
-                                    currentPage === page
-                                        ? "bg-[rgba(15,23,42,0.85)] text-white"
-                                        : "border border-[rgba(0,0,0,0.10)] bg-white hover:bg-[rgba(0,0,0,0.03)]"
-                                }`}
+                                className={`h-8 w-8 rounded-[8px] ${currentPage === page
+                                    ? "bg-[rgba(15,23,42,0.85)] text-white"
+                                    : "border border-[rgba(0,0,0,0.10)] bg-white hover:bg-[rgba(0,0,0,0.03)]"
+                                    }`}
                                 onClick={() => setCurrentPage(page)}
                             >
                                 {page}
                             </button>
-                        ))} 
-                        <button 
+                        ))}
+                        <button
                             className="h-8 px-3 rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50"
                             onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                             disabled={currentPage === totalPages}
