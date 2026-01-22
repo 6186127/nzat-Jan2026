@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, Input, Select, Button } from "../../components/ui";
+import { Card, Input, Select, Button } from "@/components/ui";
 
 
 import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../../components/MultiTagSelect";
