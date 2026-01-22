@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Archive, Trash2, RotateCcw } from "lucide-react";
+import { Search, Archive, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import { MultiTagSelect, type TagOption } from "../components/MultiTagSelect";
 
 
@@ -499,6 +499,7 @@ export function JobsPage() {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 6;
+     const [isFilterOpen, setIsFilterOpen] = useState(true);
     // 计算日期范围
     const getDateRange = () => {
         const today = new Date();
@@ -610,9 +611,10 @@ export function JobsPage() {
             <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
 
             {/* Filters section */}
-            {/* todo:hidden when at phone screen */}
+            {/* Todo:Filter Card with Collapse  */}
 
-            <Card className="p-4">
+            {/* <Card className="p-4">
+                
                 <div className="grid grid-cols-12 gap-4 items-end">
                     <div className="col-span-12 md:col-span-3 lg:col-span-3">
                         <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
@@ -705,7 +707,116 @@ export function JobsPage() {
                         <Button variant="primary">Apply</Button>
                     </div>
                 </div>
-            </Card>
+            </Card> */}
+            <Card>
+                            {/* Filter Header - Collapsible */}
+                            <div 
+                                className="flex items-c-enter justify-between px-4 py-3 cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition"
+                                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                            >
+                                <h2 className="font-semibold text-[rgba(0,0,0,0.72)]">筛选条件</h2>
+                                <ChevronDown 
+                                    size={20} 
+                                    className={`text-[rgba(0,0,0,0.55)] transition-transform ${isFilterOpen ? "rotate-180" : ""}`}
+                                />
+                            </div>
+            
+                            {/* Filter Content - Collapsible */}
+                            {isFilterOpen && (
+                                <>
+                                    <div className="border-t border-[rgba(0,0,0,0.06)]"></div>
+                                    <div className="p-4">
+                                        <div className="grid grid-cols-12 gap-4 items-end">
+                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
+                                                <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
+                                                    <option value="">全部</option>
+                                                    <option value="In Progress">进行中</option>
+                                                    <option value="Completed">已完成</option>
+                                                    <option value="Ready">可交车</option>
+                                                    <option value="Archived">归档</option>
+                                                    <option value="Cancelled">取消</option>
+                                                </Select>
+                                            </div>
+            
+                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
+                                                <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+                                                    <option value="">全部</option>
+                                                    <option value="week">本周</option>
+                                                    <option value="lastWeek">上周</option>
+                                                    <option value="month">本月</option>
+                                                    <option value="custom">自定义</option>
+                                                </Select>
+                                            </div>
+            
+                                            {timeRange === "custom" && (
+                                                <>
+                                                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
+                                                        <input
+                                                            type="date"
+                                                            value={startDate}
+                                                            onChange={(e) => setStartDate(e.target.value)}
+                                                            className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                                                        />
+                                                    </div>
+                                                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
+                                                        <input
+                                                            type="date"
+                                                            value={endDate}
+                                                            onChange={(e) => setEndDate(e.target.value)}
+                                                            className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
+            
+                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
+                                                <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
+                                            </div>
+            
+                                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
+                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
+                                                <MultiTagSelect
+                                                    options={tagOptions}
+                                                    value={selectedTags}
+                                                    onChange={setSelectedTags}
+                                                    placeholder="Select tags"
+                                                    maxChips={2}
+                                                />
+                                            </div>
+            
+                                            <div className="col-span-12 md:col-span-6 lg:col-span-3">
+                                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">搜索</div>
+                                                <div className="relative">
+                                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.40)]" />
+                                                    <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+                                                </div>
+                                            </div>
+            
+                                            <div className="col-span-12 lg:col-start-10 lg:col-end-13 flex justify-end gap-3">
+                                                <Button
+                                                    onClick={() => {
+                                                        setJobType("");
+                                                        setTimeRange("");
+                                                        setCustomer("");
+                                                        setSelectedTags([]);
+                                                        setSearch("");
+                                                    }}
+                                                    leftIcon={<RotateCcw size={16} />}
+                                                >
+                                                    Reset
+                                                </Button>
+                                                <Button variant="primary">Apply</Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </Card>
 
             {/* todo: add new job button at top of table and redirect to jobsnew page */}
             {/* Table wrapper: enable horizontal scroll */}
@@ -843,7 +954,7 @@ export function JobsPage() {
                             >
                                 {page}
                             </button>
-                        ))}
+                        ))} 
                         <button 
                             className="h-8 px-3 rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white hover:bg-[rgba(0,0,0,0.03)] disabled:opacity-50"
                             onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
