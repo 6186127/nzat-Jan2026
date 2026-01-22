@@ -1,3 +1,3 @@
-export * from "./StatusPill";
-export * from "./ProgressRing";
-export * from "./TagsCell";
+export { StatusPill } from "./StatusPill";
+export { ProgressRing } from "./ProgressRing";
+export { TagsCell } from "./TagsCell";
