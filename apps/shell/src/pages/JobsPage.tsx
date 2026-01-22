@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Archive, Trash2, RotateCcw, ChevronDown } from "lucide-react";
-import { MultiTagSelect, type TagOption } from "../components/MultiTagSelect";
+import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../components/MultiTagSelect";
 
 
 type JobStatus = "In Progress" | "Completed" | "Pending" | "Ready" | "Archived" | "Cancelled";
@@ -818,8 +817,15 @@ export function JobsPage() {
                             )}
                         </Card>
 
-            {/* todo: add new job button at top of table and redirect to jobsnew page */}
-            {/* Table wrapper: enable horizontal scroll */}
+                         <div className="flex justify-end">
+                 <Link to="/jobs/new">
+                    <Button variant="primary" leftIcon={<Plus size={16} />}>
+                        Add New Job
+                    </Button>
+                </Link>
+            </div>
+
+           {/* Table wrapper: enable horizontal scroll */}
             <Card className="overflow-hidden">
                 <div className="overflow-x-auto">
                     {/* min width makes horizontal scroll kick in instead of squishing */}

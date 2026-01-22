@@ -4,6 +4,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/JobsPage";
 import { JobDetailPage } from "./pages/JobDetailPage";
 import { InvoicePage } from "./pages/InvoicePage";
+import { NewJobPage } from "./pages/NewJobPage";
 
 const router = createBrowserRouter([
   {
@@ -14,6 +15,10 @@ const router = createBrowserRouter([
       { path: "jobs", element: <JobsPage /> },
       { path: "jobs/:id", element: <JobDetailPage /> },
       { path: "invoice", element: <InvoicePage /> },
+      {
+        path: "/jobs/new",
+        element: <NewJobPage />
+      }
     ],
   },
 ]);
