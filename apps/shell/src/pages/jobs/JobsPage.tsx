@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, Input, Select, Button } from "@/components/ui";
-
-
+import { StatusPill, ProgressRing, TagsCell } from "@/components/jobs";
+import type { JobStatus } from "@/types/JobType";
 import { Search, Archive, Trash2, RotateCcw, ChevronDown, Plus } from "lucide-react";import { MultiTagSelect, type TagOption } from "../../components/MultiTagSelect";
 
-
-type JobStatus = "In Progress" | "Completed" | "Pending" | "Ready" | "Archived" | "Cancelled";
 
 type JobRow = {
     id: string;
@@ -274,169 +272,18 @@ const mockRows: JobRow[] = [
 
 
 
-function StatusPill({ status }: { status: JobStatus }) {
-    const cfg =
-        status === "Completed"
-            ? {
-                bg: "bg-green-100",
-                bd: "border-green-300",
-                tx: "text-green-700",
-                dot: "bg-green-600",
-                label: "维修完成",
-            }
-            : status === "In Progress"
-                ? {
-                    bg: "bg-amber-100",
-                    bd: "border-amber-300",
-                    tx: "text-amber-700",
-                    dot: "bg-amber-600",
-                    label: "进行中",
-                }
-                : status === "Ready"
-                    ? {
-                        bg: "bg-blue-100",
-                        bd: "border-blue-300",
-                        tx: "text-blue-700",
-                        dot: "bg-blue-600",
-                        label: "可交车",
-                    }
-                    : status === "Archived"
-                        ? {
-                            bg: "bg-slate-100",
-                            bd: "border-slate-300",
-                            tx: "text-slate-700",
-                            dot: "bg-slate-600",
-                            label: "归档",
-                        }
-                        : status === "Cancelled"
-                            ? {
-                                bg: "bg-red-100",
-                                bd: "border-red-300",
-                                tx: "text-red-700",
-                                dot: "bg-red-600",
-                                label: "取消",
-                            }
-                            : {
-                                bg: "bg-slate-100",
-                                bd: "border-slate-300",
-                                tx: "text-slate-700",
-                                dot: "bg-slate-600",
-                                label: "Pending",
-                            };
-
-    return (
-        <span
-            className={[
-                "inline-flex items-center gap-2 rounded-[8px] border px-2 py-1 text-[11px] font-medium",
-                cfg.bg,
-                cfg.bd,
-                cfg.tx,
-            ].join(" ")}
-        >
-            <span className={["h-1.5 w-1.5 rounded-full", cfg.dot].join(" ")} />
-            {cfg.label}
-        </span>
-    );
-}
-
-function ProgressRing({ value, size = 34 }: { value: number | null; size?: number }) {
-    if (value === null) {
-        return <div className="h-2 w-8 rounded-full bg-[rgba(0,0,0,0.12)]" />;
-    }
-    const stroke = 4;
-    const r = (size - stroke) / 2;
-    const c = 2 * Math.PI * r;
-    const pct = Math.max(0, Math.min(100, value));
-    const dash = (pct / 100) * c;
-
-    const color =
-        pct >= 80
-            ? "stroke-[rgba(34,197,94,1)]"
-            : pct >= 40
-                ? "stroke-[rgba(245,158,11,1)]"
-                : "stroke-[rgba(239,68,68,1)]";
-
-    return (
-        <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-            <svg width={size} height={size} className="rotate-[-90deg]">
-                <circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={r}
-                    fill="transparent"
-                    className="stroke-[rgba(0,0,0,0.10)]"
-                    strokeWidth={stroke}
-                />
-                <circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={r}
-                    fill="transparent"
-                    className={color}
-                    strokeWidth={stroke}
-                    strokeLinecap="round"
-                    strokeDasharray={`${dash} ${c - dash}`}
-                />
-            </svg>
-            <span className="absolute text-[10px] font-semibold text-[rgba(0,0,0,0.60)]">{pct}%</span>
-        </div>
-    );
-}
-
-function TagChip({ text }: { text: string }) {
-    return (
-        <span className="inline-flex items-center rounded-full border border-[rgba(37,99,235,0.25)] bg-[rgba(37,99,235,0.08)] px-2 py-0.5 text-[11px] text-[rgba(37,99,235,0.95)]">
-            {text}
-        </span>
-    );
-}
-
-function TagsCell({ selectedTags }: { selectedTags: string[] }) {
-    const maxShow = 2;
-    const shown = selectedTags.slice(0, maxShow);
-    const rest = selectedTags.length - shown.length;
-
-    return (
-        <div className="relative group flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1 min-w-0 overflow-hidden">
-                {shown.map((t, i) => (
-                    <TagChip key={`${t}-${i}`} text={t} />
-                ))}
-                {rest > 0 && (
-                    <span className="inline-flex items-center rounded-full border border-[rgba(0,0,0,0.10)] bg-[rgba(0,0,0,0.02)] px-2 py-0.5 text-[11px] text-[rgba(0,0,0,0.55)]">
-                        +{rest}
-                    </span>
-                )}
-            </div>
-
-            {/* hover 展示完整 tags */}
-            {selectedTags.length > 2 && (
-                <div className="pointer-events-none absolute left-0 top-8 z-10 hidden w-[260px] rounded-[10px] border border-[rgba(0,0,0,0.10)] bg-white p-2 text-xs text-[rgba(0,0,0,0.72)] shadow-lg group-hover:block">
-                    <div className="flex flex-wrap gap-2">
-                        {selectedTags.map((t, i) => (
-                            <TagChip key={`${t}-full-${i}`} text={t} />
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
 export function JobsPage() {
     const [jobType, setJobType] = useState("");
     const [timeRange, setTimeRange] = useState("");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [customer, setCustomer] = useState("");
-    //   const [tag, setTag] = useState("");
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
-
     const [search, setSearch] = useState("");
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 6;
-     const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
     // 计算日期范围
     const getDateRange = () => {
         const today = new Date();
@@ -542,109 +389,11 @@ export function JobsPage() {
     };
 
     return (
-        // <div className="space-y-4">
+    
         <div className="space-y-4 text-[14px]">
 
             <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
-
-            {/* Filters section */}
-            {/* Todo:Filter Card with Collapse  */}
-
-            {/* <Card className="p-4">
-                
-                <div className="grid grid-cols-12 gap-4 items-end">
-                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Job Type</div>
-                        <Select value={jobType} onChange={(e) => setJobType(e.target.value)}>
-                            <option value="">全部</option>
-                            <option value="In Progress">进行中</option>
-                            <option value="Completed">已完成</option>
-                            <option value="Ready">可交车</option>
-                            <option value="Archived">归档</option>
-                            <option value="Cancelled">取消</option>
-                        </Select>
-                    </div>
-
-                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">时间</div>
-                        <Select value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
-                            <option value="">全部</option>
-                            <option value="week">本周</option>
-                            <option value="lastWeek">上周</option>
-                            <option value="month">本月</option>
-                            <option value="custom">自定义</option>
-                        </Select>
-                    </div>
-
-                    {timeRange === "custom" && (
-                        <>
-                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">开始日期</div>
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                    className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
-                                />
-                            </div>
-                            <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                                <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">结束日期</div>
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                    className="h-9 w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 text-sm outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]"
-                                />
-                            </div>
-                        </>
-                    )}
-
-                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">客户</div>
-                        <Input value={customer} onChange={(e) => setCustomer(e.target.value)} />
-                    </div>
-
-                    <div className="col-span-12 md:col-span-3 lg:col-span-3">
-                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
-                        <MultiTagSelect
-                            options={tagOptions}
-                            value={selectedTags}
-                            onChange={setSelectedTags}
-                            placeholder="Select tags"
-                            maxChips={2}
-                        />
-
-                    </div>
-
-                    <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                        <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">搜索</div>
-                        <div className="relative">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.40)]" />
-                            <Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <div className="
-    col-span-12
-    lg:col-start-10 lg:col-end-13
-    flex justify-end gap-3
-  ">
-                        <Button
-                            onClick={() => {
-                                setJobType("");
-                                setTimeRange("");
-                                setCustomer("");
-                                setSelectedTags([]);
-                                setSearch("");
-                            }}
-                            leftIcon={<RotateCcw size={16} />}
-                        >
-                            Reset
-                        </Button>
-                        <Button variant="primary">Apply</Button>
-                    </div>
-                </div>
-            </Card> */}
+   
             <Card>
                             {/* Filter Header - Collapsible */}
                             <div 
@@ -753,9 +502,9 @@ export function JobsPage() {
                                     </div>
                                 </>
                             )}
-                        </Card>
+            </Card>
 
-                         <div className="flex justify-end">
+            <div className="flex justify-end">
                  <Link to="/jobs/new">
                     <Button variant="primary" leftIcon={<Plus size={16} />}>
                         Add New Job
@@ -763,7 +512,6 @@ export function JobsPage() {
                 </Link>
             </div>
 
-           {/* Table wrapper: enable horizontal scroll */}
             <Card className="overflow-hidden">
                 <div className="overflow-x-auto">
                     {/* min width makes horizontal scroll kick in instead of squishing */}
