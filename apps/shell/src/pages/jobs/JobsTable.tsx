@@ -22,11 +22,10 @@ const gridCols =
 
 type Props = {
   rows: JobRow[];
-  selectedIds: Set<string>;
-  onToggleSelect: (id: string) => void;
+  onToggleUrgent: (id: string) => void;
 };
 
-export function JobsTable({ rows, selectedIds, onToggleSelect }: Props) {
+export function JobsTable({ rows, onToggleUrgent}: Props) {
   return (
     <div className="overflow-x-auto">
       <div className="min-w-full">
@@ -53,21 +52,22 @@ export function JobsTable({ rows, selectedIds, onToggleSelect }: Props) {
 
         {/* rows */}
         {rows.map((r) => {
-          const isSelected = selectedIds.has(r.id);
+        //   const isSelected = selectedIds.has(r.id);
           return (
             <div key={r.id}>
               <div
                 className={`grid ${gridCols} gap-0 justify-evenly px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)]
-                ${isSelected ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"}
+                ${r.urgent ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"}
                 hover:bg-[rgba(0,0,0,0.02)]`}
               >
                 <div>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[var(--ds-primary)]"
-                    checked={isSelected}
-                    onChange={() => onToggleSelect(r.id)}
-                  />
+                 <input
+  type="checkbox"
+  className="h-4 w-4 accent-[var(--ds-primary)]"
+  checked={r.urgent}
+  onChange={() => onToggleUrgent(r.id)}
+/>
+
                 </div>
 
                 <div><StatusPill status={r.vehicleStatus} /></div>

@@ -9,6 +9,7 @@ export type JobStatus =
 export type JobRow = {
   id: string;
   vehicleStatus: JobStatus;
+  urgent: boolean;
   selectedTags: string[];
   plate: string;
   vehicleModel: string;

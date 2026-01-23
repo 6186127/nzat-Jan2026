@@ -1,0 +1,89 @@
+import { useEffect, useMemo, useState } from "react";
+import type { JobRow, JobsFilters } from "@/types/JobType";
+import { DEFAULT_JOBS_FILTERS } from "./jobs.defaults";
+import { filterJobs, paginate } from "@/utils/jobs.utils";
+
+
+function sortJobsDefault(rows: JobRow[]): JobRow[] {
+  return [...rows].sort((a, b) => {
+    if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
+
+
+    const da = new Date(a.createdAt.replace(/\//g, "-")).getTime();
+    const db = new Date(b.createdAt.replace(/\//g, "-")).getTime();
+    if (!Number.isNaN(da) && !Number.isNaN(db)) return db - da;
+
+    return 0;
+  });
+}
+
+type Options = {
+  initialRows: JobRow[];
+  pageSize?: number;
+  initialFilters?: JobsFilters;
+};
+
+export function useJobsQuery(options: Options) {
+  const pageSize = options.pageSize ?? 6;
+
+  // ✅ 数据源（MVP：本地 rows；后期你可以把它换成 props 或 RTK Query 数据）
+  const [allRows, setAllRows] = useState<JobRow[]>(options.initialRows);
+
+  // ✅ 单对象 filters
+  const [filters, setFilters] = useState<JobsFilters>(
+    options.initialFilters ?? DEFAULT_JOBS_FILTERS
+  );
+
+  // ✅ 分页
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // ✅ filters 变化：自动回到第 1 页（避免筛选后空页）
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
+
+  // ✅ 业务动作：切换 urgent（你后续接后端时，把这里换成 API/PATCH）
+  const toggleUrgent = (id: string) => {
+    setAllRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, urgent: !r.urgent } : r))
+    );
+  };
+
+  // ✅ derived：过滤 + 排序
+  const visibleRows = useMemo(() => {
+    const filtered = filterJobs(allRows, filters);
+    return sortJobsDefault(filtered);
+  }, [allRows, filters]);
+
+  // ✅ derived：分页
+  const page = useMemo(() => {
+    return paginate(visibleRows, currentPage, pageSize);
+  }, [visibleRows, currentPage, pageSize]);
+
+  const resetFilters = () => setFilters(DEFAULT_JOBS_FILTERS);
+
+  return {
+    // source data (MVP)
+    allRows,
+    setAllRows,
+
+    // filters
+    filters,
+    setFilters,
+    resetFilters,
+
+    // urgent action
+    toggleUrgent,
+
+    // paging
+    currentPage: page.currentPage,
+    setCurrentPage,
+    totalPages: page.totalPages,
+    totalItems: page.totalItems,
+    pageSize,
+
+    // results
+    visibleRows,
+    paginatedRows: page.pageRows,
+  };
+}
