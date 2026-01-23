@@ -3,14 +3,9 @@ import { ChevronDown, RotateCcw, Search } from "lucide-react";
 import { Card, Input, Select, Button } from "@/components/ui";
 import { MultiTagSelect, type TagOption } from "@/components/MultiTagSelect";
 import type { JobsFilters, JobStatus } from "@/types/JobType";
+import { TAG_OPTIONS } from "../../features/jobs/jobs.constants";
 
-const tagOptions: TagOption[] = [
-  { id: "badge", label: "Badge" },
-  { id: "vip", label: "VIP" },
-  { id: "urgent", label: "Urgent" },
-  { id: "parts", label: "Parts" },
-  { id: "repeat", label: "Repeat" },
-];
+
 
 type Props = {
   value: JobsFilters;
@@ -106,7 +101,7 @@ export function JobsFiltersCard({ value, onChange, onReset }: Props) {
               <div className="col-span-12 md:col-span-3 lg:col-span-3">
                 <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">Tag</div>
                 <MultiTagSelect
-                  options={tagOptions}
+                  options={TAG_OPTIONS}
                   value={value.selectedTags}
                   onChange={(tags) => onChange({ ...value, selectedTags: tags })}
                   placeholder="Select tags"

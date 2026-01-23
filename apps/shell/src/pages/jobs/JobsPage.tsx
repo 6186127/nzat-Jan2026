@@ -4,8 +4,10 @@ import { Card, Button } from "@/components/ui";
 import { JobsFiltersCard } from "./JobsFiltersCard";
 import { JobsTable } from "./JobsTable";
 import { JobsPagination } from "./JobsPagination";
-import { useJobsQuery } from "./useJobsQuery";
-import {mockRows } from "./mockdata";
+import {mockRows } from "../../features/jobs/mockdata";
+import { useJobsQuery, JOBS_PAGE_SIZE } from "@/features/jobs";
+
+
 
 
 export function JobsPage() {
@@ -20,7 +22,7 @@ export function JobsPage() {
     setCurrentPage,
     pageSize,
     toggleUrgent,
-  } = useJobsQuery({ initialRows: mockRows, pageSize: 6 });
+  } = useJobsQuery({ initialRows: mockRows, pageSize: JOBS_PAGE_SIZE });
 
   return (
     <div className="space-y-4 text-[14px]">

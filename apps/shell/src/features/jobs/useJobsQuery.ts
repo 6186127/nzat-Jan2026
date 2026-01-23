@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JobRow, JobsFilters } from "@/types/JobType";
 import { DEFAULT_JOBS_FILTERS } from "./jobs.defaults";
-import { filterJobs, paginate } from "@/utils/jobs.utils";
+import { filterJobs, paginate } from "@/features/jobs/jobs.utils";
 
 
 function sortJobsDefault(rows: JobRow[]): JobRow[] {

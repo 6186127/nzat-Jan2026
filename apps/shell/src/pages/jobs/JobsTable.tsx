@@ -2,23 +2,8 @@ import { Link } from "react-router-dom";
 import { Archive, Trash2 } from "lucide-react";
 import { StatusPill, ProgressRing, TagsCell } from "@/components/jobs";
 import type { JobRow } from "@/types/JobType";
-// import { gridCols } from "./jobs.constants"; // 或者放 constants
+import { GRID_COLS } from "../../features/jobs/jobs.constants";
 
-const gridCols =
-    // <640：超紧凑（隐藏 电话 + 创建时间 + JOB ID）
-    "grid-cols-[30px_80px_100px_70px_160px_60px_60px_60px_80px_64px] " +
-
-    // ≥640 (sm)：显示 JOB ID
-    "sm:grid-cols-[30px_90px_110px_120px_80px_180px_64px_64px_64px_100px_64px] " +
-
-    // ≥768 (md)：显示完整标签列
-    "md:grid-cols-[30px_100px_100px_130px_70px_130px_65px_65px_65px_80px_64px] " +
-
-    // ≥1024 (lg)：显示客户电话
-    "lg:grid-cols-[30px_100px_100px_130px_70px_130px_65px_65px_65px_80px_80px_64px] " +
-
-    // ≥1440：完整显示所有字段（包括创建时间）
-    "1440:grid-cols-[30px_120px_120px_160px_70px_130px_65px_65px_65px_80px_100px_150px_50px]";
 
 type Props = {
   rows: JobRow[];
@@ -31,7 +16,7 @@ export function JobsTable({ rows, onToggleUrgent}: Props) {
       <div className="min-w-full">
         {/* header */}
         <div
-          className={`grid ${gridCols} gap-0 justify-evenly px-4 py-3 text-[12px] font-semibold
+          className={`grid ${GRID_COLS} gap-0 justify-evenly px-4 py-3 text-[12px] font-semibold
             text-[rgba(0,0,0,0.55)] bg-[rgba(0,0,0,0.02)]
             border-b border-[rgba(0,0,0,0.06)]`}
         >
@@ -56,7 +41,7 @@ export function JobsTable({ rows, onToggleUrgent}: Props) {
           return (
             <div key={r.id}>
               <div
-                className={`grid ${gridCols} gap-0 justify-evenly px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)]
+                className={`grid ${GRID_COLS} gap-0 justify-evenly px-4 py-3 items-center border-b border-[rgba(0,0,0,0.06)]
                 ${r.urgent ? "bg-[rgba(244,63,94,0.08)]" : "bg-white"}
                 hover:bg-[rgba(0,0,0,0.02)]`}
               >
