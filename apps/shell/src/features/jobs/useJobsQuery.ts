@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState ,useRef} from "react";
 import type { JobRow, JobsFilters } from "@/types/JobType";
 import { DEFAULT_JOBS_FILTERS } from "./jobs.defaults";
 import { filterJobs, paginate } from "@/features/jobs/jobs.utils";
@@ -17,11 +17,14 @@ function sortJobsDefault(rows: JobRow[]): JobRow[] {
   });
 }
 
+
 type Options = {
   initialRows: JobRow[];
   pageSize?: number;
   initialFilters?: JobsFilters;
+  initialPage?: number;
 };
+
 
 export function useJobsQuery(options: Options) {
   const pageSize = options.pageSize ?? 6;
@@ -35,10 +38,17 @@ export function useJobsQuery(options: Options) {
   );
 
   // ✅ 分页
-  const [currentPage, setCurrentPage] = useState(1);
+ const [currentPage, setCurrentPage] = useState<number>(
+  options.initialPage ?? 1
+);
 
-  // ✅ filters 变化：自动回到第 1 页（避免筛选后空页）
+const didMountRef = useRef(false);
+
   useEffect(() => {
+     if (!didMountRef.current) {
+    didMountRef.current = true;
+    return;
+  }
     setCurrentPage(1);
   }, [filters]);
 
