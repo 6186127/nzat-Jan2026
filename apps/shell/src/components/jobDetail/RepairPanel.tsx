@@ -1,16 +1,9 @@
-import { EmptyState } from "@/components/ui";
-import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
+import { EmptyPanel } from "./EmptyPanel";
 
 type RepairPanelProps = {
   onAdd?: () => void;
 };
 
 export function RepairPanel({ onAdd }: RepairPanelProps) {
-  return (
-    <EmptyState
-      message={JOB_DETAIL_TEXT.empty.noData}
-      actionLabel={JOB_DETAIL_TEXT.buttons.add}
-      onAction={onAdd}
-    />
-  );
+  return <EmptyPanel onAdd={onAdd} />;
 }
