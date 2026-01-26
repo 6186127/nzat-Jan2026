@@ -2,9 +2,9 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AppFrame } from "./layout/AppFrame";
 import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/jobs/JobsPage";
-import { JobDetailPage } from "./pages/jobs/JobDetailPage";
+import { JobDetailPage } from "./pages/jobDetail/JobDetailPage";
 import { InvoicePage } from "./pages/InvoicePage";
-import { NewJobPage } from "./pages/jobs/NewJobPage";
+import { NewJobPage } from "./pages/NewJobPage";
 
 const router = createBrowserRouter([
   {
