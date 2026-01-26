@@ -1,4 +1,5 @@
 import type { CustomerInfo, VehicleInfo } from "@/types";
+import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import { InfoRow } from "@/components/ui";
 import { SidebarSection } from "./SidebarSection";
 
@@ -28,22 +29,22 @@ export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSideb
       {isOpen ? (
         <div className="space-y-3 p-4">
           <div>
-            <div className="text-sm font-semibold">Information</div>
-            <div className="text-xs text-[var(--ds-muted)]">Vehicle & Customer Details</div>
+            <div className="text-sm font-semibold">{JOB_DETAIL_TEXT.labels.infoTitle}</div>
+            <div className="text-xs text-[var(--ds-muted)]">{JOB_DETAIL_TEXT.labels.infoSubtitle}</div>
           </div>
 
-          <SidebarSection title="Vehicle Details">
-            <InfoRow label="Plate Number" value={vehicle.plate} />
-            <InfoRow label="Make & Model" value={`${vehicle.make} ${vehicle.model}`} />
-            <InfoRow label="Year" value={String(vehicle.year)} />
-            <InfoRow label="WOF" value={vehicle.wofExpiry} />
+          <SidebarSection title={JOB_DETAIL_TEXT.labels.vehicleDetails}>
+            <InfoRow label={JOB_DETAIL_TEXT.labels.plateNumber} value={vehicle.plate} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.makeModel} value={`${vehicle.make} ${vehicle.model}`} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.year} value={String(vehicle.year)} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.wof} value={vehicle.wofExpiry} />
           </SidebarSection>
 
-          <SidebarSection title="Customer Details">
-            <InfoRow label="Type" value={customer.type} />
-            <InfoRow label="Name" value={customer.name} />
-            <InfoRow label="Phone" value={customer.phone} />
-            <InfoRow label="Email" value={customer.email} />
+          <SidebarSection title={JOB_DETAIL_TEXT.labels.customerDetails}>
+            <InfoRow label={JOB_DETAIL_TEXT.labels.type} value={customer.type} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.name} value={customer.name} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.phone} value={customer.phone} />
+            <InfoRow label={JOB_DETAIL_TEXT.labels.email} value={customer.email} />
           </SidebarSection>
         </div>
       ) : (
