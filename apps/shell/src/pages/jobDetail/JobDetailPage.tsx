@@ -1,14 +1,12 @@
-import { useState } from "react";
 import { useParams } from "react-router-dom";
 import type { JobDetailTabKey } from "@/types";
-import { jobDetailMock, JobDetailLayout, MainColumn } from "@/features/jobDetail";
+import { jobDetailMock, JobDetailLayout, MainColumn, useJobDetailState } from "@/features/jobDetail";
 import { RightSidebar } from "@/components/jobDetail/RightSidebar";
 
 export function JobDetailPage() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState<JobDetailTabKey>("WOF");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [hasWofRecord, setHasWofRecord] = useState(false);
+  const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen, hasWofRecord, setHasWofRecord } =
+    useJobDetailState({ initialTab: "WOF" });
 
   const jobData = {
     ...jobDetailMock,

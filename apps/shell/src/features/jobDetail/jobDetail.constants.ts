@@ -18,7 +18,7 @@ export const JOB_DETAIL_TEXT = {
     delete: "删除",
     openNzta: "Open NZTA",
     refresh: "刷新",
-    saveResult: "保存结果",
+    saveResult: "保存",
     print: "打印",
     linked: "Linked",
   },
