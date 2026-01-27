@@ -3,6 +3,7 @@ import { Button, SectionCard } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import { EmptyPanel } from "./EmptyPanel";
 import { WofResultsCard } from "./WofResultsCard";
+import { ExternalLink, RefreshCw, Save, Printer } from 'lucide-react';
 
 type WofPanelProps = {
   hasRecord: boolean;
@@ -68,19 +69,28 @@ export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
 
   return (
     <div className="space-y-5 py-4">
-      <SectionCard title={JOB_DETAIL_TEXT.labels.wofRecords}>
-        <div className="mt-3 rounded-[12px] border border-[var(--ds-border)] p-4">
+      <SectionCard
+        title={JOB_DETAIL_TEXT.labels.wofRecords}
+        actions={
+          <div className="flex items-center gap-2">
+           
+            <Button variant="primary" >{JOB_DETAIL_TEXT.buttons.print}</Button>
+          </div>
+        }
+      >
+        <div className="mt-3 rounded-[12px] border border-[var(--ds-border)] p-4 mb-4 flex items-center ">
           <button className="text-sm text-[rgba(0,0,0,0.55)] underline">Empty WOF Records</button>
-        </div>
-        <div className="mt-4 flex justify-center gap-2">
-          <Button variant="primary">{JOB_DETAIL_TEXT.buttons.openNzta}</Button>
-          <Button>{JOB_DETAIL_TEXT.buttons.refresh}</Button>
-        </div>
-      </SectionCard>
+       <div className="ml-auto flex items-center gap-2">
+        
+         <Button ><ExternalLink className="w-4 h-4" />
+               {JOB_DETAIL_TEXT.buttons.openNzta}
+         </Button>
 
-   
-
-      {results.length ? (
+            <Button> <RefreshCw className="w-4 h-4" />
+                {JOB_DETAIL_TEXT.buttons.refresh}</Button>
+       </div>
+        </div>
+             {results.length ? (
       // add mutil WofResultsCard component here
       <WofResultsCard
         wofResults={results.map((r) => ({
@@ -95,6 +105,11 @@ export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
         onDelete={(id) => setResults((prev) => prev.filter((entry) => entry.id !== id))}
       />
       ) : null}
+      </SectionCard>
+
+   
+
+ 
 
          <SectionCard title={JOB_DETAIL_TEXT.labels.result}>
         <div className="mt-4 space-y-3 text-sm">
@@ -149,7 +164,6 @@ export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
           <Button variant="primary" onClick={onSaveResult}>
             {JOB_DETAIL_TEXT.buttons.saveResult}
           </Button>
-          <Button>{JOB_DETAIL_TEXT.buttons.print}</Button>
         </div>
       </SectionCard>
     </div>

@@ -9,7 +9,7 @@ type UseJobDetailStateProps = {
 
 export function useJobDetailState({
   initialTab = "WOF",
-  initialSidebarOpen = true,
+  initialSidebarOpen = false,
   initialHasWofRecord = false,
 }: UseJobDetailStateProps = {}) {
   const [activeTab, setActiveTab] = useState<JobDetailTabKey>(initialTab);
