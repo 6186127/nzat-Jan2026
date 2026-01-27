@@ -1,5 +1,4 @@
 import { useParams } from "react-router-dom";
-import type { JobDetailTabKey } from "@/types";
 import { jobDetailMock, JobDetailLayout, MainColumn, useJobDetailState } from "@/features/jobDetail";
 import { RightSidebar } from "@/components/jobDetail/RightSidebar";
 
