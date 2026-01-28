@@ -90,6 +90,9 @@ function Button(props: {
 export function NewJobPage() {
     const [rego, setRego] = useState("");
     const [vehicleInfo, setVehicleInfo] = useState<{ model?: string; year?: string } | null>(null);
+    const [importState, setImportState] = useState<"idle" | "loading" | "success" | "error">("idle");
+    const [importError, setImportError] = useState("");
+    const [lastRequestedPlate, setLastRequestedPlate] = useState("");
     const [selectedServices, setSelectedServices] = useState<ServiceType[]>([]);
     const [customerType, setCustomerType] = useState<CustomerType>("personal");
     const [personalName, setPersonalName] = useState("");
@@ -105,24 +108,55 @@ export function NewJobPage() {
         );
     };
 
-           const handleRegoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const importVehicle = async (plate: string) => {
+        if (plate === lastRequestedPlate || importState === "loading") return;
+        setLastRequestedPlate(plate);
+        setImportState("loading");
+        setImportError("");
+        setVehicleInfo(null);
+
+        try {
+            const res = await fetch("/api/carjam/import", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plate }),
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                throw new Error(data?.error || "导入失败，请稍后重试");
+            }
+
+            const make = data?.vehicle?.make ? String(data.vehicle.make) : "";
+            const model = data?.vehicle?.model ? String(data.vehicle.model) : "";
+            const year = data?.vehicle?.year ? String(data.vehicle.year) : "";
+
+            setVehicleInfo({
+                model: [make, model].filter(Boolean).join(" "),
+                year,
+            });
+            setImportState("success");
+        } catch (err) {
+            setImportState("error");
+            setImportError(err instanceof Error ? err.message : "导入失败，请稍后重试");
+        }
+    };
+
+    const handleRegoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let value = e.target.value.toUpperCase();
         
         // 只允许字母和数字，移除其他字符
         value = value.replace(/[^A-Z0-9]/g, "");
         
-        // 限制最长 6 个字符
-        if (value.length <= 6) {
+        // 限制最长 8 个字符
+        if (value.length <= 8) {
             setRego(value);
 
-            // 模拟从页面抓取车辆信息
-            if (value.length === 6) {
-                setTimeout(() => {
-                    setVehicleInfo({
-                        model: "Toyota Corolla 2018",
-                        year: "2018",
-                    });
-                }, 300);
+            if (value.length >= 6) {
+                importVehicle(value);
+            } else {
+                setImportState("idle");
+                setImportError("");
+                setVehicleInfo(null);
             }
         }
     };
@@ -184,7 +218,7 @@ export function NewJobPage() {
                                     placeholder="输入车牌"
                                     value={rego}
                                     onChange={handleRegoChange}
-                                    maxLength={6}
+                                    maxLength={8}
                                     className={[
                                         "h-9 px-3 text-sm font-semibold text-center rounded-[8px] border-2",
                                         "outline-none focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]",
@@ -196,16 +230,22 @@ export function NewJobPage() {
                             </div>
                             {rego && (
                                 <span className="text-xs text-[rgba(0,0,0,0.45)] flex-shrink-0">
-                                    {rego.length}/6
+                                    {rego.length}/8
                                 </span>
                             )}
                         </div>
+                        {importState === "loading" && (
+                            <div className="text-xs text-[rgba(37,99,235,0.85)] mt-1">正在抓取车辆信息…</div>
+                        )}
+                        {importState === "error" && (
+                            <div className="text-xs text-red-600 mt-1">{importError}</div>
+                        )}
                         <div className="text-xs text-[rgba(0,0,0,0.45)] mt-1">
                             例：ABC1234
                         </div>
                     </div>
 
-                    {vehicleInfo && (
+                    {vehicleInfo && importState === "success" && (
                         <div className="col-span-3 p-3 bg-[rgba(34,197,94,0.05)] rounded-[8px] border border-[rgba(34,197,94,0.20)]">
                             <div className="text-xs text-[rgba(0,0,0,0.70)]">
                                 <div className="font-semibold text-[rgba(34,197,94,0.95)]">✓ 已识别车型信息</div>
