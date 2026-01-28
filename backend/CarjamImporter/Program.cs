@@ -1,6 +1,4 @@
 using CarjamImporter.Infrastructure;
-using CarjamImporter.Mappers;
-using CarjamImporter.Parsers;
 using CarjamImporter.Persistence;
 using CarjamImporter.Playwright;
 using CarjamImporter.Utils;
@@ -18,35 +16,6 @@ public class Program
             return 1;
         }
 
-        var plate = PlateValidator.Normalize(plateInput);
-        if (!PlateValidator.IsValid(plate))
-        {
-            Console.Error.WriteLine("Invalid plate format.");
-            return 2;
-        }
-
-        var browser = new CarjamBrowser();
-        var html = await browser.FetchHtmlAsync(plate, CancellationToken.None);
-
-        var windowDocs = WindowJsonParser.ParseDocuments(html);
-        using var vehicleDoc = windowDocs.VehicleDoc;
-        using var odoDoc = windowDocs.OdoDoc;
-        using var jphDoc = windowDocs.JphDoc;
-
-        var htmlDoc = HtmlDataKeyParser.Load(html);
-        var vehicle = VehicleMapper.Map(
-            plate,
-            htmlDoc,
-            vehicleDoc?.RootElement,
-            odoDoc?.RootElement,
-            jphDoc?.RootElement);
-
-        if (string.IsNullOrWhiteSpace(vehicle.Plate))
-        {
-            Console.Error.WriteLine("plate not found in window.report.idh.vehicle nor HTML data-key.");
-            return 3;
-        }
-
         var appConfig = AppConfig.Load(Directory.GetCurrentDirectory());
         var connStr = appConfig.GetConnectionString("Carjam");
         if (string.IsNullOrWhiteSpace(connStr))
@@ -55,11 +24,19 @@ public class Program
             return 4;
         }
 
-        var repo = new VehicleRepository(new DbConnectionFactory(connStr));
-        var affected = repo.Upsert(vehicle);
+        var service = new CarjamImportService(
+            new CarjamBrowser(),
+            new VehicleRepository(new DbConnectionFactory(connStr)));
 
-        Console.WriteLine($"**********Upserted vehicle plate={vehicle.Plate}, rows affected={affected}");
-        Console.WriteLine($"*******make={vehicle.Make}, model={vehicle.Model}, year={vehicle.Year}, vin={vehicle.Vin}, odometer={vehicle.Odometer}");
+        var result = await service.ImportByPlateAsync(plateInput, CancellationToken.None);
+        if (!result.Success || result.Vehicle is null)
+        {
+            Console.Error.WriteLine(result.Error ?? "Import failed.");
+            return 2;
+        }
+
+        Console.WriteLine($"**********Upserted vehicle plate={result.Vehicle.Plate}, rows affected={result.AffectedRows}");
+        Console.WriteLine($"*******make={result.Vehicle.Make}, model={result.Vehicle.Model}, year={result.Vehicle.Year}, vin={result.Vehicle.Vin}, odometer={result.Vehicle.Odometer}");
         return 0;
     }
 }
