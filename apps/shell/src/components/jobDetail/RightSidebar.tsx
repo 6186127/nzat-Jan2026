@@ -11,8 +11,41 @@ type RightSidebarProps = {
 };
 
 export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSidebarProps) {
-  const [vehicleExpanded, setVehicleExpanded] = useState(true);
-  const [customerExpanded, setCustomerExpanded] = useState(true);
+  const [vehicleExpanded, setVehicleExpanded] = useState(false);
+  const [customerExpanded, setCustomerExpanded] = useState(false);
+  const formatValue = (value: unknown, asJson = false) => {
+    if (value === null || value === undefined || value === "") return "—";
+    if (asJson) {
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value);
+  };
+
+  const renderField = (label: string, value: unknown, options?: { json?: boolean }) => (
+    <div className="flex items-start gap-3">
+      <span className="text-[var(--ds-muted)] shrink-0">{label}:</span>
+      <span
+        className={[
+          "font-medium text-[var(--ds-text)] text-right break-words min-w-0 ml-auto",
+          options?.json ? "text-xs whitespace-pre-wrap font-mono" : "",
+        ].join(" ")}
+      >
+        {formatValue(value, options?.json)}
+      </span>
+    </div>
+  );
 
   return (
     <aside
@@ -61,45 +94,59 @@ export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSideb
                 <div>
                   <div className="text-xs font-semibold text-[var(--ds-text)] mb-2">Basic Information</div>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">{JOB_DETAIL_TEXT.labels.plateNumber}:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.plate}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">{JOB_DETAIL_TEXT.labels.makeModel}:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.make} {vehicle.model}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">{JOB_DETAIL_TEXT.labels.year}:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.year}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">VIN:</span>
-                      <span className="font-medium text-[var(--ds-text)] text-xs">{vehicle.vin}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">Engine:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.engine}</span>
-                    </div>
+                    {renderField(JOB_DETAIL_TEXT.labels.plateNumber, vehicle.plate)}
+                    {renderField("Make", vehicle.make)}
+                    {renderField("Model", vehicle.model)}
+                    {renderField(JOB_DETAIL_TEXT.labels.year, vehicle.year)}
+                    {renderField("Colour", vehicle.colour)}
+                    {renderField("Body Style", vehicle.bodyStyle)}
+                  </div>
+                </div>
+
+                <div className="border-t border-[var(--ds-border)] pt-3">
+                  <div className="text-xs font-semibold text-[var(--ds-text)] mb-2">Identifiers</div>
+                  <div className="space-y-2 text-sm">
+                    {renderField("VIN", vehicle.vin)}
+                    {renderField("Engine", vehicle.engine)}
+                    {renderField("Engine No", vehicle.engineNo)}
+                    {renderField("Chassis", vehicle.chassis)}
+                  </div>
+                </div>
+
+                <div className="border-t border-[var(--ds-border)] pt-3">
+                  <div className="text-xs font-semibold text-[var(--ds-text)] mb-2">Specifications</div>
+                  <div className="space-y-2 text-sm">
+                    {renderField("CC Rating", vehicle.ccRating)}
+                    {renderField("Fuel Type", vehicle.fuelType)}
+                    {renderField("Seats", vehicle.seats)}
+                    {renderField("Country of Origin", vehicle.countryOfOrigin)}
+                    {renderField("Gross Vehicle Mass", vehicle.grossVehicleMass)}
+                    {renderField("Refrigerant", vehicle.refrigerant)}
+                  </div>
+                </div>
+
+                <div className="border-t border-[var(--ds-border)] pt-3">
+                  <div className="text-xs font-semibold text-[var(--ds-text)] mb-2">Capacity & Range</div>
+                  <div className="space-y-2 text-sm">
+                    {renderField("Fuel Tank Capacity (L)", vehicle.fuelTankCapacityLitres)}
+                    {renderField("Full Combined Range (km)", vehicle.fullCombinedRangeKm)}
+                    {renderField("Odometer", vehicle.odometer)}
                   </div>
                 </div>
 
                 <div className="border-t border-[var(--ds-border)] pt-3">
                   <div className="text-xs font-semibold text-[var(--ds-text)] mb-2 flex items-center gap-2">
                     <Calendar className="h-3.5 w-3.5" />
-                    Expiry Dates
+                    Dates
                   </div>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">Registration:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.regoExpiry}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[var(--ds-muted)]">{JOB_DETAIL_TEXT.labels.wof}:</span>
-                      <span className="font-medium text-[var(--ds-text)]">{vehicle.wofExpiry}</span>
-                    </div>
+                    {renderField("Registration Expiry", vehicle.regoExpiry)}
+                    {renderField(`${JOB_DETAIL_TEXT.labels.wof} Expiry`, vehicle.wofExpiry)}
+                    {renderField("NZ First Registration", vehicle.nzFirstRegistration)}
+                    {renderField("Updated At", vehicle.updatedAt)}
                   </div>
                 </div>
+
               </div>
             ) : null}
           </div>

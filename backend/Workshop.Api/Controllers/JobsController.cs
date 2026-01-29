@@ -86,24 +86,42 @@ public class JobsController : ControllerBase
             vehicle = new
             {
                 plate = row.Vehicle.Plate,
-                make = row.Vehicle.Make ?? "",
-                model = row.Vehicle.Model ?? "",
-                year = row.Vehicle.Year ?? 0,
-                vin = row.Vehicle.Vin ?? "",
-                engine = row.Vehicle.Engine ?? "",
+                make = row.Vehicle.Make,
+                model = row.Vehicle.Model,
+                year = row.Vehicle.Year,
+                vin = row.Vehicle.Vin,
+                engine = row.Vehicle.Engine,
                 regoExpiry = FormatDate(row.Vehicle.RegoExpiry),
-                wofExpiry = FormatDate(row.Vehicle.WofExpiry)
+                colour = row.Vehicle.Colour,
+                bodyStyle = row.Vehicle.BodyStyle,
+                engineNo = row.Vehicle.EngineNo,
+                chassis = row.Vehicle.Chassis,
+                ccRating = row.Vehicle.CcRating,
+                fuelType = row.Vehicle.FuelType,
+                seats = row.Vehicle.Seats,
+                countryOfOrigin = row.Vehicle.CountryOfOrigin,
+                grossVehicleMass = row.Vehicle.GrossVehicleMass,
+                refrigerant = row.Vehicle.Refrigerant,
+                fuelTankCapacityLitres = row.Vehicle.FuelTankCapacityLitres,
+                fullCombinedRangeKm = row.Vehicle.FullCombinedRangeKm,
+                wofExpiry = FormatDate(row.Vehicle.WofExpiry),
+                odometer = row.Vehicle.Odometer,
+                nzFirstRegistration = FormatDate(row.Vehicle.NzFirstRegistration),
+                customerId = row.Vehicle.CustomerId,
+                updatedAt = FormatDateTime(row.Vehicle.UpdatedAt),
+                // rawJson = row.Vehicle.RawJson
             },
             customer = new
             {
                 type = row.Customer.Type,
                 name = row.Customer.Name,
-                phone = row.Customer.Phone ?? "",
-                email = row.Customer.Email ?? "",
-                address = row.Customer.Address ?? "",
+                phone = row.Customer.Phone,
+                email = row.Customer.Email,
+                address = row.Customer.Address,
+                businessCode = row.Customer.BusinessCode,
                 accountTerms = "",
                 discount = "",
-                notes = row.Customer.Notes ?? ""
+                notes = row.Customer.Notes
             }
         };
 
@@ -161,4 +179,7 @@ public class JobsController : ControllerBase
 
     private static string FormatDate(DateOnly? date)
         => date.HasValue ? date.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "";
+
+    private static string FormatDateTime(DateTime dateTime)
+        => dateTime.ToString("O", CultureInfo.InvariantCulture);
 }
