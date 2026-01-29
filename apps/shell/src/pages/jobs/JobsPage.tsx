@@ -1,11 +1,10 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { Card, Button } from "@/components/ui";
+import { Card, Button, EmptyState, Alert } from "@/components/ui";
 import { JobsFiltersCard } from "./JobsFiltersCard";
 import { JobsTable } from "./JobsTable";
 import { JobsPagination } from "./JobsPagination";
-import { mockRows } from "../../features/jobs/mockdata";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useJobsQuery, JOBS_PAGE_SIZE, filtersToSearchParams,
   searchParamsToFilters,
@@ -21,11 +20,12 @@ export function JobsPage() {
 const [searchParams, setSearchParams] = useSearchParams();
 const initialFilters = searchParamsToFilters(searchParams);
 const initialPage = getPageFromSearchParams(searchParams);
+const [loading, setLoading] = useState(true);
+const [loadError, setLoadError] = useState<string | null>(null);
 
 const {
   filters,
   setFilters,
-  resetFilters,
   paginatedRows,
   totalPages,
   totalItems,
@@ -33,8 +33,9 @@ const {
   setCurrentPage,
   pageSize,
   toggleUrgent,
+  setAllRows,
 } = useJobsQuery({
-  initialRows: mockRows,
+  initialRows: [],
   pageSize: JOBS_PAGE_SIZE,
   initialFilters,
   initialPage,
@@ -59,11 +60,48 @@ const onReset = () => {
   setSearchParams(new URLSearchParams(), { replace: true });
 };
 
+useEffect(() => {
+  let cancelled = false;
+
+  const loadJobs = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/jobs");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "加载工单失败");
+      }
+      const rows = Array.isArray(data) ? data : data?.items ?? [];
+      if (!cancelled) {
+        setAllRows(rows);
+      }
+    } catch (err) {
+      if (!cancelled) {
+        setAllRows([]);
+        setLoadError(err instanceof Error ? err.message : "加载工单失败");
+      }
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+  };
+
+  loadJobs();
+
+  return () => {
+    cancelled = true;
+  };
+}, [setAllRows]);
+
 
 
   return (
     <div className="space-y-4 text-[14px]">
       <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
+
+      {loadError ? (
+        <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} />
+      ) : null}
 
       <JobsFiltersCard value={filters} onChange={setFilters} onReset={onReset} />
 
@@ -76,15 +114,23 @@ const onReset = () => {
       </div>
 
       <Card className="overflow-hidden">
-        <JobsTable rows={paginatedRows} onToggleUrgent={toggleUrgent} />
+        {loading ? (
+          <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>
+        ) : totalItems === 0 ? (
+          <EmptyState message="暂无工单" />
+        ) : (
+          <>
+            <JobsTable rows={paginatedRows} onToggleUrgent={toggleUrgent} />
 
-        <JobsPagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={totalItems}
-          onPageChange={setCurrentPage}
-        />
+            <JobsPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              onPageChange={setCurrentPage}
+            />
+          </>
+        )}
       </Card>
     </div>
   );
