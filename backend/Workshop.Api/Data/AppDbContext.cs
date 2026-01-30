@@ -11,6 +11,9 @@ public class AppDbContext : DbContext
 
     //wof_service
     public DbSet<WofService> WofServices => Set<WofService>();
+    public DbSet<WofCheckItem> WofCheckItems => Set<WofCheckItem>();
+    public DbSet<WofResult> WofResults => Set<WofResult>();
+    public DbSet<WofFailReason> WofFailReasons => Set<WofFailReason>();
     
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -86,5 +89,40 @@ public class AppDbContext : DbContext
         w.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
         w.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
         w.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var wci = modelBuilder.Entity<WofCheckItem>();
+        wci.ToTable("wof_check_items");
+        wci.HasKey(x => x.Id);
+        wci.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        wci.Property(x => x.WofId).HasColumnName("wof_id").IsRequired();
+        wci.Property(x => x.Odo).HasColumnName("odo");
+        wci.Property(x => x.AuthCode).HasColumnName("auth_code");
+        wci.Property(x => x.CheckSheet).HasColumnName("check_sheet");
+        wci.Property(x => x.CsNo).HasColumnName("cs_no");
+        wci.Property(x => x.WofLabel).HasColumnName("wof_label");
+        wci.Property(x => x.LabelNo).HasColumnName("label_no");
+        wci.Property(x => x.Source).HasColumnName("source");
+        wci.Property(x => x.SourceRow).HasColumnName("source_row");
+        wci.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var wr = modelBuilder.Entity<WofResult>();
+        wr.ToTable("wof_results");
+        wr.HasKey(x => x.Id);
+        wr.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        wr.Property(x => x.WofId).HasColumnName("wof_id").IsRequired();
+        wr.Property(x => x.Result).HasColumnName("result").IsRequired();
+        wr.Property(x => x.RecheckExpiryDate).HasColumnName("recheck_expiry_date");
+        wr.Property(x => x.FailReasonId).HasColumnName("fail_reason_id");
+        wr.Property(x => x.Note).HasColumnName("note");
+        wr.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+
+        var wfr = modelBuilder.Entity<WofFailReason>();
+        wfr.ToTable("wof_fail_reasons");
+        wfr.HasKey(x => x.Id);
+        wfr.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        wfr.Property(x => x.Label).HasColumnName("label").IsRequired();
+        wfr.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+        wfr.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+        wfr.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
     }
 }

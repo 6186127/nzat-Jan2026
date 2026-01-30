@@ -39,6 +39,37 @@ export type CustomerInfo = {
   notes: string;
 };
 
+export type WofRecordStatus = "Pass" | "Fail";
+
+export type WofRecord = {
+  id: string;
+  date: string;
+  source?: string;
+  status?: WofRecordStatus | null;
+  expiryDate?: string;
+  notes?: string;
+  failReason?: string;
+};
+
+export type WofCheckItem = {
+  id: string;
+  wofId?: string;
+  odo?: string;
+  authCode?: string;
+  checkSheet?: string;
+  csNo?: string;
+  wofLabel?: string;
+  labelNo?: string;
+  source?: string;
+  sourceRow?: string;
+  updatedAt?: string;
+};
+
+export type WofFailReason = {
+  id: string;
+  label: string;
+};
+
 export type JobDetailData = {
   id: string;
   status: string;
