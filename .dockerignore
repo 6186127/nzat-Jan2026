@@ -1,0 +1,17 @@
+**/node_modules
+**/bin
+**/obj
+.env
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+**/.vite
+**/dist
+**/coverage
+**/.cache
+**/.turbo
+**/.next
+**/.vercel
+**/.idea
+**/.vscode
