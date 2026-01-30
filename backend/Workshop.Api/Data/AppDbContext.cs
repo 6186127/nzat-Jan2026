@@ -8,6 +8,8 @@ public class AppDbContext : DbContext
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Job> Jobs => Set<Job>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<JobTag> JobTags => Set<JobTag>();
 
     //wof_service
     public DbSet<WofService> WofServices => Set<WofService>();
@@ -81,6 +83,22 @@ public class AppDbContext : DbContext
         j.Property(x => x.CustomerId).HasColumnName("customer_id");
         j.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
         j.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var t = modelBuilder.Entity<Tag>();
+        t.ToTable("tags");
+        t.HasKey(x => x.Id);
+        t.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        t.Property(x => x.Name).HasColumnName("name").IsRequired();
+        t.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+        t.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+        t.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var jt = modelBuilder.Entity<JobTag>();
+        jt.ToTable("job_tags");
+        jt.HasKey(x => new { x.JobId, x.TagId });
+        jt.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+        jt.Property(x => x.TagId).HasColumnName("tag_id").IsRequired();
+        jt.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
 
         var w = modelBuilder.Entity<WofService>();
         w.ToTable("wof_service");

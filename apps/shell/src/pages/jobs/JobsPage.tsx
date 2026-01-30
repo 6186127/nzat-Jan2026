@@ -74,7 +74,39 @@ useEffect(() => {
       }
       const rows = Array.isArray(data) ? data : data?.items ?? [];
       if (!cancelled) {
-        setAllRows(rows);
+        if (rows.length === 0) {
+          setAllRows(rows);
+          return;
+        }
+
+        const ids = rows.map((row: { id?: string }) => row.id).filter(Boolean).join(",");
+        if (!ids) {
+          setAllRows(rows);
+          return;
+        }
+
+        const tagsRes = await fetch(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`);
+        const tagsData = await tagsRes.json().catch(() => null);
+        if (!tagsRes.ok) {
+          throw new Error(tagsData?.error || "加载标签失败");
+        }
+
+        const tagMap = new Map<string, string[]>();
+        if (Array.isArray(tagsData)) {
+          tagsData.forEach((entry) => {
+            if (entry?.jobId) {
+              tagMap.set(String(entry.jobId), Array.isArray(entry.tags) ? entry.tags : []);
+            }
+          });
+        }
+
+        const rowsWithTags = rows.map((row: any) => {
+          const tags = tagMap.get(String(row.id)) ?? [];
+          const mergedTags = row.urgent ? Array.from(new Set(["Urgent", ...tags])) : tags;
+          return { ...row, selectedTags: mergedTags };
+        });
+
+        setAllRows(rowsWithTags);
       }
     } catch (err) {
       if (!cancelled) {

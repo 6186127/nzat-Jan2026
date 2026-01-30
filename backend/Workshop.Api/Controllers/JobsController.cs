@@ -56,6 +56,42 @@ public class JobsController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("tags")]
+    public async Task<IActionResult> GetTags([FromQuery] string? ids, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(ids))
+            return Ok(Array.Empty<object>());
+
+        var jobIds = ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => long.TryParse(id, out var parsed) ? parsed : (long?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToArray();
+
+        if (jobIds.Length == 0)
+            return Ok(Array.Empty<object>());
+
+        var rows = await (
+                from jt in _db.JobTags.AsNoTracking()
+                join t in _db.Tags.AsNoTracking() on jt.TagId equals t.Id
+                where jobIds.Contains(jt.JobId) && t.IsActive
+                select new { jt.JobId, t.Name }
+            )
+            .ToListAsync(ct);
+
+        var grouped = rows
+            .GroupBy(x => x.JobId)
+            .Select(g => new
+            {
+                jobId = g.Key.ToString(CultureInfo.InvariantCulture),
+                tags = g.Select(x => x.Name).Distinct().ToArray()
+            })
+            .ToList();
+
+        return Ok(grouped);
+    }
+
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetById(long id, CancellationToken ct)
     {
@@ -78,12 +114,21 @@ public class JobsController : ControllerBase
 
         var hasWofRecord = await _db.WofServices.AsNoTracking().AnyAsync(x => x.JobId == id, ct);
 
+        var tagNames = await (
+                from jt in _db.JobTags.AsNoTracking()
+                join t in _db.Tags.AsNoTracking() on jt.TagId equals t.Id
+                where jt.JobId == id && t.IsActive
+                select t.Name
+            )
+            .Distinct()
+            .ToListAsync(ct);
+
         var job = new
         {
             id = row.Job.Id.ToString(CultureInfo.InvariantCulture),
             status = MapDetailStatus(row.Job.Status),
             isUrgent = row.Job.IsUrgent,
-            tags = Array.Empty<string>(),
+            tags = tagNames.ToArray(),
             vehicle = new
             {
                 plate = row.Vehicle.Plate,
