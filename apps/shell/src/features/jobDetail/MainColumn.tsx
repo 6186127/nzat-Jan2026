@@ -1,4 +1,4 @@
-import type { JobDetailData, JobDetailTabKey } from "@/types";
+import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord } from "@/types";
 import { Card } from "@/components/ui";
 import { JobHeader } from "@/components/jobDetail/JobHeader";
 import { SummaryCard } from "@/components/jobDetail/SummaryCard";
@@ -14,10 +14,26 @@ type MainColumnProps = {
   activeTab: JobDetailTabKey;
   onTabChange: (key: JobDetailTabKey) => void;
   hasWofRecord: boolean;
+  wofRecords: WofRecord[];
+  wofCheckItems: WofCheckItem[];
+  failReasons: WofFailReason[];
+  wofLoading?: boolean;
   onAddWof: () => void;
+  onCreateWofRecord?: () => Promise<void> | void;
 };
 
-export function MainColumn({ jobData, activeTab, onTabChange, hasWofRecord, onAddWof }: MainColumnProps) {
+export function MainColumn({
+  jobData,
+  activeTab,
+  onTabChange,
+  hasWofRecord,
+  wofRecords,
+  wofCheckItems,
+  failReasons,
+  wofLoading,
+  onAddWof,
+  onCreateWofRecord,
+}: MainColumnProps) {
   return (
     <div className="flex-1 space-y-4">
       <Card className="p-4">
@@ -33,7 +49,17 @@ export function MainColumn({ jobData, activeTab, onTabChange, hasWofRecord, onAd
       <Card className="p-4">
         <JobTabs activeTab={activeTab} onChange={onTabChange} />
 
-        {activeTab === "WOF" ? <WofPanel hasRecord={hasWofRecord} onAdd={onAddWof} /> : null}
+        {activeTab === "WOF" ? (
+          <WofPanel
+            hasRecord={hasWofRecord}
+            onAdd={onAddWof}
+            records={wofRecords}
+            checkItems={wofCheckItems}
+            failReasons={failReasons}
+            isLoading={wofLoading}
+            onCreateRecord={onCreateWofRecord}
+          />
+        ) : null}
         {activeTab === "Mechanical" ? <RepairPanel /> : null}
         {activeTab === "Paint" ? <PaintPanel /> : null}
         {activeTab === "Log" ? <LogPanel /> : null}

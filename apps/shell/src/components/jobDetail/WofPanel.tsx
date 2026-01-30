@@ -3,67 +3,45 @@ import { Button, SectionCard } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import { EmptyPanel } from "./EmptyPanel";
 import { WofResultsCard } from "./WofResultsCard";
-import { ExternalLink, RefreshCw, Save, Printer } from 'lucide-react';
+import { ExternalLink, RefreshCw} from 'lucide-react';
+import type { WofCheckItem, WofFailReason, WofRecord } from "@/types";
 
-type WofPanelProps = {
+export type WofPanelProps = {
   hasRecord: boolean;
   onAdd: () => void;
+  records: WofRecord[];
+  checkItems?: WofCheckItem[];
+  failReasons?: WofFailReason[];
+  isLoading?: boolean;
+  onCreateRecord?: () => Promise<void> | void;
 };
 
-export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
+export function WofPanel({
+  hasRecord,
+  onAdd,
+  records,
+  checkItems = [],
+  failReasons = [],
+  isLoading,
+  onCreateRecord,
+}: WofPanelProps) {
   const [result, setResult] = useState<"Pass" | "Fail">("Pass");
   const [expiryDate, setExpiryDate] = useState("");
   const [failReason, setFailReason] = useState("");
   const [note, setNote] = useState("");
-  const [results, setResults] = useState<
-    { date: string; id: string; result: "Pass" | "Fail"; expiryDate: string; failReason: string; note: string }[]
-  >([
-    {
-      date: "2024-03-15",
-      id: "seed-1",
-      result: "Pass",
-      expiryDate: "",
-      failReason: "",
-      note: "Initial check passed.",
-    },
-    {
-      date: "2024-03-18",
-      id: "seed-2",
-      result: "Fail",
-      expiryDate: "2024-03-20",
-      failReason: "Brakes",
-      note: "Rear brake pads below limit.",
-    },
-    {
-      date: "2024-03-20",
-      id: "seed-3",
-      result: "Fail",
-      expiryDate: "2024-03-25",
-      failReason: "Lights",
-      note: "Left headlight not working.",
-    },
-  ]);
 
-  const onSaveResult = () => {
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setResults((prev) => [
-      ...prev,
-      {
-        date: new Date().toISOString().split("T")[0],
-        id,
-        result,
-        expiryDate: result === "Fail" ? expiryDate : "",
-        failReason: result === "Fail" ? failReason : "",
-        note,
-      },
-    ]);
+  const onSaveResult = async () => {
+    if (onCreateRecord) {
+      await onCreateRecord();
+    }
     setResult("Pass");
     setExpiryDate("");
     setFailReason("");
     setNote("");
   };
 
-  if (!hasRecord) {
+  const hasAnyData = records.length > 0 || checkItems.length > 0;
+  if (!hasRecord && !hasAnyData && !isLoading) {
     return <EmptyPanel onAdd={onAdd} />;
   }
 
@@ -73,36 +51,63 @@ export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
         title={JOB_DETAIL_TEXT.labels.wofRecords}
         actions={
           <div className="flex items-center gap-2">
-           
-            <Button variant="primary" >{JOB_DETAIL_TEXT.buttons.print}</Button>
-          </div>
-        }
-      >
-        <div className="mt-3 rounded-[12px] border border-[var(--ds-border)] p-4 mb-4 flex items-center ">
-          <button className="text-sm text-[rgba(0,0,0,0.55)] underline">Empty WOF Records</button>
-       <div className="ml-auto flex items-center gap-2">
-        
-         <Button ><ExternalLink className="w-4 h-4" />
+             <Button ><ExternalLink className="w-4 h-4" />
                {JOB_DETAIL_TEXT.buttons.openNzta}
          </Button>
 
             <Button> <RefreshCw className="w-4 h-4" />
                 {JOB_DETAIL_TEXT.buttons.refresh}</Button>
-       </div>
-        </div>
-             {results.length ? (
+           
+            <Button variant="primary" >{JOB_DETAIL_TEXT.buttons.print}</Button>
+          </div>
+        }
+      >
+        
+             {checkItems.length ? (
+               <div className="mt-4 rounded-[12px]  p-4">
+                 <div className="text-xs font-semibold text-[var(--ds-text)]">WOF Check Items</div>
+                 <div className="mt-3 space-y-4 text-sm">
+                   {checkItems.map((item) => (
+                     <div key={item.id} className="rounded-[10px] border border-[var(--ds-border)] p-3">
+                       {/* <div className="text-xs text-[var(--ds-muted)]">ID {item.id}</div> */}
+                       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                         <div>ODO: {item.odo || "—"}</div>
+                         <div>Auth Code: {item.authCode || "—"}</div>
+                         <div>Check Sheet: {item.checkSheet || "—"}</div>
+                         <div>CS No: {item.csNo || "—"}</div>
+                         <div>WOF Label: {item.wofLabel || "—"}</div>
+                         <div>Label No: {item.labelNo || "—"}</div>
+                         <div>Source: {item.source || "—"}</div>
+                         <div>Source Row: {item.sourceRow || "—"}</div>
+                         <div>Updated At: {item.updatedAt || "—"}</div>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             ) :<button className="text-sm text-[rgba(0,0,0,0.55)] underline">Empty WOF Records</button>}
+          {/* <button className="text-sm text-[rgba(0,0,0,0.55)] underline">Empty WOF Records</button> */}
+      
+         
+       
+             {isLoading ? (
+               <div className="py-6 text-center text-sm text-[var(--ds-muted)]">加载中...</div>
+             ) : null}
+
+        
+
+             {records.length ? (
       // add mutil WofResultsCard component here
       <WofResultsCard
-        wofResults={results.map((r) => ({
-          id: r.id,
-          date: r.date,
-          source: "Manual Entry",
-          status: r.result,
-          expiryDate: r.expiryDate,
-          notes: r.note,
-          failReason: r.failReason,
+        wofResults={records.map((record) => ({
+          id: record.id,
+          date: record.date,
+          source: record.source ?? "DB",
+          status: record.status ?? null,
+          expiryDate: record.expiryDate ?? "",
+          notes: record.notes ?? "",
+          failReason: record.failReason,
         }))}
-        onDelete={(id) => setResults((prev) => prev.filter((entry) => entry.id !== id))}
       />
       ) : null}
       </SectionCard>
@@ -143,9 +148,11 @@ export function WofPanel({ hasRecord, onAdd }: WofPanelProps) {
                   onChange={(event) => setFailReason(event.target.value)}
                 >
                   <option>Fail list...</option>
-                  <option value="Brakes">Brakes</option>
-                  <option value="Lights">Lights</option>
-                  <option value="Tyres">Tyres</option>
+                  {failReasons.map((reason) => (
+                    <option key={reason.id} value={reason.id}>
+                      {reason.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </>

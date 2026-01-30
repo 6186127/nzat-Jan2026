@@ -5,9 +5,9 @@ interface WofResultsCardProps {
      id: string;
      date: string;
      source: string;
-     status: "Pass" | "Fail";
-     expiryDate: string;
-     notes: string;
+     status?: "Pass" | "Fail" | null;
+     expiryDate?: string;
+     notes?: string;
     failReason?: string;
   }[];
   onDelete?: (id: string) => void;
@@ -26,14 +26,18 @@ export function WofResultsCard({ wofResults, onDelete }: WofResultsCardProps) {
                     <div className="flex items-center gap-3 mb-2">
                       <span className="text-sm font-medium text-gray-900">{record.date}</span>
                       <span className="text-xs text-gray-500">Source: {record.source}</span>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          record.status === 'Pass' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {record.status}
-                      </span>
-                      {record.status === "Fail" ? (
+                      {record.status ? (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            record.status === "Pass"
+                              ? "bg-green-100 text-green-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {record.status}
+                        </span>
+                      ) : null}
+                      {record.status === "Fail" && record.expiryDate ? (
                         <span className="text-xs text-red-600">Expiry recheck Date: {record.expiryDate}</span>
                       ) : null}
                     </div>
@@ -42,7 +46,7 @@ export function WofResultsCard({ wofResults, onDelete }: WofResultsCardProps) {
                       {record.failReason ? (
                         <p className="text-xs text-gray-500 md:text-sm">Fail Reason: {record.failReason}</p>
                       ) : null}
-                       <p className="text-gray-600">{record.notes}</p>
+                       {record.notes ? <p className="text-gray-600">{record.notes}</p> : null}
                     </div>
                   </div>
                   {onDelete ? (

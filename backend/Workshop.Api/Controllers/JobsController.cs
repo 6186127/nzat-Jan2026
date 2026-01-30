@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
+using Workshop.Api.Models;
 
 namespace Workshop.Api.Controllers;
 
@@ -126,6 +127,153 @@ public class JobsController : ControllerBase
         };
 
         return Ok(new { job, hasWofRecord });
+    }
+
+    [HttpGet("{id:long}/wof-server")]
+    public async Task<IActionResult> GetWofRecords(long id, CancellationToken ct)
+    {
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
+        if (!jobExists)
+            return NotFound(new { error = "Job not found." });
+
+        var wof = await _db.WofServices.AsNoTracking()
+            .Where(x => x.JobId == id)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => new { x.Id })
+            .FirstOrDefaultAsync(ct);
+
+        if (wof is null)
+        {
+            return Ok(new
+            {
+                hasWofServer = false,
+                wofId = (string?)null,
+                checkItems = Array.Empty<object>(),
+                results = Array.Empty<object>()
+            });
+        }
+
+        var checkItems = await _db.WofCheckItems.AsNoTracking()
+            .Where(x => x.WofId == wof.Id)
+            .OrderByDescending(x => x.UpdatedAt)
+            .Select(x => new
+            {
+                id = x.Id.ToString(CultureInfo.InvariantCulture),
+                wofId = x.WofId.ToString(CultureInfo.InvariantCulture),
+                odo = x.Odo,
+                authCode = x.AuthCode,
+                checkSheet = x.CheckSheet,
+                csNo = x.CsNo,
+                wofLabel = x.WofLabel,
+                labelNo = x.LabelNo,
+                source = x.Source,
+                sourceRow = x.SourceRow,
+                updatedAt = FormatDateTime(x.UpdatedAt)
+            })
+            .ToListAsync(ct);
+
+        var results = await (
+                from r in _db.WofResults.AsNoTracking()
+                join fr in _db.WofFailReasons.AsNoTracking() on r.FailReasonId equals fr.Id into frGroup
+                from fr in frGroup.DefaultIfEmpty()
+                where r.WofId == wof.Id
+                orderby r.CreatedAt descending
+                select new
+                {
+                    id = r.Id.ToString(CultureInfo.InvariantCulture),
+                    wofId = r.WofId.ToString(CultureInfo.InvariantCulture),
+                    date = r.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    result = r.Result,
+                    recheckExpiryDate = FormatDate(r.RecheckExpiryDate),
+                    failReasonId = r.FailReasonId,
+                    failReason = fr != null ? fr.Label : null,
+                    note = r.Note ?? ""
+                }
+            )
+            .ToListAsync(ct);
+
+        return Ok(new
+        {
+            hasWofServer = true,
+            wofId = wof.Id.ToString(CultureInfo.InvariantCulture),
+            checkItems,
+            results
+        });
+    }
+
+    [HttpPost("{id:long}/wof-server")]
+    public async Task<IActionResult> CreateWofRecord(long id, CancellationToken ct)
+    {
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
+        if (!jobExists)
+            return NotFound(new { error = "Job not found." });
+
+        var existing = await _db.WofServices.AsNoTracking()
+            .Where(x => x.JobId == id)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => new { x.Id })
+            .FirstOrDefaultAsync(ct);
+
+        if (existing is null)
+        {
+            var record = new WofService
+            {
+                JobId = id,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _db.WofServices.Add(record);
+            await _db.SaveChangesAsync(ct);
+            existing = new { Id = record.Id };
+        }
+
+        var checkItems = await _db.WofCheckItems.AsNoTracking()
+            .Where(x => x.WofId == existing.Id)
+            .OrderByDescending(x => x.UpdatedAt)
+            .Select(x => new
+            {
+                id = x.Id.ToString(CultureInfo.InvariantCulture),
+                wofId = x.WofId.ToString(CultureInfo.InvariantCulture),
+                odo = x.Odo,
+                authCode = x.AuthCode,
+                checkSheet = x.CheckSheet,
+                csNo = x.CsNo,
+                wofLabel = x.WofLabel,
+                labelNo = x.LabelNo,
+                source = x.Source,
+                sourceRow = x.SourceRow,
+                updatedAt = FormatDateTime(x.UpdatedAt)
+            })
+            .ToListAsync(ct);
+
+        var results = await (
+                from r in _db.WofResults.AsNoTracking()
+                join fr in _db.WofFailReasons.AsNoTracking() on r.FailReasonId equals fr.Id into frGroup
+                from fr in frGroup.DefaultIfEmpty()
+                where r.WofId == existing.Id
+                orderby r.CreatedAt descending
+                select new
+                {
+                    id = r.Id.ToString(CultureInfo.InvariantCulture),
+                    wofId = r.WofId.ToString(CultureInfo.InvariantCulture),
+                    date = r.CreatedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    result = r.Result,
+                    recheckExpiryDate = FormatDate(r.RecheckExpiryDate),
+                    failReasonId = r.FailReasonId,
+                    failReason = fr != null ? fr.Label : null,
+                    note = r.Note ?? ""
+                }
+            )
+            .ToListAsync(ct);
+
+        return Ok(new
+        {
+            hasWofServer = true,
+            wofId = existing.Id.ToString(CultureInfo.InvariantCulture),
+            checkItems,
+            results
+        });
     }
 
     private static string MapStatus(string? status)
