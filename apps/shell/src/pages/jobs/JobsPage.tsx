@@ -11,6 +11,7 @@ import {
   getPageFromSearchParams,
   DEFAULT_JOBS_FILTERS,
 } from "@/features/jobs";
+import type { TagOption } from "@/components/MultiTagSelect";
 
 
 
@@ -22,6 +23,7 @@ const initialFilters = searchParamsToFilters(searchParams);
 const initialPage = getPageFromSearchParams(searchParams);
 const [loading, setLoading] = useState(true);
 const [loadError, setLoadError] = useState<string | null>(null);
+const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
 
 const {
   filters,
@@ -125,6 +127,38 @@ useEffect(() => {
   };
 }, [setAllRows]);
 
+useEffect(() => {
+  let cancelled = false;
+
+  const loadTags = async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "加载标签失败");
+      }
+      const tags = Array.isArray(data) ? data : [];
+      if (!cancelled) {
+        setTagOptions(
+          tags
+            .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
+            .map((tag: any) => ({ id: tag.name, label: tag.name }))
+        );
+      }
+    } catch {
+      if (!cancelled) {
+        setTagOptions([]);
+      }
+    }
+  };
+
+  loadTags();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
 
 
   return (
@@ -135,7 +169,7 @@ useEffect(() => {
         <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} />
       ) : null}
 
-      <JobsFiltersCard value={filters} onChange={setFilters} onReset={onReset} />
+      <JobsFiltersCard value={filters} onChange={setFilters} onReset={onReset} tagOptions={tagOptions} />
 
       <div className="flex justify-end">
         <Link to="/jobs/new">
