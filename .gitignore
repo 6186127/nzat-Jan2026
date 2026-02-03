@@ -1,1 +1,17 @@
 node_modules
+
+bin
+obj
+
+.DS_Store
+
+.vite
+dist
+coverage
+.cache
+.turbo
+.next
+.vercel
+.idea
+.vscode
+zic8STUb
