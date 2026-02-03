@@ -39,7 +39,7 @@ export type CustomerInfo = {
   notes: string;
 };
 
-export type WofRecordStatus = "Pass" | "Fail";
+export type WofRecordStatus = "Pass" | "Fail" | "Recheck";
 
 export type WofRecord = {
   id: string;
@@ -54,12 +54,23 @@ export type WofRecord = {
 export type WofCheckItem = {
   id: string;
   wofId?: string;
+  occurredAt?: string;
+  rego?: string;
+  makeModel?: string;
+  recordState?: "Pass" | "Fail" | "Recheck";
+  isNewWof?: boolean | null;
   odo?: string;
   authCode?: string;
   checkSheet?: string;
   csNo?: string;
   wofLabel?: string;
   labelNo?: string;
+  failReasons?: string;
+  previousExpiryDate?: string;
+  organisationName?: string;
+  note?: string;
+  wofUiState?: "Pass" | "Fail" | "Recheck" | "Printed";
+  importedAt?: string;
   source?: string;
   sourceRow?: string;
   updatedAt?: string;

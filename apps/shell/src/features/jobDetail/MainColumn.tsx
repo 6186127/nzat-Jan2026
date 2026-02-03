@@ -19,6 +19,7 @@ type MainColumnProps = {
   failReasons: WofFailReason[];
   wofLoading?: boolean;
   onAddWof: () => void;
+  onRefreshWof?: () => Promise<{ success: boolean; message?: string }>;
   onSaveWofResult?: (payload: {
     result: "Pass" | "Fail";
     expiryDate?: string;
@@ -42,6 +43,7 @@ export function MainColumn({
   failReasons,
   wofLoading,
   onAddWof,
+  onRefreshWof,
   onSaveWofResult,
   onDeleteWofServer,
   onDeleteJob,
@@ -76,6 +78,7 @@ export function MainColumn({
             checkItems={wofCheckItems}
             failReasons={failReasons}
             isLoading={wofLoading}
+            onRefresh={onRefreshWof}
             onSaveResult={onSaveWofResult}
             onDeleteWofServer={onDeleteWofServer}
           />

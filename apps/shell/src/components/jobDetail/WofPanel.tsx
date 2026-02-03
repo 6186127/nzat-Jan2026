@@ -13,6 +13,7 @@ export type WofPanelProps = {
   checkItems?: WofCheckItem[];
   failReasons?: WofFailReason[];
   isLoading?: boolean;
+  onRefresh?: () => Promise<{ success: boolean; message?: string }>;
   onSaveResult?: (payload: {
     result: "Pass" | "Fail";
     expiryDate?: string;
@@ -26,9 +27,10 @@ export function WofPanel({
   hasRecord,
   onAdd,
   records,
-  checkItems = [],
+  // checkItems = [],
   failReasons = [],
   isLoading,
+  onRefresh,
   onSaveResult,
   onDeleteWofServer,
 }: WofPanelProps) {
@@ -41,6 +43,9 @@ export function WofPanel({
   const [saving, setSaving] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const handleSaveResult = async () => {
     if (!onSaveResult) return;
@@ -78,11 +83,26 @@ export function WofPanel({
     }
   };
 
-  const hasAnyData = records.length > 0 || checkItems.length > 0;
-  if (!hasRecord && !hasAnyData && !isLoading) {
-    return <EmptyPanel onAdd={onAdd} />;
-  }
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshMessage(null);
+    setRefreshError(null);
+    setRefreshing(true);
+    try {
+      const response = await onRefresh();
+      if (response.success) {
+        setRefreshMessage(response.message || "导入成功");
+      } else {
+        setRefreshError(response.message || "导入失败");
+      }
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
+  // const hasAnyData = records.length > 0 ;
   return (
     <div className="space-y-5 py-4">
       <SectionCard
@@ -102,18 +122,31 @@ export function WofPanel({
         }
       >
         <div className="mb-4 rounded-[12px] border border-[var(--ds-border)] pb-4">    
-          {checkItems.length ? (
+          {records.length ? (
             <div className="mt-3 space-y-4 text-sm">
-              {checkItems.map((item) => (
+              {records.map((item) => (
                 <div key={item.id} className="rounded-[10px]  p-3">
                   {/* <div className="text-xs text-[var(--ds-muted)]">ID {item.id}</div> */}
                   <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <div>Date: {item.occurredAt || "—"}</div>
+                    <div>Rego: {item.rego || "—"}</div>
+                    <div>Make & Model: {item.makeModel || "—"}</div>
+                    <div>Record State: {item.recordState || "—"}</div>
+                    <div>
+                      New WOF: {item.isNewWof === null || item.isNewWof === undefined ? "—" : item.isNewWof ? "Yes" : "No"}
+                    </div>
                     <div>ODO: {item.odo || "—"}</div>
                     <div>Auth Code: {item.authCode || "—"}</div>
                     <div>Check Sheet: {item.checkSheet || "—"}</div>
                     <div>CS No: {item.csNo || "—"}</div>
                     <div>WOF Label: {item.wofLabel || "—"}</div>
                     <div>Label No: {item.labelNo || "—"}</div>
+                    <div>Fail Reasons: {item.failReasons || "—"}</div>
+                    <div>Previous Expiry Date: {item.previousExpiryDate || "—"}</div>
+                    <div>Organisation: {item.organisationName || "—"}</div>
+                    <div>Note: {item.note || "—"}</div>
+                    <div>UI State: {item.wofUiState || "—"}</div>
+                    <div>Imported At: {item.importedAt || "—"}</div>
                     <div>Source: {item.source || "—"}</div>
                     <div>Source Row: {item.sourceRow || "—"}</div>
                     <div>Updated At: {item.updatedAt || "—"}</div>
@@ -130,8 +163,12 @@ export function WofPanel({
               {JOB_DETAIL_TEXT.buttons.openNzta}
             </Button>
 
-            <Button> <RefreshCw className="w-4 h-4" />
-              {JOB_DETAIL_TEXT.buttons.refresh}</Button>
+            {refreshMessage ? <div className="text-xs text-green-600">{refreshMessage}</div> : null}
+            {refreshError ? <div className="text-xs text-red-600">{refreshError}</div> : null}
+            <Button className="flex items-center gap-2" onClick={handleRefresh} disabled={isLoading || refreshing}>
+              <RefreshCw className="w-4 h-4" />
+              {JOB_DETAIL_TEXT.buttons.refresh}
+            </Button>
           </div>
         </div>
 

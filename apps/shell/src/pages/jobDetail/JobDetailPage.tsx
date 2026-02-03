@@ -26,7 +26,7 @@ export function JobDetailPage() {
   const mapWofResult = (record: any): WofRecord => ({
     id: String(record.id ?? ""),
     date: String(record.date ?? ""),
-    source: "WOF Result",
+    source: record.source ?? "Excel",
     status: record.result ?? null,
     expiryDate: record.recheckExpiryDate ?? "",
     notes: record.note ?? "",
@@ -116,6 +116,33 @@ export function JobDetailPage() {
 
     await refreshWofServer(id);
     return { success: true, message: "删除成功" };
+  };
+
+  const importWofRecords = async () => {
+    if (!id) {
+      return { success: false, message: "缺少工单 ID" };
+    }
+    if (wofLoading) {
+      return { success: false, message: "正在加载，请稍后" };
+    }
+
+    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/wof-records/import`, {
+      method: "POST",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, message: data?.error || "导入失败" };
+    }
+
+    await refreshWofServer(id);
+    const inserted = Number(data?.inserted ?? 0);
+    const updated = Number(data?.updated ?? 0);
+    const skipped = Number(data?.skipped ?? 0);
+    const sourceFile = data?.sourceFile ? `（${data.sourceFile}）` : "";
+    return {
+      success: true,
+      message: `导入完成${sourceFile}：新增 ${inserted} 条，更新 ${updated} 条，跳过 ${skipped} 条`,
+    };
   };
 
   const deleteJob = async () => {
@@ -264,6 +291,7 @@ export function JobDetailPage() {
             failReasons={wofFailReasons}
             wofLoading={wofLoading}
             onAddWof={createWofRecord}
+            onRefreshWof={importWofRecords}
             onSaveWofResult={saveWofResult}
             onDeleteWofServer={deleteWofServer}
             onDeleteJob={deleteJob}
