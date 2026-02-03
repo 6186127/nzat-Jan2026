@@ -5,7 +5,7 @@ interface WofResultsCardProps {
      id: string;
      date: string;
      source: string;
-     status?: "Pass" | "Fail" | null;
+     status?: "Pass" | "Fail" | "Recheck" | null;
      expiryDate?: string;
      notes?: string;
     failReason?: string;
@@ -31,13 +31,15 @@ export function WofResultsCard({ wofResults, onDelete }: WofResultsCardProps) {
                           className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             record.status === "Pass"
                               ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
+                              : record.status === "Recheck"
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-red-100 text-red-800"
                           }`}
                         >
                           {record.status}
                         </span>
                       ) : null}
-                      {record.status === "Fail" && record.expiryDate ? (
+                      {record.status !== "Pass" && record.expiryDate ? (
                         <span className="text-xs text-red-600">Expiry recheck Date: {record.expiryDate}</span>
                       ) : null}
                     </div>
