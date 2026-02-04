@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WofFailReason } from "@/types";
 import { Button } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
@@ -19,6 +19,7 @@ export function WofResultForm({ failReasons, onSave }: WofResultFormProps) {
   const [expiryDate, setExpiryDate] = useState("");
   const [failReason, setFailReason] = useState("");
   const [note, setNote] = useState("");
+  const [failReasonQuery, setFailReasonQuery] = useState("");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,6 +35,18 @@ export function WofResultForm({ failReasons, onSave }: WofResultFormProps) {
     const timer = window.setTimeout(() => setSaveError(null), 5000);
     return () => window.clearTimeout(timer);
   }, [saveError]);
+
+  useEffect(() => {
+    if (result !== "Fail") {
+      setFailReasonQuery("");
+    }
+  }, [result]);
+
+  const filteredFailReasons = useMemo(() => {
+    const query = failReasonQuery.trim().toLowerCase();
+    if (!query) return failReasons;
+    return failReasons.filter((reason) => reason.label.toLowerCase().includes(query));
+  }, [failReasonQuery, failReasons]);
 
   const handleSave = async () => {
     if (!onSave) return;
@@ -82,18 +95,26 @@ export function WofResultForm({ failReasons, onSave }: WofResultFormProps) {
             />
           </FormField>
           <FormField label={JOB_DETAIL_TEXT.labels.failReason}>
-            <select
-              className="mt-2 h-9 w-full rounded-[8px] border border-[var(--ds-border)] px-3"
-              value={failReason}
-              onChange={(event) => setFailReason(event.target.value)}
-            >
-              <option value="">Fail list...</option>
-              {failReasons.map((reason) => (
-                <option key={reason.id} value={reason.id}>
-                  {reason.label}
-                </option>
-              ))}
-            </select>
+            <div className="mt-2 space-y-2">
+              <input
+                className="h-9 w-full rounded-[8px] border border-[var(--ds-border)] px-3"
+                placeholder="输入字母筛选..."
+                value={failReasonQuery}
+                onChange={(event) => setFailReasonQuery(event.target.value)}
+              />
+              <select
+                className="h-9 w-full rounded-[8px] border border-[var(--ds-border)] px-3"
+                value={failReason}
+                onChange={(event) => setFailReason(event.target.value)}
+              >
+                <option value="">Fail list...</option>
+                {filteredFailReasons.map((reason) => (
+                  <option key={reason.id} value={reason.id}>
+                    {reason.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </FormField>
         </>
       ) : null}
