@@ -109,31 +109,23 @@ export function WofPanel({
           <div className="flex items-center gap-2 mb-4">
             {deleteMessage ? <div className="text-xs text-green-600">{deleteMessage}</div> : null}
             {deleteError ? <div className="text-xs text-red-600">{deleteError}</div> : null}
-            <Button variant="primary">{JOB_DETAIL_TEXT.buttons.print}</Button>
-            <Button   leftIcon={<Trash2 className="w-4 h-4" />}
-          className="border-red-300 text-red-700 hover:bg-red-50" onClick={handleDelete} disabled={isLoading}>
-              删除WOF
-            </Button>
-
-            
-          </div>
-        }
-      >
-        <div className="mb-4 rounded-[12px] border border-[var(--ds-border)] pb-4">    
-       
-          <div className="pb-4 flex  gap-2 justify-end items-end pr-4">
-            <Button className="flex items-center gap-2"><ExternalLink className="w-4 h-4" />
-              {JOB_DETAIL_TEXT.buttons.openNzta}
-            </Button>
-
             {refreshMessage ? <div className="text-xs text-green-600">{refreshMessage}</div> : null}
             {refreshError ? <div className="text-xs text-red-600">{refreshError}</div> : null}
             <Button className="flex items-center gap-2" onClick={handleRefresh} disabled={isLoading || refreshing}>
               <RefreshCw className="w-4 h-4" />
               {JOB_DETAIL_TEXT.buttons.refresh}
             </Button>
+             <Button className="flex items-center gap-2"><ExternalLink className="w-4 h-4" />
+              {JOB_DETAIL_TEXT.buttons.openNzta}
+            </Button>
+             <Button   leftIcon={<Trash2 className="w-4 h-4" />}
+          className="border-red-300 text-red-700 hover:bg-red-50" onClick={handleDelete} disabled={isLoading}>
+              删除WOF
+            </Button>
           </div>
-        </div>
+        }
+      >
+       
 
 
         {isLoading ? (
