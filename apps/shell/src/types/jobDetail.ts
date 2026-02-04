@@ -94,7 +94,7 @@ export type WofCheckItem = {
 
 export type WofRecordUpdatePayload = {
   occurredAt?: string | null;
-  rego?: string | null;
+ rego?: string | null;
   makeModel?: string | null;
   odo?: string | null;
   recordState?: WofRecordStatus | null;

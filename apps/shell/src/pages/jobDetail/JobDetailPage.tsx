@@ -1,299 +1,36 @@
-import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { JobDetailLayout, MainColumn, useJobDetailState } from "@/features/jobDetail";
-import { RightSidebar } from "@/features/jobDetail/components/RightSidebar";
+import { useJobDetailState } from "@/features/jobDetail";
 import { Alert, EmptyState } from "@/components/ui";
-import type { JobDetailData, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
-import type { TagOption } from "@/components/MultiTagSelect";
+import { JobDetailContent } from "@/features/jobDetail/components/JobDetailContent";
+import { useJobDetailData } from "@/features/jobDetail/hooks/useJobDetailData";
 
 export function JobDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen, hasWofRecord, setHasWofRecord } =
-    useJobDetailState({ initialTab: "WOF" });
-  const isMountedRef = useRef(true);
-  const [jobData, setJobData] = useState<JobDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [wofRecords, setWofRecords] = useState<WofRecord[]>([]);
-  const [wofLoading, setWofLoading] = useState(false);
-  const [wofCheckItems, setWofCheckItems] = useState<WofCheckItem[]>([]);
-  const [wofFailReasons, setWofFailReasons] = useState<WofFailReason[]>([]);
-  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deletingJob, setDeletingJob] = useState(false);
-
-  const mapWofResult = (record: any): WofRecord => ({
-    id: String(record.id ?? ""),
-    jobId: record.jobId ? String(record.jobId) : undefined,
-    occurredAt: record.occurredAt ?? record.date ?? "",
-    rego: record.rego ?? "",
-    makeModel: record.makeModel ?? "",
-    odo: record.odo ?? "",
-    recordState: record.recordState ?? record.result ?? null,
-    isNewWof: record.isNewWof ?? null,
-    authCode: record.authCode ?? "",
-    checkSheet: record.checkSheet ?? "",
-    csNo: record.csNo ?? "",
-    wofLabel: record.wofLabel ?? "",
-    labelNo: record.labelNo ?? "",
-    failReasons: record.failReasons ?? record.failReason ?? "",
-    previousExpiryDate: record.previousExpiryDate ?? record.recheckExpiryDate ?? "",
-    organisationName: record.organisationName ?? "",
-    excelRowNo: record.excelRowNo ?? record.sourceRow ?? "",
-    sourceFile: record.sourceFile ?? record.source ?? "",
-    note: record.note ?? "",
-    wofUiState: record.wofUiState ?? null,
-    importedAt: record.importedAt ?? "",
-    updatedAt: record.updatedAt ?? "",
-    source: record.source ?? record.sourceFile ?? "excel",
-  });
-
-  const refreshWofServer = async (jobId: string) => {
-    setWofLoading(true);
-    try {
-      const wofRes = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/wof-server`);
-      const wofData = await wofRes.json().catch(() => null);
-      if (!wofRes.ok) {
-        throw new Error(wofData?.error || "加载 WOF 记录失败");
-      }
-      if (isMountedRef.current) {
-        const hasWofServer = Boolean(wofData?.hasWofServer);
-        setHasWofRecord(hasWofServer);
-        setWofCheckItems(Array.isArray(wofData?.checkItems) ? wofData.checkItems : []);
-        const results = Array.isArray(wofData?.results) ? wofData.results : [];
-        setWofRecords(results.map(mapWofResult));
-      }
-    } catch {
-      if (isMountedRef.current) {
-        setWofRecords([]);
-        setWofCheckItems([]);
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setWofLoading(false);
-      }
-    }
-  };
-
-  const createWofRecord = async () => {
-    if (!id || wofLoading) return;
-    if (hasWofRecord || wofRecords.length > 0 || wofCheckItems.length > 0) return;
-    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/wof-server`, {
-      method: "POST",
-    });
-    const data = await res.json().catch(() => null);
-    if (res.ok && id) {
-      await refreshWofServer(id);
-    }
-  };
-
-  const saveWofResult = async (payload: {
-    result: "Pass" | "Fail";
-    expiryDate?: string;
-    failReasonId?: string;
-    note?: string;
-  }) => {
-    if (!id) {
-      return { success: false, message: "缺少工单 ID" };
-    }
-
-    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/wof-results`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        result: payload.result,
-        recheckExpiryDate: payload.expiryDate || null,
-        failReasonId: payload.failReasonId ? Number(payload.failReasonId) : null,
-        note: payload.note || "",
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, message: data?.error || "保存失败" };
-    }
-
-    await refreshWofServer(id);
-    return { success: true, message: "保存成功" };
-  };
-
-  const deleteWofServer = async () => {
-    if (!id) {
-      return { success: false, message: "缺少工单 ID" };
-    }
-
-    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/wof-server`, {
-      method: "DELETE",
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, message: data?.error || "删除失败" };
-    }
-
-    await refreshWofServer(id);
-    return { success: true, message: "删除成功" };
-  };
-
-  const updateWofRecord = async (recordId: string, payload: WofRecordUpdatePayload) => {
-    if (!id) {
-      return { success: false, message: "缺少工单 ID" };
-    }
-
-    const res = await fetch(
-      `/api/jobs/${encodeURIComponent(id)}/wof-records/${encodeURIComponent(recordId)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, message: data?.error || "保存失败" };
-    }
-
-    await refreshWofServer(id);
-    return { success: true, message: "保存成功" };
-  };
-
-  const importWofRecords = async () => {
-    if (!id) {
-      return { success: false, message: "缺少工单 ID" };
-    }
-    if (wofLoading) {
-      return { success: false, message: "正在加载，请稍后" };
-    }
-
-    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/wof-records/import`, {
-      method: "POST",
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, message: data?.error || "导入失败" };
-    }
-
-    await refreshWofServer(id);
-    const inserted = Number(data?.inserted ?? 0);
-    const updated = Number(data?.updated ?? 0);
-    const skipped = Number(data?.skipped ?? 0);
-    const sourceFile = data?.sourceFile ? `（${data.sourceFile}）` : "";
-    return {
-      success: true,
-      message: `导入完成${sourceFile}：新增 ${inserted} 条，更新 ${updated} 条，跳过 ${skipped} 条`,
-    };
-  };
-
-  const deleteJob = async () => {
-    if (!id) return;
-    if (!window.confirm("确定删除该工单及相关数据？")) return;
-    setDeletingJob(true);
-    setDeleteError(null);
-    try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "删除失败");
-      }
-      navigate("/jobs");
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "删除失败");
-    } finally {
-      setDeletingJob(false);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    isMountedRef.current = true;
-
-    const loadWofFailReasons = async () => {
-      try {
-        const res = await fetch("/api/wof-fail-reasons");
-        const data = await res.json().catch(() => null);
-        console.log("===================WOF Fail Reasons Data:", data);
-        if (!res.ok) {
-          throw new Error(data?.error || "加载 WOF fail reasons 失败");
-        }
-        if (!cancelled) {
-          const list = Array.isArray(data) ? data : [];
-          setWofFailReasons(list.filter((item) => item?.isActive !== false));
-        }
-      } catch {
-        if (!cancelled) {
-          setWofFailReasons([]);
-        }
-      }
-    };
-
-    const loadTagOptions = async () => {
-      try {
-        const res = await fetch("/api/tags");
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(data?.error || "加载标签失败");
-        }
-        if (!cancelled) {
-          const tags = Array.isArray(data) ? data : [];
-          setTagOptions(
-            tags
-              .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
-              .map((tag: any) => ({ id: String(tag.id), label: tag.name }))
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          setTagOptions([]);
-        }
-      }
-    };
-
-    const loadJob = async () => {
-      if (!id) {
-        setLoadError("缺少工单 ID");
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setLoadError(null);
-
-      try {
-        const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
-        const data = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          throw new Error(data?.error || "加载工单失败");
-        }
-
-        const job = data?.job ?? data;
-
-        if (!cancelled) {
-          setJobData(job ?? null);
-          if (typeof data?.hasWofRecord === "boolean") {
-            setHasWofRecord(data.hasWofRecord);
-          }
-        }
-
-        await refreshWofServer(id);
-      } catch (err) {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "加载工单失败");
-          setJobData(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadJob();
-    loadWofFailReasons();
-    loadTagOptions();
-
-    return () => {
-      cancelled = true;
-      isMountedRef.current = false;
-    };
-  }, [id, setHasWofRecord]);
+  const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen } = useJobDetailState({ initialTab: "WOF" });
+  const {
+    jobData,
+    loading,
+    loadError,
+    deleteError,
+    deletingJob,
+    hasWofRecord,
+    wofRecords,
+    wofCheckItems,
+    wofFailReasons,
+    wofLoading,
+    tagOptions,
+    setLoadError,
+    setDeleteError,
+    createWofServer,
+    saveWofResult,
+    deleteWofServer,
+    createWofRecordRow,
+    updateWofRecord,
+    importWofRecords,
+    deleteJob,
+    saveTags,
+  } = useJobDetailData({ jobId: id, onDeleted: () => navigate("/jobs") });
 
   if (loading) {
     return <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>;
@@ -317,57 +54,27 @@ export function JobDetailPage() {
       {deleteError ? (
         <Alert variant="error" description={deleteError} onClose={() => setDeleteError(null)} />
       ) : null}
-      <JobDetailLayout
-        main={
-          <MainColumn
-            jobData={jobData}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            hasWofRecord={hasWofRecord}
-            wofRecords={wofRecords}
-            wofCheckItems={wofCheckItems}
-            failReasons={wofFailReasons}
-            wofLoading={wofLoading}
-            onAddWof={createWofRecord}
-            onRefreshWof={importWofRecords}
-            onSaveWofResult={saveWofResult}
-            onDeleteWofServer={deleteWofServer}
-            onUpdateWofRecord={updateWofRecord}
-            onDeleteJob={deleteJob}
-            isDeletingJob={deletingJob}
-            tagOptions={tagOptions}
-            onSaveTags={async (tagIds) => {
-              if (!id) return { success: false, message: "缺少工单 ID" };
-              const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/tags`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tagIds: tagIds.map((t) => Number(t)) }),
-              });
-              const data = await res.json().catch(() => null);
-              if (!res.ok) {
-                return { success: false, message: data?.error || "保存失败" };
-              }
-              const nameMap = new Map(tagOptions.map((t) => [t.id, t.label]));
-              setJobData((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      tags: tagIds.map((t) => nameMap.get(String(t)) || String(t)),
-                    }
-                  : prev
-              );
-              return { success: true, message: "保存成功", tags: data?.tags };
-            }}
-          />
-        }
-        sidebar={
-          <RightSidebar
-            vehicle={jobData.vehicle}
-            customer={jobData.customer}
-            isOpen={isSidebarOpen}
-            onToggle={() => setIsSidebarOpen((v) => !v)}
-          />
-        }
+      <JobDetailContent
+        jobData={jobData}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        hasWofRecord={hasWofRecord}
+        wofRecords={wofRecords}
+        wofCheckItems={wofCheckItems}
+        failReasons={wofFailReasons}
+        wofLoading={wofLoading}
+        onAddWof={createWofServer}
+        onRefreshWof={importWofRecords}
+        onSaveWofResult={saveWofResult}
+        onDeleteWofServer={deleteWofServer}
+        onUpdateWofRecord={updateWofRecord}
+        onCreateWofRecord={createWofRecordRow}
+        onDeleteJob={deleteJob}
+        isDeletingJob={deletingJob}
+        tagOptions={tagOptions}
+        onSaveTags={saveTags}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
       />
     </div>
   );

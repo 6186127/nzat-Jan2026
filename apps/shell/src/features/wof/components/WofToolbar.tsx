@@ -7,9 +7,10 @@ type WofToolbarProps = {
   isLoading?: boolean;
   onRefresh?: () => Promise<{ success: boolean; message?: string }>;
   onDelete?: () => Promise<{ success: boolean; message?: string }>;
+  onAdd?: () => void;
 };
 
-export function WofToolbar({ isLoading, onRefresh, onDelete }: WofToolbarProps) {
+export function WofToolbar({ isLoading, onRefresh, onDelete, onAdd }: WofToolbarProps) {
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -81,6 +82,9 @@ export function WofToolbar({ isLoading, onRefresh, onDelete }: WofToolbarProps) 
       <Button className="flex items-center gap-2" onClick={handleRefresh} disabled={isLoading || refreshing}>
         <RefreshCw className="w-4 h-4" />
         {JOB_DETAIL_TEXT.buttons.refresh}
+      </Button>
+      <Button className="flex items-center gap-2" onClick={onAdd} disabled={isLoading}>
+        添加结果
       </Button>
       <Button className="flex items-center gap-2">
         <ExternalLink className="w-4 h-4" />
