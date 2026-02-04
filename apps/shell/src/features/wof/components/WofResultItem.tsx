@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WofCheckItem, WofFailReason, WofRecordUpdatePayload } from "@/types";
 import { Button } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
@@ -29,6 +29,7 @@ export function WofResultItem({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failReasonQuery, setFailReasonQuery] = useState("");
 
   useEffect(() => {
     if (isDraft) return;
@@ -52,6 +53,18 @@ export function WofResultItem({
     if (form.occurredAt) return;
     setForm((prev) => ({ ...prev, occurredAt: formatNzDateTimeInput() }));
   }, [editing, form.occurredAt]);
+
+  useEffect(() => {
+    if (!editing) {
+      setFailReasonQuery("");
+    }
+  }, [editing]);
+
+  const filteredFailReasons = useMemo(() => {
+    const query = failReasonQuery.trim().toLowerCase();
+    if (!query) return failReasons;
+    return failReasons.filter((reason) => reason.label.toLowerCase().includes(query));
+  }, [failReasonQuery, failReasons]);
 
   const handleChange = (key: keyof WofFormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -235,18 +248,26 @@ export function WofResultItem({
             {(editing ? form.recordState === "Fail" : record.recordState === "Fail") ? (
               <FieldRow label="Fail Reason" className="text-xs text-gray-500 md:text-sm">
                 {editing ? (
-                  <select
-                    className="ml-2 rounded border px-2 py-1"
-                    value={form.failReasons}
-                    onChange={(e) => handleChange("failReasons", e.target.value)}
-                  >
-                    <option value="">—</option>
-                    {failReasons.map((reason) => (
-                      <option key={reason.id} value={reason.label}>
-                        {reason.label}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="ml-2 inline-flex items-center gap-2">
+                    <input
+                      className="w-32 rounded border px-2 py-1 text-xs"
+                      placeholder="搜索..."
+                      value={failReasonQuery}
+                      onChange={(e) => setFailReasonQuery(e.target.value)}
+                    />
+                    <select
+                      className="rounded border px-2 py-1"
+                      value={form.failReasons}
+                      onChange={(e) => handleChange("failReasons", e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {filteredFailReasons.map((reason) => (
+                        <option key={reason.id} value={reason.label}>
+                          {reason.label}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                 ) : (
                   record.failReasons ?? "—"
                 )}
