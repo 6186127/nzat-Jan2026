@@ -189,7 +189,7 @@ public class WofRecordsService
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
         var deleted = await _db.JobWofRecords
-            .Where(x => x.JobId == id)
+            .Where(x => x.JobId == id && (x.SourceFile == null || x.SourceFile != "manual"))
             .ExecuteDeleteAsync(ct);
 
         var now = DateTime.UtcNow;
