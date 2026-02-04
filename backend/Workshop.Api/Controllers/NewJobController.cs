@@ -62,20 +62,7 @@ public class NewJobController : ControllerBase
         _db.Jobs.Add(job);
         await _db.SaveChangesAsync(ct);
 
-        var wofCreated = false;
-        Console.WriteLine("======Checking if WOF service is requested: {0}", string.Join(",", req.Services ?? new string[0]));
-        if (req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true)
-        {
-            var wof = new WofService
-            {
-                JobId = job.Id,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            _db.WofServices.Add(wof);
-            await _db.SaveChangesAsync(ct);
-            wofCreated = true;
-        }
+        var wofCreated = req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true;
 
         await tx.CommitAsync(ct);
 

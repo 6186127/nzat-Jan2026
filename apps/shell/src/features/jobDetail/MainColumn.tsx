@@ -1,13 +1,13 @@
-import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord } from "@/types";
+import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
 import { Card } from "@/components/ui";
-import { JobHeader } from "@/components/jobDetail/JobHeader";
-import { SummaryCard } from "@/components/jobDetail/SummaryCard";
-import { JobTabs } from "@/components/jobDetail/JobTabs";
-import { WofPanel } from "@/components/jobDetail/WofPanel";
-import { RepairPanel } from "@/components/jobDetail/RepairPanel";
-import { PaintPanel } from "@/components/jobDetail/PaintPanel";
-import { LogPanel } from "@/components/jobDetail/LogPanel";
-import { InvoicePanel } from "@/components/jobDetail/InvoicePanel";
+import { JobHeader } from "@/features/jobDetail/components/JobHeader";
+import { SummaryCard } from "@/features/jobDetail/components/SummaryCard";
+import { JobTabs } from "@/features/jobDetail/components/JobTabs";
+import { WofPanel } from "@/features/wof";
+import { RepairPanel } from "@/features/jobDetail/components/RepairPanel";
+import { PaintPanel } from "@/features/jobDetail/components/PaintPanel";
+import { LogPanel } from "@/features/jobDetail/components/LogPanel";
+import { InvoicePanel } from "@/features/jobDetail/components/InvoicePanel";
 
 type MainColumnProps = {
   jobData: JobDetailData;
@@ -19,6 +19,7 @@ type MainColumnProps = {
   failReasons: WofFailReason[];
   wofLoading?: boolean;
   onAddWof: () => void;
+  onRefreshWof?: () => Promise<{ success: boolean; message?: string }>;
   onSaveWofResult?: (payload: {
     result: "Pass" | "Fail";
     expiryDate?: string;
@@ -26,6 +27,13 @@ type MainColumnProps = {
     note?: string;
   }) => Promise<{ success: boolean; message?: string }>;
   onDeleteWofServer?: () => Promise<{ success: boolean; message?: string }>;
+  onUpdateWofRecord?: (
+    id: string,
+    payload: WofRecordUpdatePayload
+  ) => Promise<{ success: boolean; message?: string }>;
+  onCreateWofRecord?: (
+    payload: WofRecordUpdatePayload
+  ) => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -42,13 +50,20 @@ export function MainColumn({
   failReasons,
   wofLoading,
   onAddWof,
+  onRefreshWof,
   onSaveWofResult,
   onDeleteWofServer,
+  onUpdateWofRecord,
+  onCreateWofRecord,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
   onSaveTags,
 }: MainColumnProps) {
+  const vehicleMakeModel = [jobData.vehicle.year, jobData.vehicle.make, jobData.vehicle.model]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="flex-1 space-y-4">
       <Card className="p-4">
@@ -76,8 +91,13 @@ export function MainColumn({
             checkItems={wofCheckItems}
             failReasons={failReasons}
             isLoading={wofLoading}
+            onRefresh={onRefreshWof}
             onSaveResult={onSaveWofResult}
             onDeleteWofServer={onDeleteWofServer}
+            onUpdateRecord={onUpdateWofRecord}
+            onCreateRecord={onCreateWofRecord}
+            vehiclePlate={jobData.vehicle.plate}
+            vehicleMakeModel={vehicleMakeModel}
           />
         ) : null}
         {activeTab === "Mechanical" ? <RepairPanel /> : null}

@@ -39,30 +39,79 @@ export type CustomerInfo = {
   notes: string;
 };
 
-export type WofRecordStatus = "Pass" | "Fail";
+export type WofRecordStatus = "Pass" | "Fail" | "Recheck";
 
 export type WofRecord = {
   id: string;
-  date: string;
+  jobId?: string;
+  occurredAt?: string;
+  rego?: string;
+  makeModel?: string;
+  odo?: string;
+  recordState?: WofRecordStatus | null;
+  isNewWof?: boolean | null;
+  authCode?: string;
+  checkSheet?: string;
+  csNo?: string;
+  wofLabel?: string;
+  labelNo?: string;
+  failReasons?: string;
+  previousExpiryDate?: string;
+  organisationName?: string;
+  excelRowNo?: number | string;
+  sourceFile?: string;
+  note?: string;
+  wofUiState?: "Pass" | "Fail" | "Recheck" | "Printed";
+  importedAt?: string;
+  updatedAt?: string;
   source?: string;
-  status?: WofRecordStatus | null;
-  expiryDate?: string;
-  notes?: string;
-  failReason?: string;
 };
 
 export type WofCheckItem = {
   id: string;
   wofId?: string;
+  occurredAt?: string;
+  rego?: string;
+  makeModel?: string;
+  recordState?: "Pass" | "Fail" | "Recheck";
+  isNewWof?: boolean | null;
   odo?: string;
   authCode?: string;
   checkSheet?: string;
   csNo?: string;
   wofLabel?: string;
   labelNo?: string;
+  failReasons?: string;
+  previousExpiryDate?: string;
+  organisationName?: string;
+  note?: string;
+  wofUiState?: "Pass" | "Fail" | "Recheck" | "Printed";
+  importedAt?: string;
   source?: string;
   sourceRow?: string;
   updatedAt?: string;
+};
+
+export type WofRecordUpdatePayload = {
+  occurredAt?: string | null;
+ rego?: string | null;
+  makeModel?: string | null;
+  odo?: string | null;
+  recordState?: WofRecordStatus | null;
+  isNewWof?: boolean | null;
+  authCode?: string | null;
+  checkSheet?: string | null;
+  csNo?: string | null;
+  wofLabel?: string | null;
+  labelNo?: string | null;
+  failReasons?: string | null;
+  previousExpiryDate?: string | null;
+  organisationName?: string | null;
+  excelRowNo?: number | null;
+  sourceFile?: string | null;
+  note?: string | null;
+  wofUiState?: "Pass" | "Fail" | "Recheck" | "Printed" | null;
+  importedAt?: string | null;
 };
 
 export type WofFailReason = {
