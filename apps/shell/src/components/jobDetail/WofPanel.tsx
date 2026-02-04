@@ -141,6 +141,7 @@ export function WofPanel({
           <WofResultsCard
             wofResults={checkItems}
             onUpdate={onUpdateRecord}
+            failReasons={failReasons}
           />
         ) : null}
       </SectionCard>

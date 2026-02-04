@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import type { WofCheckItem, WofRecordUpdatePayload } from "@/types";
+import type { WofCheckItem, WofFailReason, WofRecordUpdatePayload } from "@/types";
 import { Button } from "../ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
+import { formatNzDatePlusDays, formatNzDateTime } from "@/utils/date";
 
 interface WofResultsCardProps {
   wofResults: WofCheckItem[];
   onUpdate?: (id: string, payload: WofRecordUpdatePayload) => Promise<{ success: boolean; message?: string }>;
+  failReasons?: WofFailReason[];
 }
 
 type FormState = {
@@ -88,9 +90,11 @@ function buildPayload(form: FormState): WofRecordUpdatePayload {
 function WofResultItem({
   record,
   onUpdate,
+  failReasons = [],
 }: {
   record: WofCheckItem;
   onUpdate?: (id: string, payload: WofRecordUpdatePayload) => Promise<{ success: boolean; message?: string }>;
+  failReasons?: WofFailReason[];
 }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(() => toFormState(record));
@@ -137,7 +141,7 @@ function WofResultItem({
                 onChange={(e) => handleChange("occurredAt", e.target.value)}
               />
             ) : (
-              <span className="text-sm font-medium text-gray-900">{record.occurredAt ?? "—"}</span>
+              <span className="text-sm font-medium text-gray-900">{formatNzDateTime(record.occurredAt)}</span>
             )}
             {editing ? (
               <select
@@ -161,8 +165,10 @@ function WofResultItem({
                 {record.recordState}
               </span>
             ) : null}
-            {record.recordState === "Fail" && record.previousExpiryDate ? (
-              <span className="text-xs text-red-600">Expiry recheck Date: {record.previousExpiryDate}</span>
+            {record.recordState === "Fail" ? (
+              <span className="text-xs text-red-600">
+                Expiry recheck Date: {formatNzDatePlusDays(28)}
+              </span>
             ) : null}
             <Button className="ml-auto" variant="primary" onClick={handlePrint}>
               {JOB_DETAIL_TEXT.buttons.print}
@@ -256,20 +262,31 @@ function WofResultItem({
               {editing ? (
                 <input className="ml-2 rounded border px-2 py-1" value={form.importedAt} onChange={(e) => handleChange("importedAt", e.target.value)} />
               ) : (
-                record.importedAt ?? "—"
+                formatNzDateTime(record.importedAt)
               )}
             </div>
             <div className="text-gray-600">
-              Updated At: {record.updatedAt ?? "—"}
+              Updated At: {formatNzDateTime(record.updatedAt)}
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2 mt-2">
-            {record.recordState === "Fail" ? (
+            {(editing ? form.recordState === "Fail" : record.recordState === "Fail") ? (
               <div className="text-xs text-gray-500 md:text-sm">
                 Fail Reason:{" "}
                 {editing ? (
-                  <input className="ml-2 rounded border px-2 py-1" value={form.failReasons} onChange={(e) => handleChange("failReasons", e.target.value)} />
+                  <select
+                    className="ml-2 rounded border px-2 py-1"
+                    value={form.failReasons}
+                    onChange={(e) => handleChange("failReasons", e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {failReasons.map((reason) => (
+                      <option key={reason.id} value={reason.label}>
+                        {reason.label}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   record.failReasons ?? "—"
                 )}
@@ -290,11 +307,11 @@ function WofResultItem({
   );
 }
 
-export function WofResultsCard({ wofResults, onUpdate }: WofResultsCardProps) {
+export function WofResultsCard({ wofResults, onUpdate, failReasons }: WofResultsCardProps) {
   return (
     <div className="space-y-3">
       {wofResults.map((record) => (
-        <WofResultItem key={record.id} record={record} onUpdate={onUpdate} />
+        <WofResultItem key={record.id} record={record} onUpdate={onUpdate} failReasons={failReasons} />
       ))}
     </div>
   );
