@@ -1,7 +1,7 @@
 import type React from "react";
 import { Link } from "react-router-dom";
 import { Button, Input, SectionCard, Select } from "@/components/ui";
-import { CustomerTypeToggle, ServiceOptionButton, VehicleInfoBanner } from "@/components/newJob";
+import { CustomerTypeToggle, ServiceOptionButton, VehicleInfoBanner } from "@/features/newJob/components";
 import type { BusinessOption, CustomerType, ImportState, ServiceOption, ServiceType, VehicleInfo } from "./newJob.types";
 import { PLATE_MAX_LENGTH } from "./newJob.utils";
 

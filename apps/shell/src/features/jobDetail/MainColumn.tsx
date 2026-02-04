@@ -1,13 +1,13 @@
 import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
 import { Card } from "@/components/ui";
-import { JobHeader } from "@/components/jobDetail/JobHeader";
-import { SummaryCard } from "@/components/jobDetail/SummaryCard";
-import { JobTabs } from "@/components/jobDetail/JobTabs";
-import { WofPanel } from "@/components/jobDetail/WofPanel";
-import { RepairPanel } from "@/components/jobDetail/RepairPanel";
-import { PaintPanel } from "@/components/jobDetail/PaintPanel";
-import { LogPanel } from "@/components/jobDetail/LogPanel";
-import { InvoicePanel } from "@/components/jobDetail/InvoicePanel";
+import { JobHeader } from "@/features/jobDetail/components/JobHeader";
+import { SummaryCard } from "@/features/jobDetail/components/SummaryCard";
+import { JobTabs } from "@/features/jobDetail/components/JobTabs";
+import { WofPanel } from "@/features/wof";
+import { RepairPanel } from "@/features/jobDetail/components/RepairPanel";
+import { PaintPanel } from "@/features/jobDetail/components/PaintPanel";
+import { LogPanel } from "@/features/jobDetail/components/LogPanel";
+import { InvoicePanel } from "@/features/jobDetail/components/InvoicePanel";
 
 type MainColumnProps = {
   jobData: JobDetailData;
