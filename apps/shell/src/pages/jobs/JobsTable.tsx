@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Archive, Trash2 } from "lucide-react";
-import { StatusPill, ProgressRing, TagsCell } from "@/components/jobs";
+import { StatusPill, ProgressRing, TagsCell } from "@/features/jobs/components";
 import type { JobRow } from "@/types/JobType";
 import { GRID_COLS } from "../../features/jobs/jobs.constants";
 

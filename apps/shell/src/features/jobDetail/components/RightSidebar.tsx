@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, Car, User, Calendar } from "lucide-react";
 import type { CustomerInfo, VehicleInfo } from "@/types";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
+import { formatNzDateTime } from "@/utils/date";
 
 type RightSidebarProps = {
   vehicle: VehicleInfo;
@@ -143,7 +144,7 @@ export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSideb
                     {renderField("Registration Expiry", vehicle.regoExpiry)}
                     {renderField(`${JOB_DETAIL_TEXT.labels.wof} Expiry`, vehicle.wofExpiry)}
                     {renderField("NZ First Registration", vehicle.nzFirstRegistration)}
-                    {renderField("Updated At", vehicle.updatedAt)}
+                    {renderField("Updated At", formatNzDateTime(vehicle.updatedAt))}
                   </div>
                 </div>
 
