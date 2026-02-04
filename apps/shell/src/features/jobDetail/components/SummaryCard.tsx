@@ -1,4 +1,4 @@
-import { Car, User, Building2, Phone, Mail } from "lucide-react";
+import { Car, User, Building2, Phone, Mail, Link } from "lucide-react";
 import { Card } from "@/components/ui";
 import type { VehicleInfo, CustomerInfo } from "@/types";
 
@@ -20,11 +20,27 @@ export function SummaryCard({ vehicle, customer }: SummaryCardProps) {
           </div>
           <div className="flex-1">
             <p className="text-xs text-[var(--ds-muted)] mb-1">Vehicle</p>
-            <p className="text-2xl font-semibold text-[var(--ds-text)] mb-1">{vehicle.plate}</p>
+    
+            <p className="text-2xl font-semibold text-[var(--ds-text)] mb-1">
+              {vehicle.plate}{" "}
+              <a
+                className="text-sm font-medium text-[var(--ds-ghost)] underline underline-offset-2 inline-flex items-center gap-1"
+                href={`https://www.carjam.co.nz/car/?plate=${encodeURIComponent(vehicle.plate)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Link className="w-4 h-4" aria-hidden="true" />
+               
+              </a>
+            </p>
             <p className="text-sm text-[var(--ds-muted)]">
-              {vehicle.year} {vehicle.make} {vehicle.model}
+              {vehicle.year} - {vehicle.make} {vehicle.model} - {vehicle.fuelType}
             </p>
             <p className="text-sm text-[var(--ds-muted)]">{vehicle.vin}</p>
+          
+             <p className="text-sm text-[var(--ds-muted)]">
+              NZ First Registration: {vehicle.nzFirstRegistration}
+            </p>
           </div>
         </div>
 

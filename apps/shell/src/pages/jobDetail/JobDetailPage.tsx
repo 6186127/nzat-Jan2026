@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { JobDetailLayout, MainColumn, useJobDetailState } from "@/features/jobDetail";
-import { RightSidebar } from "@/components/jobDetail/RightSidebar";
+import { RightSidebar } from "@/features/jobDetail/components/RightSidebar";
 import { Alert, EmptyState } from "@/components/ui";
 import type { JobDetailData, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
 import type { TagOption } from "@/components/MultiTagSelect";
