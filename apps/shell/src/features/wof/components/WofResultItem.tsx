@@ -3,26 +3,37 @@ import type { WofCheckItem, WofFailReason, WofRecordUpdatePayload } from "@/type
 import { Button } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { formatNzDatePlusDays, formatNzDateTime } from "@/utils/date";
-import { buildWofPayload, toWofFormState, type WofFormState } from "../utils/wofForm";
+import { formatNzDatePlusDays, formatNzDateTime, formatNzDateTimeInput } from "@/utils/date";
+import { buildWofPayload, createEmptyWofFormState, toWofFormState, type WofFormState } from "../utils/wofForm";
 import { FieldRow } from "./FieldRow";
 
 type WofResultItemProps = {
   record: WofCheckItem;
   onUpdate?: (id: string, payload: WofRecordUpdatePayload) => Promise<{ success: boolean; message?: string }>;
   failReasons?: WofFailReason[];
+  isDraft?: boolean;
+  onCreate?: (payload: WofRecordUpdatePayload) => Promise<{ success: boolean; message?: string }>;
+  onCancel?: () => void;
 };
 
-export function WofResultItem({ record, onUpdate, failReasons = [] }: WofResultItemProps) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<WofFormState>(() => toWofFormState(record));
+export function WofResultItem({
+  record,
+  onUpdate,
+  failReasons = [],
+  isDraft,
+  onCreate,
+  onCancel,
+}: WofResultItemProps) {
+  const [editing, setEditing] = useState(Boolean(isDraft));
+  const [form, setForm] = useState<WofFormState>(() => (isDraft ? createEmptyWofFormState() : toWofFormState(record)));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isDraft) return;
     setForm(toWofFormState(record));
-  }, [record.id, record.updatedAt]);
+  }, [isDraft, record.id, record.updatedAt]);
 
   useEffect(() => {
     if (!message) return;
@@ -36,20 +47,38 @@ export function WofResultItem({ record, onUpdate, failReasons = [] }: WofResultI
     return () => window.clearTimeout(timer);
   }, [error]);
 
+  useEffect(() => {
+    if (!editing) return;
+    if (form.occurredAt) return;
+    setForm((prev) => ({ ...prev, occurredAt: formatNzDateTimeInput() }));
+  }, [editing, form.occurredAt]);
+
   const handleChange = (key: keyof WofFormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleSave = async () => {
-    if (!onUpdate) return;
+    if (isDraft && !onCreate) return;
+    if (!isDraft && !onUpdate) return;
     setSaving(true);
     setMessage(null);
     setError(null);
-    const response = await onUpdate(record.id, buildWofPayload(form));
+    const payload = buildWofPayload(form);
+    if (!payload.rego) {
+      payload.rego = record.rego ?? null;
+    }
+    if (!payload.makeModel) {
+      payload.makeModel = record.makeModel ?? null;
+    }
+    const response = isDraft && onCreate ? await onCreate(payload) : await onUpdate!(record.id, payload);
     setSaving(false);
     if (response.success) {
       setMessage(response.message || "保存成功");
-      setEditing(false);
+      if (isDraft) {
+        onCancel?.();
+      } else {
+        setEditing(false);
+      }
     } else {
       setError(response.message || "保存失败");
     }
@@ -66,6 +95,7 @@ export function WofResultItem({ record, onUpdate, failReasons = [] }: WofResultI
           <div className="flex items-center gap-3 mb-2">
             {editing ? (
               <input
+                type="datetime-local"
                 className="h-7 rounded border px-2 text-xs"
                 value={form.occurredAt}
                 onChange={(e) => handleChange("occurredAt", e.target.value)}
@@ -87,15 +117,25 @@ export function WofResultItem({ record, onUpdate, failReasons = [] }: WofResultI
             ) : (
               <StatusBadge value={record.recordState} />
             )}
-            {record.recordState === "Fail" ? (
+            {(editing ? form.recordState === "Fail" : record.recordState === "Fail") ? (
               <span className="text-xs text-red-600">Expiry recheck Date: {formatNzDatePlusDays(28)}</span>
             ) : null}
-            <Button className="ml-auto" variant="primary" onClick={handlePrint}>
-              {JOB_DETAIL_TEXT.buttons.print}
-            </Button>
-            <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
-              {editing ? "取消" : "修改"}
-            </Button>
+            {!isDraft ? (
+              <Button className="ml-auto" variant="primary" onClick={handlePrint}>
+                {JOB_DETAIL_TEXT.buttons.print}
+              </Button>
+            ) : (
+              <div className="ml-auto" />
+            )}
+            {isDraft ? (
+              <Button variant="ghost" onClick={onCancel}>
+                取消
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => setEditing((v) => !v)}>
+                {editing ? "取消" : "修改"}
+              </Button>
+            )}
             {editing ? (
               <Button variant="primary" onClick={handleSave} disabled={saving}>
                 保存
@@ -107,6 +147,24 @@ export function WofResultItem({ record, onUpdate, failReasons = [] }: WofResultI
           {error ? <div className="text-xs text-red-600 mb-2">{error}</div> : null}
 
           <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+            {/* <FieldRow label="Rego">
+              {editing ? (
+                <input className="ml-2 rounded border px-2 py-1" value={form.rego} onChange={(e) => handleChange("rego", e.target.value)} />
+              ) : (
+                record.rego ?? "—"
+              )}
+            </FieldRow> */}
+            {/* <FieldRow label="Make & Model">
+              {editing ? (
+                <input
+                  className="ml-2 rounded border px-2 py-1"
+                  value={form.makeModel}
+                  onChange={(e) => handleChange("makeModel", e.target.value)}
+                />
+              ) : (
+                record.makeModel ?? "—"
+              )}
+            </FieldRow> */}
             <FieldRow label="Odometer">
               {editing ? (
                 <input className="ml-2 rounded border px-2 py-1" value={form.odo} onChange={(e) => handleChange("odo", e.target.value)} />

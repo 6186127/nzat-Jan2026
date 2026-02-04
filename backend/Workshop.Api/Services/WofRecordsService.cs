@@ -174,20 +174,23 @@ public class WofRecordsService
         if (colDate is null || colRego is null)
             return WofServiceResult.BadRequest("Missing required columns: Date, Rego.");
 
-        var jobRows = await (
+        var job = await (
                 from j in _db.Jobs.AsNoTracking()
                 join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
-                select new { j.Id, v.Plate, j.CreatedAt }
+                where j.Id == id
+                select new { j.Id, Plate = v.Plate }
             )
-            .ToListAsync(ct);
+            .FirstOrDefaultAsync(ct);
 
-        var jobIdByPlate = jobRows
-            .GroupBy(x => NormalizePlate(x.Plate))
-            .Select(g => g.OrderByDescending(x => x.CreatedAt).First())
-            .ToDictionary(x => NormalizePlate(x.Plate), x => x.Id);
+        if (job is null || string.IsNullOrWhiteSpace(job.Plate))
+            return WofServiceResult.NotFound("Job or vehicle plate not found.");
+
+        var plateKey = NormalizePlate(job.Plate);
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
-        var deleted = await _db.JobWofRecords.ExecuteDeleteAsync(ct);
+        var deleted = await _db.JobWofRecords
+            .Where(x => x.JobId == id)
+            .ExecuteDeleteAsync(ct);
 
         var now = DateTime.UtcNow;
         var inserted = 0;
@@ -211,7 +214,7 @@ public class WofRecordsService
             }
 
             var regoKey = NormalizePlate(rego);
-            if (!jobIdByPlate.TryGetValue(regoKey, out var jobId))
+            if (!string.Equals(regoKey, plateKey, StringComparison.OrdinalIgnoreCase))
             {
                 unmatchedRego++;
                 skipped++;
@@ -233,7 +236,7 @@ public class WofRecordsService
 
             var record = new JobWofRecord
             {
-                JobId = jobId,
+                JobId = id,
                 OccurredAt = EnsureUtc(occurredAt.Value),
                 Rego = rego.Trim(),
                 MakeModel = GetString(row, colMakeModel),
@@ -288,8 +291,8 @@ public class WofRecordsService
             unmatchedRego,
             missingRego,
             missingDate,
-            jobCount = jobRows.Count,
-            jobPlateCount = jobIdByPlate.Count,
+            jobId = id,
+            plate = job.Plate,
             columns = table.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToArray()
         });
     }
@@ -384,6 +387,95 @@ public class WofRecordsService
             return WofServiceResult.NotFound("WOF record not found.");
 
         return WofServiceResult.Ok(new { success = true });
+    }
+
+    public async Task<WofServiceResult> CreateWofRecord(long jobId, WofRecordUpdateRequest request, CancellationToken ct)
+    {
+        if (request is null)
+            return WofServiceResult.BadRequest("Missing payload.");
+
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == jobId, ct);
+        if (!jobExists)
+            return WofServiceResult.NotFound("Job not found.");
+
+        if (string.IsNullOrWhiteSpace(request.Rego))
+            return WofServiceResult.BadRequest("Rego is required.");
+
+        if (string.IsNullOrWhiteSpace(request.OccurredAt))
+            return WofServiceResult.BadRequest("OccurredAt is required.");
+
+        var occurredAt = ParseDateTime(request.OccurredAt);
+        if (occurredAt is null)
+            return WofServiceResult.BadRequest("Invalid occurredAt.");
+
+        if (string.IsNullOrWhiteSpace(request.RecordState))
+            return WofServiceResult.BadRequest("RecordState is required.");
+
+        var recordState = ParseRecordState(request.RecordState);
+        if (recordState is null)
+            return WofServiceResult.BadRequest("RecordState must be Pass, Fail or Recheck.");
+
+        DateOnly? previousExpiry = null;
+        if (!string.IsNullOrWhiteSpace(request.PreviousExpiryDate))
+        {
+            if (!DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) &&
+                !DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+                return WofServiceResult.BadRequest("Invalid previous expiry date.");
+            previousExpiry = parsed;
+        }
+
+        DateTime? importedAt = null;
+        if (!string.IsNullOrWhiteSpace(request.ImportedAt))
+        {
+            var parsedImported = ParseDateTime(request.ImportedAt);
+            if (parsedImported is null)
+                return WofServiceResult.BadRequest("Invalid importedAt.");
+            importedAt = EnsureUtc(parsedImported.Value);
+        }
+
+        var parsedUiState = ParseUiState(request.WofUiState);
+        if (!string.IsNullOrWhiteSpace(request.WofUiState) && parsedUiState is null)
+            return WofServiceResult.BadRequest("WofUiState must be Pass, Fail, Recheck or Printed.");
+        var uiState = parsedUiState ?? MapUiState(recordState.Value);
+
+        var now = DateTime.UtcNow;
+        var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
+
+        var record = new JobWofRecord
+        {
+            JobId = jobId,
+            OccurredAt = EnsureUtc(occurredAt.Value),
+            Rego = request.Rego.Trim(),
+            MakeModel = NormalizeOptional(request.MakeModel),
+            Odo = NormalizeOptional(request.Odo),
+            RecordState = recordState.Value,
+            IsNewWof = request.IsNewWof,
+            AuthCode = NormalizeOptional(request.AuthCode),
+            CheckSheet = NormalizeOptional(request.CheckSheet),
+            CsNo = NormalizeOptional(request.CsNo),
+            WofLabel = NormalizeOptional(request.WofLabel),
+            LabelNo = NormalizeOptional(request.LabelNo),
+            FailReasons = NormalizeOptional(request.FailReasons),
+            PreviousExpiryDate = previousExpiry,
+            OrganisationName = string.IsNullOrWhiteSpace(request.OrganisationName)
+                ? organisationFallback
+                : request.OrganisationName.Trim(),
+            ExcelRowNo = request.ExcelRowNo ?? 0,
+            SourceFile = string.IsNullOrWhiteSpace(request.SourceFile) ? "manual" : request.SourceFile.Trim(),
+            Note = NormalizeOptional(request.Note),
+            WofUiState = uiState,
+            ImportedAt = importedAt ?? now,
+            UpdatedAt = now
+        };
+
+        _db.JobWofRecords.Add(record);
+        await _db.SaveChangesAsync(ct);
+
+        return WofServiceResult.Ok(new
+        {
+            success = true,
+            id = record.Id
+        });
     }
 
     public async Task<WofServiceResult> CreateWofResult(

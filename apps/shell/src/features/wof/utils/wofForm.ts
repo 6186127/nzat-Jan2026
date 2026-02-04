@@ -1,9 +1,9 @@
 import type { WofCheckItem, WofRecordUpdatePayload } from "@/types";
 
 export type WofFormState = {
-  occurredAt: string;
   rego: string;
   makeModel: string;
+  occurredAt: string;
   odo: string;
   recordState: "" | "Pass" | "Fail" | "Recheck";
   isNewWof: "" | "true" | "false";
@@ -25,9 +25,9 @@ export type WofFormState = {
 
 export function toWofFormState(record: WofCheckItem): WofFormState {
   return {
-    occurredAt: record.occurredAt ?? "",
     rego: record.rego ?? "",
     makeModel: record.makeModel ?? "",
+    occurredAt: record.occurredAt ?? "",
     odo: record.odo ?? "",
     recordState: record.recordState ?? "",
     isNewWof:
@@ -74,5 +74,30 @@ export function buildWofPayload(form: WofFormState): WofRecordUpdatePayload {
     note: form.note || null,
     wofUiState: form.wofUiState || null,
     importedAt: form.importedAt || null,
+  };
+}
+
+export function createEmptyWofFormState(): WofFormState {
+  return {
+    rego: "",
+    makeModel: "",
+    occurredAt: "",
+    odo: "",
+    recordState: "",
+    isNewWof: "",
+    authCode: "",
+    checkSheet: "",
+    csNo: "",
+    wofLabel: "",
+    labelNo: "",
+    failReasons: "",
+    previousExpiryDate: "",
+    organisationName: "",
+    excelRowNo: "",
+    sourceFile: "manual",
+    note: "",
+    wofUiState: "",
+    importedAt: "",
+    updatedAt: "",
   };
 }

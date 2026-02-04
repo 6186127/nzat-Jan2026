@@ -45,3 +45,17 @@ export function formatNzDatePlusDays(days: number) {
   const target = new Date(baseUtc + days * 24 * 60 * 60 * 1000);
   return formatNzDate(target);
 }
+
+export function formatNzDateTimeInput(value: Date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}`;
+}

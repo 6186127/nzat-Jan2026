@@ -31,6 +31,9 @@ type MainColumnProps = {
     id: string,
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
+  onCreateWofRecord?: (
+    payload: WofRecordUpdatePayload
+  ) => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -51,11 +54,16 @@ export function MainColumn({
   onSaveWofResult,
   onDeleteWofServer,
   onUpdateWofRecord,
+  onCreateWofRecord,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
   onSaveTags,
 }: MainColumnProps) {
+  const vehicleMakeModel = [jobData.vehicle.year, jobData.vehicle.make, jobData.vehicle.model]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="flex-1 space-y-4">
       <Card className="p-4">
@@ -87,6 +95,9 @@ export function MainColumn({
             onSaveResult={onSaveWofResult}
             onDeleteWofServer={onDeleteWofServer}
             onUpdateRecord={onUpdateWofRecord}
+            onCreateRecord={onCreateWofRecord}
+            vehiclePlate={jobData.vehicle.plate}
+            vehicleMakeModel={vehicleMakeModel}
           />
         ) : null}
         {activeTab === "Mechanical" ? <RepairPanel /> : null}
