@@ -1,9 +1,9 @@
 import { NavLink } from "react-router-dom";
 
 const linkBase =
-  "block rounded-[var(--ds-radius)] px-3 py-2 text-sm transition border border-transparent";
+  "block  px-3 py-2 transition border border-transparent";
 const linkActive =
-  "bg-[rgba(79,124,255,0.15)] border-[var(--ds-border)] text-[var(--ds-text)]";
+  "bg-[var(--ds-primary)] border-[var(--ds-border)] text-white";
 const linkIdle =
   "text-[var(--ds-muted)] hover:text-[var(--ds-text)] hover:bg-[rgba(255,255,255,0.04)]";
 
@@ -33,6 +33,15 @@ export function Sidebar() {
           }
         >
           Jobs
+        </NavLink>
+
+        <NavLink
+          to="/parts-flow"
+          className={({ isActive }) =>
+            `${linkBase} ${isActive ? linkActive : linkIdle}`
+          }
+        >
+          Part Flow
         </NavLink>
 
         <NavLink
