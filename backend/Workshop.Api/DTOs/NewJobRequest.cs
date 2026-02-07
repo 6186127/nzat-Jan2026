@@ -5,6 +5,7 @@ public sealed class NewJobRequest
     public string Plate { get; set; } = "";
     public string[] Services { get; set; } = Array.Empty<string>();
     public string? Notes { get; set; }
+    public string? PartsDescription { get; set; }
     public CustomerInput Customer { get; set; } = new();
 
     public sealed class CustomerInput

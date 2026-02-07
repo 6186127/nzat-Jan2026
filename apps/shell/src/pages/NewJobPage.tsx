@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert } from "@/components/ui";
+import { Alert, SectionCard, Textarea } from "@/components/ui";
 import {
   ActionsRow,
   CustomerSection,
@@ -36,6 +36,7 @@ export function NewJobPage() {
   const [businessId, setBusinessId] = useState("");
   const [businessOptions, setBusinessOptions] = useState<BusinessOption[]>([]);
   const [notes, setNotes] = useState("");
+  const [partsDescription, setPartsDescription] = useState("");
   const [formAlert, setFormAlert] = useState<{ variant: "error" | "success"; message: string } | null>(
     null
   );
@@ -179,6 +180,7 @@ export function NewJobPage() {
     }
 
     const selectedBusiness = businessOptions.find((biz) => biz.id === businessId);
+    const hasMech = selectedServices.includes("mech");
     const customerName = customerType === "personal" ? personalName : selectedBusiness?.label ?? "";
 
     // if (customerType === "personal") {
@@ -199,6 +201,7 @@ export function NewJobPage() {
           plate: rego,
           services: selectedServices,
           notes,
+          partsDescription: hasMech && partsDescription.trim() ? partsDescription.trim() : undefined,
           customer: {
             type: customerType,
             name: customerName,
@@ -260,6 +263,20 @@ export function NewJobPage() {
         onToggleService={toggleService}
         options={serviceOptions}
       />
+
+      {selectedServices.includes("mech") ? (
+        <SectionCard title="配件描述（可选）">
+          <div className="mt-3">
+            <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">配件描述</label>
+            <Textarea
+              rows={3}
+              placeholder="输入配件描述"
+              value={partsDescription}
+              onChange={(event) => setPartsDescription(event.target.value)}
+            />
+          </div>
+        </SectionCard>
+      ) : null}
 
       <CustomerSection
         customerType={customerType}

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { JobDetailData, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
+import type {
+  JobDetailData,
+  PartsService,
+  PartsServiceStatus,
+  WofCheckItem,
+  WofFailReason,
+  WofRecord,
+  WofRecordUpdatePayload,
+} from "@/types";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { fetchJob, fetchTags, updateJobTags, deleteJob as apiDeleteJob } from "../api/jobDetailApi";
 import { requestJson } from "@/utils/api";
@@ -14,6 +22,15 @@ import {
   updateWofRecord,
 } from "@/features/wof/api/wofApi";
 import { mapWofRecord } from "@/features/wof/utils/mapWofRecord";
+import {
+  createPartsNote,
+  createPartsService,
+  deletePartsNote,
+  deletePartsService,
+  fetchPartsServices,
+  updatePartsNote,
+  updatePartsService,
+} from "@/features/parts/api/partsApi";
 
 type UseJobDetailDataArgs = {
   jobId?: string;
@@ -29,6 +46,8 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
   const [wofLoading, setWofLoading] = useState(false);
   const [wofCheckItems, setWofCheckItems] = useState<WofCheckItem[]>([]);
   const [wofFailReasons, setWofFailReasons] = useState<WofFailReason[]>([]);
+  const [partsServices, setPartsServices] = useState<PartsService[]>([]);
+  const [partsLoading, setPartsLoading] = useState(false);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
@@ -58,6 +77,29 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     } finally {
       if (isMountedRef.current) {
         setWofLoading(false);
+      }
+    }
+  }, [jobId]);
+
+  const refreshPartsServices = useCallback(async () => {
+    if (!jobId) return;
+    setPartsLoading(true);
+    try {
+      const res = await fetchPartsServices(jobId);
+      if (!res.ok) {
+        throw new Error(res.error || "加载配件服务失败");
+      }
+      if (isMountedRef.current) {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setPartsServices(list);
+      }
+    } catch {
+      if (isMountedRef.current) {
+        setPartsServices([]);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setPartsLoading(false);
       }
     }
   }, [jobId]);
@@ -159,6 +201,108 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       message: `导入完成${sourceFile}：新增 ${inserted} 条，更新 ${updated} 条，跳过 ${skipped} 条`,
     };
   }, [jobId, wofLoading, refreshWofServer]);
+
+  const createPartsServiceRow = useCallback(
+    async (payload: { description: string; status?: PartsServiceStatus }) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await createPartsService(jobId, payload);
+      if (!res.ok) {
+        return { success: false, message: res.error || "保存失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "保存成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
+
+  const updatePartsServiceRow = useCallback(
+    async (serviceId: string, payload: { description?: string; status?: PartsServiceStatus }) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await updatePartsService(jobId, serviceId, payload);
+      if (!res.ok) {
+        return { success: false, message: res.error || "保存失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "保存成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
+
+  const deletePartsServiceRow = useCallback(
+    async (serviceId: string) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await deletePartsService(jobId, serviceId);
+      if (!res.ok) {
+        return { success: false, message: res.error || "删除失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "删除成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
+
+  const createPartsNoteRow = useCallback(
+    async (serviceId: string, note: string) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await createPartsNote(jobId, serviceId, note);
+      if (!res.ok) {
+        return { success: false, message: res.error || "保存失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "保存成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
+
+  const updatePartsNoteRow = useCallback(
+    async (noteId: string, note: string) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await updatePartsNote(jobId, noteId, note);
+      if (!res.ok) {
+        return { success: false, message: res.error || "保存失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "保存成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
+
+  const deletePartsNoteRow = useCallback(
+    async (noteId: string) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await deletePartsNote(jobId, noteId);
+      if (!res.ok) {
+        return { success: false, message: res.error || "删除失败" };
+      }
+
+      await refreshPartsServices();
+      return { success: true, message: "删除成功" };
+    },
+    [jobId, refreshPartsServices]
+  );
 
   const deleteJob = useCallback(async () => {
     if (!jobId) return;
@@ -293,6 +437,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         }
 
         await refreshWofServer();
+        await refreshPartsServices();
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "加载工单失败");
@@ -311,7 +456,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       cancelled = true;
       isMountedRef.current = false;
     };
-  }, [jobId, refreshWofServer]);
+  }, [jobId, refreshWofServer, refreshPartsServices]);
 
   return {
     jobData,
@@ -324,6 +469,8 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     wofCheckItems,
     wofFailReasons,
     wofLoading,
+    partsServices,
+    partsLoading,
     tagOptions,
     setLoadError,
     setDeleteError,
@@ -333,6 +480,13 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     createWofRecordRow,
     updateWofRecord: updateWofRecordRow,
     importWofRecords: importWofRecordsForJob,
+    createPartsService: createPartsServiceRow,
+    updatePartsService: updatePartsServiceRow,
+    deletePartsService: deletePartsServiceRow,
+    createPartsNote: createPartsNoteRow,
+    updatePartsNote: updatePartsNoteRow,
+    deletePartsNote: deletePartsNoteRow,
+    refreshPartsServices,
     deleteJob,
     saveTags,
     refreshVehicleInfo,

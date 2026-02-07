@@ -121,6 +121,26 @@ export type WofFailReason = {
   isActive?: boolean;
 };
 
+export type PartsServiceStatus = "pending_order" | "needs_pt" | "parts_trader" | "pickup_or_transit";
+
+export type PartsNote = {
+  id: string;
+  partsServiceId: string;
+  note: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type PartsService = {
+  id: string;
+  jobId: string;
+  description: string;
+  status: PartsServiceStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  notes: PartsNote[];
+};
+
 export type JobDetailData = {
   id: string;
   status: string;

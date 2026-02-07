@@ -1,4 +1,13 @@
-import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
+import type {
+  JobDetailData,
+  JobDetailTabKey,
+  PartsService,
+  PartsServiceStatus,
+  WofCheckItem,
+  WofFailReason,
+  WofRecord,
+  WofRecordUpdatePayload,
+} from "@/types";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { JobDetailLayout } from "../JobDetailLayout";
 import { MainColumn } from "../MainColumn";
@@ -13,6 +22,8 @@ type JobDetailContentProps = {
   wofCheckItems: WofCheckItem[];
   failReasons: WofFailReason[];
   wofLoading?: boolean;
+  partsServices: PartsService[];
+  partsLoading?: boolean;
   onAddWof: () => void;
   onRefreshWof?: () => Promise<{ success: boolean; message?: string }>;
   onSaveWofResult?: (payload: {
@@ -29,6 +40,24 @@ type JobDetailContentProps = {
   onCreateWofRecord?: (
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
+  onCreatePartsService?: (payload: {
+    description: string;
+    status?: PartsServiceStatus;
+  }) => Promise<{ success: boolean; message?: string }>;
+  onUpdatePartsService?: (
+    id: string,
+    payload: { description?: string; status?: PartsServiceStatus }
+  ) => Promise<{ success: boolean; message?: string }>;
+  onDeletePartsService?: (id: string) => Promise<{ success: boolean; message?: string }>;
+  onCreatePartsNote?: (
+    serviceId: string,
+    note: string
+  ) => Promise<{ success: boolean; message?: string }>;
+  onUpdatePartsNote?: (
+    noteId: string,
+    note: string
+  ) => Promise<{ success: boolean; message?: string }>;
+  onDeletePartsNote?: (noteId: string) => Promise<{ success: boolean; message?: string }>;
   onRefreshVehicle?: () => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
@@ -47,12 +76,20 @@ export function JobDetailContent({
   wofCheckItems,
   failReasons,
   wofLoading,
+  partsServices,
+  partsLoading,
   onAddWof,
   onRefreshWof,
   onSaveWofResult,
   onDeleteWofServer,
   onUpdateWofRecord,
   onCreateWofRecord,
+  onCreatePartsService,
+  onUpdatePartsService,
+  onDeletePartsService,
+  onCreatePartsNote,
+  onUpdatePartsNote,
+  onDeletePartsNote,
   onRefreshVehicle,
   onDeleteJob,
   isDeletingJob,
@@ -73,12 +110,20 @@ export function JobDetailContent({
           wofCheckItems={wofCheckItems}
           failReasons={failReasons}
           wofLoading={wofLoading}
+          partsServices={partsServices}
+          partsLoading={partsLoading}
           onAddWof={onAddWof}
           onRefreshWof={onRefreshWof}
           onSaveWofResult={onSaveWofResult}
           onDeleteWofServer={onDeleteWofServer}
           onUpdateWofRecord={onUpdateWofRecord}
           onCreateWofRecord={onCreateWofRecord}
+          onCreatePartsService={onCreatePartsService}
+          onUpdatePartsService={onUpdatePartsService}
+          onDeletePartsService={onDeletePartsService}
+          onCreatePartsNote={onCreatePartsNote}
+          onUpdatePartsNote={onUpdatePartsNote}
+          onDeletePartsNote={onDeletePartsNote}
           onRefreshVehicle={onRefreshVehicle}
           onDeleteJob={onDeleteJob}
           isDeletingJob={isDeletingJob}

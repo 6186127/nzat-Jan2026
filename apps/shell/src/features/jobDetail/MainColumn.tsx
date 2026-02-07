@@ -1,4 +1,13 @@
-import type { JobDetailData, JobDetailTabKey, WofCheckItem, WofFailReason, WofRecord, WofRecordUpdatePayload } from "@/types";
+import type {
+  JobDetailData,
+  JobDetailTabKey,
+  PartsService,
+  PartsServiceStatus,
+  WofCheckItem,
+  WofFailReason,
+  WofRecord,
+  WofRecordUpdatePayload,
+} from "@/types";
 import { Card } from "@/components/ui";
 import { JobHeader } from "@/features/jobDetail/components/JobHeader";
 import { SummaryCard } from "@/features/jobDetail/components/SummaryCard";
@@ -18,6 +27,8 @@ type MainColumnProps = {
   wofCheckItems: WofCheckItem[];
   failReasons: WofFailReason[];
   wofLoading?: boolean;
+  partsServices: PartsService[];
+  partsLoading?: boolean;
   onAddWof: () => void;
   onRefreshWof?: () => Promise<{ success: boolean; message?: string }>;
   onSaveWofResult?: (payload: {
@@ -34,6 +45,24 @@ type MainColumnProps = {
   onCreateWofRecord?: (
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
+  onCreatePartsService?: (payload: {
+    description: string;
+    status?: PartsServiceStatus;
+  }) => Promise<{ success: boolean; message?: string }>;
+  onUpdatePartsService?: (
+    id: string,
+    payload: { description?: string; status?: PartsServiceStatus }
+  ) => Promise<{ success: boolean; message?: string }>;
+  onDeletePartsService?: (id: string) => Promise<{ success: boolean; message?: string }>;
+  onCreatePartsNote?: (
+    serviceId: string,
+    note: string
+  ) => Promise<{ success: boolean; message?: string }>;
+  onUpdatePartsNote?: (
+    noteId: string,
+    note: string
+  ) => Promise<{ success: boolean; message?: string }>;
+  onDeletePartsNote?: (noteId: string) => Promise<{ success: boolean; message?: string }>;
   onRefreshVehicle?: () => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
@@ -50,12 +79,20 @@ export function MainColumn({
   wofCheckItems,
   failReasons,
   wofLoading,
+  partsServices,
+  partsLoading,
   onAddWof,
   onRefreshWof,
   onSaveWofResult,
   onDeleteWofServer,
   onUpdateWofRecord,
   onCreateWofRecord,
+  onCreatePartsService,
+  onUpdatePartsService,
+  onDeletePartsService,
+  onCreatePartsNote,
+  onUpdatePartsNote,
+  onDeletePartsNote,
   onRefreshVehicle,
   onDeleteJob,
   isDeletingJob,
@@ -102,7 +139,18 @@ export function MainColumn({
             vehicleMakeModel={vehicleMakeModel}
           />
         ) : null}
-        {activeTab === "Mechanical" ? <RepairPanel /> : null}
+        {activeTab === "Mechanical" ? (
+          <RepairPanel
+            services={partsServices}
+            isLoading={partsLoading}
+            onCreateService={onCreatePartsService}
+            onUpdateService={onUpdatePartsService}
+            onDeleteService={onDeletePartsService}
+            onCreateNote={onCreatePartsNote}
+            onUpdateNote={onUpdatePartsNote}
+            onDeleteNote={onDeletePartsNote}
+          />
+        ) : null}
         {activeTab === "Paint" ? <PaintPanel /> : null}
         {activeTab === "Log" ? <LogPanel /> : null}
         {activeTab === "Invoice" ? <InvoicePanel /> : null}
