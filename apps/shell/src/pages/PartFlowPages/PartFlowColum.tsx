@@ -45,9 +45,13 @@ export function PartFlowColumn({
   onDeleteNote
 }: PartFlowColumnProps) {
   const dropRef = useRef<HTMLDivElement | null>(null);
-  const [{ isOver }, drop] = useDrop(() => ({
+  const [{ isOver }, drop] = useDrop<{ id: string; status: Status }, void, { isOver: boolean }>(() => ({
     accept: 'CARD',
-    drop: (item: { id: string }) => {
+    drop: (item) => {
+        // 只有当卡片被拖动到不同的列时才触发状态更新
+        //DEBUG: console.log(`Dropped card ${item.id} with status ${item.status} to column ${status}`);
+        console.log(`Dropped card ${item.id} with status ${item.status} to column ${status}`);
+            
       onMoveCard(item.id, status);
     },
     collect: (monitor) => ({
@@ -59,7 +63,7 @@ export function PartFlowColumn({
   const column = (
     <div
       ref={dropRef}
-      className={`rounded-lg border-2 transition-colors ${
+      className={`rounded-lg border-2 transition-colors bg-gray-300 ${
         isOver ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
       }`}
     >
@@ -69,7 +73,7 @@ export function PartFlowColumn({
           <span className="ml-2 text-sm opacity-75">({cards.length})</span>
         </h2>
       </div>
-      <div className="p-4 space-y-3 min-h-[500px]">
+      <div className="p-4 space-y-3 min-h-[500px]  rounded-b-lg">
         {cards.map(card => (
           <CardItem
             key={card.id}

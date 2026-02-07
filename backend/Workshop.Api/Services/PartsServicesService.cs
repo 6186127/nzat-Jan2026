@@ -232,7 +232,7 @@ public class PartsServicesService
             join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id into cj
             from c in cj.DefaultIfEmpty()
             where jobIds.Contains(j.Id)
-            select new { j.Id, Vehicle = v, Customer = c }
+            select new { j.Id, j.CreatedAt, Vehicle = v, Customer = c }
         ).ToListAsync(ct);
 
         var jobMap = jobInfo.ToDictionary(x => x.Id, x => x);
@@ -263,7 +263,7 @@ public class PartsServicesService
                 parts,
                 status = ToStatusValue(service.Status),
                 notes = notesPayload,
-                createdAt = FormatDateTime(service.CreatedAt),
+                createdAt = FormatDateTime(info?.CreatedAt ?? service.CreatedAt),
                 details = new
                 {
                     owner = customer?.Name ?? "",
