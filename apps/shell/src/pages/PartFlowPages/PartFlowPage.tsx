@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkCard, Status } from "@/types";
 import { PartFlowColumn } from "./PartFlowColum";
 import { DndProvider } from "react-dnd";
@@ -20,6 +20,7 @@ const STATUSES: Status[] = [
 
 export function PartFlowPage() {
   const [cards, setCards] = useState<WorkCard[]>([]);
+  const cardsRef = useRef<WorkCard[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
@@ -36,6 +37,7 @@ export function PartFlowPage() {
     }
     const list = Array.isArray(res.data) ? (res.data as WorkCard[]) : [];
     setCards(list);
+    cardsRef.current = list;
     setLoading(false);
   };
 
@@ -43,8 +45,21 @@ export function PartFlowPage() {
     void loadCards();
   }, []);
 
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
   const moveCard = async (cardId: string, newStatus: Status) => {
-    const card = cards.find((item) => item.id === cardId);
+    // 只有当卡片被拖动到不同的列时才触发状态更新
+console.log(`===star fun ===Moving card ${cardId} to status ${newStatus}=====`);
+    console.log(cardsRef.current);
+
+    const card = cardsRef.current.find((item) => item.id === cardId);
+    console.log(`+Found card:`, card);
+    console.log(`+New status: ${newStatus}`);
+    console.log(`+Old status: ${card?.status}`);
+  
+    
     if (!card || card.status === newStatus) return;
     setCards((prev) =>
       prev.map((item) => (item.id === cardId ? { ...item, status: newStatus } : item))
@@ -52,9 +67,11 @@ export function PartFlowPage() {
     const res = await updatePartsService(card.jobId, card.id, { status: newStatus });
     if (!res.ok) {
       setLoadError(res.error || "更新状态失败");
+      console.log(` fun 更新状态失败=${res.error}`);
       await loadCards();
       return;
     }
+   console.log(`8888888update success 88888888888`);
     await loadCards();
   };
 
@@ -106,7 +123,7 @@ export function PartFlowPage() {
           <div className="text-sm text-gray-500 mb-3">加载中...</div>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 ">
           {STATUSES.map((status) => (
             <PartFlowColumn
               key={status}

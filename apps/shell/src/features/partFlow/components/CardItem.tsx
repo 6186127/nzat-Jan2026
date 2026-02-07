@@ -20,7 +20,7 @@ export function CardItem({ card, onDelete, onArchive, onAddNote, onDeleteNote }:
 
   const [{ isDragging }, drag] = useDrag(() => ({
     type: 'CARD',
-    item: { id: card.id },
+    item: { id: card.id, status: card.status },
     collect: (monitor) => ({
       isDragging: !!monitor.isDragging()
     })
