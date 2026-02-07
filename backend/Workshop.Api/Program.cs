@@ -22,12 +22,14 @@ if (string.IsNullOrWhiteSpace(connString))
 var dataSourceBuilder = new NpgsqlDataSourceBuilder(connString);
 dataSourceBuilder.MapEnum<WofRecordState>("wof_record_state");
 dataSourceBuilder.MapEnum<WofUiState>("wof_ui_state");
+dataSourceBuilder.MapEnum<PartsServiceStatus>("parts_service_status");
 var dataSource = dataSourceBuilder.Build();
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(dataSource));
 
 builder.Services.AddScoped<WofRecordsService>();
+builder.Services.AddScoped<PartsServicesService>();
 
 // ========= Carjam Importer DI =========
 

@@ -182,3 +182,53 @@ CREATE TABLE IF NOT EXISTS public.job_tags
 CREATE INDEX IF NOT EXISTS ix_job_tags_tag_id
     ON public.job_tags USING btree (tag_id ASC NULLS LAST)
     WITH (fillfactor=100, deduplicate_items=True);
+
+-- ========= parts services =========
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'parts_service_status') THEN
+        CREATE TYPE public.parts_service_status AS ENUM (
+            'pending_order',
+            'needs_pt',
+            'parts_trader',
+            'pickup_or_transit'
+        );
+    END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS public.job_parts_services
+(
+    id bigint NOT NULL DEFAULT nextval('job_parts_services_id_seq'::regclass),
+    job_id bigint NOT NULL,
+    description text NOT NULL,
+    status public.parts_service_status NOT NULL DEFAULT 'pending_order',
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT job_parts_services_pkey PRIMARY KEY (id),
+    CONSTRAINT job_parts_services_job_id_fkey FOREIGN KEY (job_id)
+        REFERENCES public.jobs (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_job_parts_services_job_id
+    ON public.job_parts_services USING btree (job_id ASC NULLS LAST)
+    WITH (fillfactor=100, deduplicate_items=True);
+
+CREATE TABLE IF NOT EXISTS public.job_parts_notes
+(
+    id bigint NOT NULL DEFAULT nextval('job_parts_notes_id_seq'::regclass),
+    parts_service_id bigint NOT NULL,
+    note text NOT NULL,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT job_parts_notes_pkey PRIMARY KEY (id),
+    CONSTRAINT job_parts_notes_parts_service_id_fkey FOREIGN KEY (parts_service_id)
+        REFERENCES public.job_parts_services (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_job_parts_notes_service_id
+    ON public.job_parts_notes USING btree (parts_service_id ASC NULLS LAST)
+    WITH (fillfactor=100, deduplicate_items=True);

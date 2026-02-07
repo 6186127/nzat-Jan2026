@@ -19,6 +19,8 @@ export function JobDetailPage() {
     wofCheckItems,
     wofFailReasons,
     wofLoading,
+    partsServices,
+    partsLoading,
     tagOptions,
     setLoadError,
     setDeleteError,
@@ -28,6 +30,12 @@ export function JobDetailPage() {
     createWofRecordRow,
     updateWofRecord,
     importWofRecords,
+    createPartsService,
+    updatePartsService,
+    deletePartsService,
+    createPartsNote,
+    updatePartsNote,
+    deletePartsNote,
     deleteJob,
     saveTags,
     refreshVehicleInfo,
@@ -64,12 +72,20 @@ export function JobDetailPage() {
         wofCheckItems={wofCheckItems}
         failReasons={wofFailReasons}
         wofLoading={wofLoading}
+        partsServices={partsServices}
+        partsLoading={partsLoading}
         onAddWof={createWofServer}
         onRefreshWof={importWofRecords}
         onSaveWofResult={saveWofResult}
         onDeleteWofServer={deleteWofServer}
         onUpdateWofRecord={updateWofRecord}
         onCreateWofRecord={createWofRecordRow}
+        onCreatePartsService={createPartsService}
+        onUpdatePartsService={updatePartsService}
+        onDeletePartsService={deletePartsService}
+        onCreatePartsNote={createPartsNote}
+        onUpdatePartsNote={updatePartsNote}
+        onDeletePartsNote={deletePartsNote}
         onDeleteJob={deleteJob}
         isDeletingJob={deletingJob}
         tagOptions={tagOptions}

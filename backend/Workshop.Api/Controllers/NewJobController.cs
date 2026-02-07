@@ -70,6 +70,21 @@ public class NewJobController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         var wofCreated = req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true;
+        var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (hasMech && !string.IsNullOrWhiteSpace(req.PartsDescription))
+        {
+            var partsService = new JobPartsService
+            {
+                JobId = job.Id,
+                Description = req.PartsDescription.Trim(),
+                Status = PartsServiceStatus.PendingOrder,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            _db.JobPartsServices.Add(partsService);
+            await _db.SaveChangesAsync(ct);
+        }
 
         await tx.CommitAsync(ct);
 

@@ -17,6 +17,8 @@ public class AppDbContext : DbContext
     public DbSet<WofResult> WofResults => Set<WofResult>();
     public DbSet<WofFailReason> WofFailReasons => Set<WofFailReason>();
     public DbSet<JobWofRecord> JobWofRecords => Set<JobWofRecord>();
+    public DbSet<JobPartsService> JobPartsServices => Set<JobPartsService>();
+    public DbSet<JobPartsNote> JobPartsNotes => Set<JobPartsNote>();
     
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -25,6 +27,7 @@ public class AppDbContext : DbContext
     {
         modelBuilder.HasPostgresEnum<WofRecordState>("public", "wof_record_state");
         modelBuilder.HasPostgresEnum<WofUiState>("public", "wof_ui_state");
+        modelBuilder.HasPostgresEnum<PartsServiceStatus>("public", "parts_service_status");
 
         var e = modelBuilder.Entity<Vehicle>();
         e.ToTable("vehicles");
@@ -172,5 +175,24 @@ public class AppDbContext : DbContext
         jwr.Property(x => x.WofUiState).HasColumnName("wof_ui_state").HasColumnType("wof_ui_state").IsRequired();
         jwr.Property(x => x.ImportedAt).HasColumnName("imported_at").HasDefaultValueSql("now()");
         jwr.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var jps = modelBuilder.Entity<JobPartsService>();
+        jps.ToTable("job_parts_services");
+        jps.HasKey(x => x.Id);
+        jps.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        jps.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+        jps.Property(x => x.Description).HasColumnName("description").IsRequired();
+        jps.Property(x => x.Status).HasColumnName("status").HasColumnType("parts_service_status").IsRequired();
+        jps.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+        jps.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
+
+        var jpn = modelBuilder.Entity<JobPartsNote>();
+        jpn.ToTable("job_parts_notes");
+        jpn.HasKey(x => x.Id);
+        jpn.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        jpn.Property(x => x.PartsServiceId).HasColumnName("parts_service_id").IsRequired();
+        jpn.Property(x => x.Note).HasColumnName("note").IsRequired();
+        jpn.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+        jpn.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("now()");
     }
 }
