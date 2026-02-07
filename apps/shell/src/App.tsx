@@ -8,6 +8,7 @@ import { NewJobPage } from "./pages/NewJobPage";
 import { TagsPage } from "./pages/tags/TagsPage";
 import { CustomersPage } from "./pages/customers/CustomersPage";
 import { WofFailReasonsPage } from "./pages/wofFails/WofFailReasonsPage";
+import { PartFlowPage } from "./pages/PartFlowPages/PartFlowPage";
 
 const router = createBrowserRouter([
   {
@@ -16,6 +17,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "jobs", element: <JobsPage /> },
+      { path: "parts-flow", element: <PartFlowPage /> },
       { path: "jobs/:id", element: <JobDetailPage /> },
       { path: "invoice", element: <InvoicePage /> },
       { path: "tags", element: <TagsPage /> },
