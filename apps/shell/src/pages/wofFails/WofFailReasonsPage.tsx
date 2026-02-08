@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Button, EmptyState, Alert, Input } from "@/components/ui";
+import { withApiBase } from "@/utils/api";
 import { Plus, Trash2, Pencil } from "lucide-react";
 
 type FailReasonRow = {
@@ -39,7 +40,7 @@ export function WofFailReasonsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/wof-fail-reasons");
+      const res = await fetch(withApiBase("/api/wof-fail-reasons"));
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "加载失败原因失败");
@@ -74,7 +75,7 @@ export function WofFailReasonsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch("/api/wof-fail-reasons", {
+      const res = await fetch(withApiBase("/api/wof-fail-reasons"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: draft.label.trim(), isActive: draft.isActive }),
@@ -110,7 +111,7 @@ export function WofFailReasonsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/wof-fail-reasons/${encodeURIComponent(editingId)}`, {
+      const res = await fetch(withApiBase(`/api/wof-fail-reasons/${encodeURIComponent(editingId)}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: editDraft.label.trim(), isActive: editDraft.isActive }),
@@ -134,7 +135,7 @@ export function WofFailReasonsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/wof-fail-reasons/${encodeURIComponent(row.id)}`, {
+      const res = await fetch(withApiBase(`/api/wof-fail-reasons/${encodeURIComponent(row.id)}`), {
         method: "DELETE",
       });
       const data = await res.json().catch(() => null);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Button, EmptyState, Alert, Input } from "@/components/ui";
+import { withApiBase } from "@/utils/api";
 import { Plus, Trash2, Pencil } from "lucide-react";
 
 type CustomerRow = {
@@ -61,7 +62,7 @@ export function CustomersPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/customers");
+      const res = await fetch(withApiBase("/api/customers"));
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "加载客户失败");
@@ -96,7 +97,7 @@ export function CustomersPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch("/api/customers", {
+      const res = await fetch(withApiBase("/api/customers"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
@@ -140,7 +141,7 @@ export function CustomersPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/customers/${encodeURIComponent(editingId)}`, {
+      const res = await fetch(withApiBase(`/api/customers/${encodeURIComponent(editingId)}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editDraft),
@@ -164,7 +165,7 @@ export function CustomersPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/customers/${encodeURIComponent(row.id)}`, { method: "DELETE" });
+      const res = await fetch(withApiBase(`/api/customers/${encodeURIComponent(row.id)}`), { method: "DELETE" });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "删除失败");

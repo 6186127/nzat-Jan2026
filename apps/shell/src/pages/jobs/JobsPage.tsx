@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Card, Button, EmptyState, Alert } from "@/components/ui";
+import { withApiBase } from "@/utils/api";
 import { JobsFiltersCard } from "./JobsFiltersCard";
 import { JobsTable } from "./JobsTable";
 import { JobsPagination } from "./JobsPagination";
@@ -69,7 +70,7 @@ useEffect(() => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/jobs");
+      const res = await fetch(withApiBase("/api/jobs"));
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "加载工单失败");
@@ -87,7 +88,7 @@ useEffect(() => {
           return;
         }
 
-        const tagsRes = await fetch(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`);
+        const tagsRes = await fetch(withApiBase(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`));
         const tagsData = await tagsRes.json().catch(() => null);
         if (!tagsRes.ok) {
           throw new Error(tagsData?.error || "加载标签失败");
@@ -132,7 +133,7 @@ useEffect(() => {
 
   const loadTags = async () => {
     try {
-      const res = await fetch("/api/tags");
+      const res = await fetch(withApiBase("/api/tags"));
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "加载标签失败");

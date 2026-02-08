@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Button, EmptyState, Alert } from "@/components/ui";
+import { withApiBase } from "@/utils/api";
 import { Plus, Trash2, Pencil } from "lucide-react";
 
 type TagRow = {
@@ -39,7 +40,7 @@ export function TagsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/tags");
+      const res = await fetch(withApiBase("/api/tags"));
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "加载标签失败");
@@ -74,7 +75,7 @@ export function TagsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch("/api/tags", {
+      const res = await fetch(withApiBase("/api/tags"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: draftName.trim() }),
@@ -110,7 +111,7 @@ export function TagsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/tags/${encodeURIComponent(editingId)}`, {
+      const res = await fetch(withApiBase(`/api/tags/${encodeURIComponent(editingId)}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editDraft.trim() }),
@@ -134,7 +135,7 @@ export function TagsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const res = await fetch(`/api/tags/${encodeURIComponent(row.id)}`, { method: "DELETE" });
+      const res = await fetch(withApiBase(`/api/tags/${encodeURIComponent(row.id)}`), { method: "DELETE" });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || "删除失败");
