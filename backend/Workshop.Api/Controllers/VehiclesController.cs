@@ -85,6 +85,9 @@ public class VehiclesController : ControllerBase
                 vehicle.Model,
                 vehicle.Year,
                 vehicle.Vin,
+                vehicle.FuelType,
+                vehicle.BodyStyle,
+                vehicle.NzFirstRegistration,
                 vehicle.Odometer,
                 vehicle.UpdatedAt
             }

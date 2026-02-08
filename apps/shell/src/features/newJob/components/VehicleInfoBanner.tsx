@@ -11,13 +11,28 @@ export function VehicleInfoBanner({ info }: VehicleInfoBannerProps) {
         <div className="font-semibold text-[rgba(34,197,94,0.95)]">✓ 已识别车型信息</div>
         <div className="mt-2 space-y-1">
           <div>
-            <span className="text-[rgba(0,0,0,0.55)]">型号：</span>
+            <span className="text-[rgba(0,0,0,0.55)] ml-2 ">型号：</span>
             {info.model}
+             <span className="text-[rgba(0,0,0,0.55)] ml-2">类型：</span>
+            {info.type || "—"}
+            
           </div>
           <div>
-            <span className="text-[rgba(0,0,0,0.55)]">年份：</span>
+             <span className="text-[rgba(0,0,0,0.55)] ml-2 ">年份：</span>
             {info.year}
+             <span className="text-[rgba(0,0,0,0.55)] ml-4 ">燃油类型：</span>
+            {info.fuelType || "—"}
           </div>
+          <div>
+            <span className="text-[rgba(0,0,0,0.55)] ml-2 mr-2 ">NZ First Registration:</span>
+            {info.nzFirstRegistration || "—"}
+          </div>
+         
+          <div>
+            <span className="text-[rgba(0,0,0,0.55)] ml-2 ">VIN：</span>
+            {info.vin || "—"}
+          </div>
+          
         </div>
       </div>
     </div>

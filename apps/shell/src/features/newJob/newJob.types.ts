@@ -8,6 +8,10 @@ export type ImportState = "idle" | "loading" | "success" | "error";
 export type VehicleInfo = {
   model: string;
   year: string;
+  type?: string;
+  vin?: string;
+  fuelType?: string;
+  nzFirstRegistration?: string;
 };
 
 export type ServiceOption = {
