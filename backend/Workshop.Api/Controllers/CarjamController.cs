@@ -40,6 +40,8 @@ public class CarjamController : ControllerBase
                 model = v.Model,
                 year = v.Year,
                 vin = v.Vin,
+                fuelType = v.FuelType,
+                nzFirstRegistration = v.NzFirstRegistration,
                 odometer = v.Odometer
             }
         });
