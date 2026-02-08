@@ -18,6 +18,7 @@ import {
   type ServiceType,
   type VehicleInfo,
 } from "@/features/newJob";
+import { withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ export function NewJobPage() {
     let cancelled = false;
     const loadBusinesses = async () => {
       try {
-        const res = await fetch("/api/customers");
+        const res = await fetch(withApiBase("/api/customers"));
         const data = await res.json().catch(() => null);
         if (!res.ok) {
           throw new Error(data?.error || "加载商户失败");
@@ -87,7 +88,7 @@ export function NewJobPage() {
   };
 
   const fetchVehicleFromDb = async (plate: string) => {
-    const res = await fetch(`/api/vehicles/by-plate?plate=${encodeURIComponent(plate)}`);
+    const res = await fetch(withApiBase(`/api/vehicles/by-plate?plate=${encodeURIComponent(plate)}`));
     const data = await res.json().catch(() => null);
 
     if (res.ok) return data;
@@ -106,7 +107,7 @@ export function NewJobPage() {
 
     try {
      
-      const res = await fetch("/api/carjam/import", {
+      const res = await fetch(withApiBase("/api/carjam/import"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plate }),
@@ -193,7 +194,7 @@ export function NewJobPage() {
 
     
     try {
-      const res = await fetch("/api/newJob", {
+      const res = await fetch(withApiBase("/api/newJob"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         
