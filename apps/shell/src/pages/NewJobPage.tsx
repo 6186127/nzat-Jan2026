@@ -260,25 +260,7 @@ export function NewJobPage() {
         onImport={handleImportClick}
       />
 
-      <ServicesSection
-        selectedServices={selectedServices}
-        onToggleService={toggleService}
-        options={serviceOptions}
-      />
-
-      {selectedServices.includes("mech") ? (
-        <SectionCard title="配件描述（可选）">
-          <div className="mt-3">
-            <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">配件描述</label>
-            <Textarea
-              rows={3}
-              placeholder="输入配件描述"
-              value={partsDescription}
-              onChange={(event) => setPartsDescription(event.target.value)}
-            />
-          </div>
-        </SectionCard>
-      ) : null}
+  
 
       <CustomerSection
         customerType={customerType}
@@ -297,7 +279,25 @@ export function NewJobPage() {
         businessOptions={businessOptions}
         onBusinessChange={setBusinessId}
       />
+    <ServicesSection
+        selectedServices={selectedServices}
+        onToggleService={toggleService}
+        options={serviceOptions}
+      />
 
+      {selectedServices.includes("mech") ? (
+        <SectionCard title="配件描述（可选）">
+          <div className="mt-3">
+            <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">配件描述</label>
+            <Textarea
+              rows={3}
+              placeholder="输入配件描述"
+              value={partsDescription}
+              onChange={(event) => setPartsDescription(event.target.value)}
+            />
+          </div>
+        </SectionCard>
+      ) : null}
       <NotesSection notes={notes} onNotesChange={setNotes} />
 
       <ActionsRow onSave={handleSave} />

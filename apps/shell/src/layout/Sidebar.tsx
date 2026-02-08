@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { Plus } from "lucide-react";
 
 const linkBase =
   "block  px-3 py-2 transition border border-transparent";
@@ -14,6 +15,14 @@ export function Sidebar() {
         <div className="text-base font-semibold">NZAT</div>
         <div className="text-xs text-[var(--ds-muted)]"></div>
       </div>
+
+      <NavLink
+        to="/jobs/new"
+        className="inline-flex items-center justify-center gap-2 rounded-md bg-red-100  px-3 py-2 text-sm font-semibold text-[var(--ds-primary)] border border-gery hover:bg-[var(--ds-primary)] hover:text-white transition-colors"
+      >
+        <Plus className="h-4 w-4" />
+        快速新建工单
+      </NavLink>
 
       <nav className="flex flex-col gap-2">
         <NavLink
