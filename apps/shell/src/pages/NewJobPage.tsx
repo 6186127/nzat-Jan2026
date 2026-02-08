@@ -11,7 +11,6 @@ import {
   extractVehicleInfo,
   normalizePlateInput,
   serviceOptions,
-  shouldAutoImport,
   type BusinessOption,
   type CustomerType,
   type ImportState,
@@ -133,36 +132,37 @@ export function NewJobPage() {
     }
   };
 
+  const handleImportClick = async () => {
+    const normalized = normalizePlateInput(rego);
+    if (!normalized) return;
+
+    try {
+      setImportState("loading");
+      setImportError("");
+      setVehicleInfo(null);
+
+      const dbData = await fetchVehicleFromDb(normalized);
+      if (dbData) {
+        console.log("vehicle from db", dbData?.vehicle ?? dbData);
+        setVehicleInfo(extractVehicleInfo(dbData));
+        setImportState("success");
+        return;
+      }
+
+      setImportState("idle");
+      await importVehicle(normalized);
+    } catch (err) {
+      setImportState("error");
+      setImportError(err instanceof Error ? err.message : "导入失败，请稍后重试");
+    }
+  };
+
   const handleRegoChange = (event: ChangeEvent<HTMLInputElement>) => {
     const normalized = normalizePlateInput(event.target.value);
     if (normalized === null) return;
 
     setRego(normalized);
-    if (shouldAutoImport(normalized)) {
-      (async () => {
-        try {
-          setImportState("loading");
-          setImportError("");
-          setVehicleInfo(null);
-
-          const dbData = await fetchVehicleFromDb(normalized);
-          if (dbData) {
-            console.log("vehicle from db", dbData?.vehicle ?? dbData);
-            setVehicleInfo(extractVehicleInfo(dbData));
-            setImportState("success");
-            return;
-          }
-
-          setImportState("idle");
-          await importVehicle(normalized);
-        } catch (err) {
-          setImportState("error");
-          setImportError(err instanceof Error ? err.message : "导入失败，请稍后重试");
-        }
-      })();
-    } else {
-      resetImportState();
-    }
+    resetImportState();
   };
 
   const handleSave = async () => {
@@ -257,6 +257,7 @@ export function NewJobPage() {
         importError={importError}
         vehicleInfo={vehicleInfo}
         onRegoChange={handleRegoChange}
+        onImport={handleImportClick}
       />
 
       <ServicesSection
