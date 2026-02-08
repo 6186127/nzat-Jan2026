@@ -67,12 +67,12 @@ export function PartsServiceCard({
             {/* <span className="text-xs font-medium text-gray-500 uppercase">配件描述</span> */}
           
           {editing ? (
-            <div className="flex items-start gap-2 w-full">
+            <div className="flex items-start gap-2 w-full ">
               <Textarea
                 rows={3}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                className="flex-2"
+                className="flex-2 font-bold font-lg w-full"
               />
               <div className="flex flex-col gap-1">
                 <button
@@ -93,7 +93,8 @@ export function PartsServiceCard({
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-700 whitespace-pre-line break-words w-full">
+            // font-size: 24px; font-weight: 500;
+            <p className="text-xl font-bold text-black whitespace-pre-line break-words w-full">
               {service.description || <span className="text-gray-400 italic">暂无描述</span>}
             </p>
           )}

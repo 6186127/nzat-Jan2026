@@ -10,9 +10,17 @@ type VehicleSectionProps = {
   importError: string;
   vehicleInfo: VehicleInfo | null;
   onRegoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onImport: () => void;
 };
 
-export function VehicleSection({ rego, importState, importError, vehicleInfo, onRegoChange }: VehicleSectionProps) {
+export function VehicleSection({
+  rego,
+  importState,
+  importError,
+  vehicleInfo,
+  onRegoChange,
+  onImport,
+}: VehicleSectionProps) {
   return (
     <SectionCard title="车辆信息">
       <div className="mt-3 grid grid-cols-4 gap-3">
@@ -36,6 +44,14 @@ export function VehicleSection({ rego, importState, importError, vehicleInfo, on
                 ].join(" ")}
               />
             </div>
+            <Button
+              variant="ghost"
+              className="h-9"
+              onClick={onImport}
+              disabled={!rego || importState === "loading"}
+            >
+              {importState === "loading" ? "抓取中" : "抓取"}
+            </Button>
             {rego ? (
               <span className="text-xs text-[rgba(0,0,0,0.45)] flex-shrink-0">长度 {rego.length}</span>
             ) : null}
