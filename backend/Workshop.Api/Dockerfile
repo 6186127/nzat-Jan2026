@@ -14,6 +14,6 @@ RUN dotnet publish backend/Workshop.Api/Workshop.Api.csproj -c Release -o /app/p
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/publish ./
-ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+ENV ASPNETCORE_URLS=http://0.0.0.0:$PORT
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Workshop.Api.dll"]
