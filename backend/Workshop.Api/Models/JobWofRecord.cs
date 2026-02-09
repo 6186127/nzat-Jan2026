@@ -12,6 +12,7 @@ public class JobWofRecord
     public string? Odo { get; set; }
     public WofRecordState RecordState { get; set; }
     public bool? IsNewWof { get; set; }
+    public DateOnly? NewWofDate { get; set; }
     public string? AuthCode { get; set; }
     public string? CheckSheet { get; set; }
     public string? CsNo { get; set; }

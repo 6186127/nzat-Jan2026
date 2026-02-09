@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WofCheckItem, WofFailReason, WofRecordUpdatePayload } from "@/types";
 import { Button } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { formatNzDatePlusDays, formatNzDateTime, formatNzDateTimeInput } from "@/utils/date";
+import { withApiBase } from "@/utils/api";
 import { buildWofPayload, createEmptyWofFormState, toWofFormState, type WofFormState } from "../utils/wofForm";
 import { FieldRow } from "./FieldRow";
 
@@ -29,6 +30,9 @@ export function WofResultItem({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [printUrl, setPrintUrl] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [failReasonQuery, setFailReasonQuery] = useState("");
 
   useEffect(() => {
@@ -97,12 +101,43 @@ export function WofResultItem({
     }
   };
 
+  const handlePrintFrameLoad = () => {
+    if (!printing) return;
+    try {
+      printFrameRef.current?.contentWindow?.focus();
+      printFrameRef.current?.contentWindow?.print();
+      setMessage("已发送打印任务");
+    } catch {
+      setError("自动打印失败，请稍后重试。");
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const handlePrint = () => {
-    window.print();
+    const jobId = record.wofId;
+    const recordId = record.id;
+    if (!jobId || !recordId) {
+      setError("无法打印：缺少 jobId 或 recordId。");
+      return;
+    }
+    const baseUrl = withApiBase(`/api/jobs/${jobId}/wof-records/${recordId}/print`);
+    const url = baseUrl.includes("?") ? `${baseUrl}&_ts=${Date.now()}` : `${baseUrl}?_ts=${Date.now()}`;
+    setPrintUrl(url);
+    setPrinting(true);
   };
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
+      {printUrl ? (
+        <iframe
+          ref={printFrameRef}
+          title="WOF Print Frame"
+          src={printUrl}
+          className="hidden"
+          onLoad={handlePrintFrameLoad}
+        />
+      ) : null}
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">

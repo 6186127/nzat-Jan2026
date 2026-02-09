@@ -4,11 +4,14 @@ using CarjamImporter;
 using CarjamImporter.Infrastructure;
 using CarjamImporter.Persistence;
 using CarjamImporter.Playwright;
+using QuestPDF.Infrastructure;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
 using Workshop.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+QuestPDF.Settings.License = LicenseType.Community;
 
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
@@ -66,6 +69,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(dataSource));
 
 builder.Services.AddScoped<WofRecordsService>();
+builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
 
 // ========= Carjam Importer DI =========

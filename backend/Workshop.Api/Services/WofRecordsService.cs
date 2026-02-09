@@ -39,6 +39,7 @@ public class WofRecordsService
                 x.Odo,
                 x.RecordState,
                 x.IsNewWof,
+                x.NewWofDate,
                 x.AuthCode,
                 x.CheckSheet,
                 x.CsNo,
@@ -65,6 +66,7 @@ public class WofRecordsService
                 makeModel = x.MakeModel,
                 recordState = ToRecordStateLabel(x.RecordState),
                 isNewWof = x.IsNewWof,
+                newWofDate = FormatDate(x.NewWofDate),
                 odo = x.Odo,
                 authCode = x.AuthCode,
                 checkSheet = x.CheckSheet,
@@ -159,7 +161,13 @@ public class WofRecordsService
         int? colMakeModel = FindColumn(columnMap, "makeandmodel", "makemodel", "make_model", "make&model");
         int? colOdo = FindColumn(columnMap, "odo", "odometer", "kms", "km");
         int? colRecordState = FindColumn(columnMap, "recordstate", "result", "state", "status");
-        int? colIsNew = FindColumn(columnMap, "isnewwof", "newwof", "new_wof", "is_new_wof");
+        int? colNewWofDate = FindColumn(
+            columnMap,
+            "newwofdate",
+            "new_wof_date",
+            "newwof",
+            "isnewwof",
+            "is_new_wof");
         int? colAuthCode = FindColumn(columnMap, "authcode", "auth_code");
         int? colCheckSheet = FindColumn(columnMap, "checksheet", "check_sheet");
         int? colCsNo = FindColumn(columnMap, "csno", "cs_no");
@@ -233,6 +241,7 @@ public class WofRecordsService
             var recordState = ParseRecordState(GetString(row, colRecordState)) ?? WofRecordState.Pass;
             var uiState = ParseUiState(GetString(row, colUiState)) ?? MapUiState(recordState);
             var excelRowNo = rowIndex + 2;
+            var newWofDate = GetDateOnly(row, colNewWofDate);
 
             var record = new JobWofRecord
             {
@@ -242,7 +251,8 @@ public class WofRecordsService
                 MakeModel = GetString(row, colMakeModel),
                 Odo = GetString(row, colOdo),
                 RecordState = recordState,
-                IsNewWof = GetBool(row, colIsNew),
+                IsNewWof = newWofDate.HasValue ? true : null,
+                NewWofDate = newWofDate,
                 AuthCode = GetString(row, colAuthCode),
                 CheckSheet = GetString(row, colCheckSheet),
                 CsNo = GetString(row, colCsNo),
@@ -354,6 +364,7 @@ public class WofRecordsService
         record.Odo = NormalizeOptional(request.Odo);
         record.RecordState = recordState.Value;
         record.IsNewWof = request.IsNewWof;
+        record.NewWofDate = ParseDateOnly(request.NewWofDate);
         record.AuthCode = NormalizeOptional(request.AuthCode);
         record.CheckSheet = NormalizeOptional(request.CheckSheet);
         record.CsNo = NormalizeOptional(request.CsNo);
@@ -450,6 +461,7 @@ public class WofRecordsService
             Odo = NormalizeOptional(request.Odo),
             RecordState = recordState.Value,
             IsNewWof = request.IsNewWof,
+            NewWofDate = ParseDateOnly(request.NewWofDate),
             AuthCode = NormalizeOptional(request.AuthCode),
             CheckSheet = NormalizeOptional(request.CheckSheet),
             CsNo = NormalizeOptional(request.CsNo),
@@ -633,6 +645,17 @@ public class WofRecordsService
         return dt.HasValue ? DateOnly.FromDateTime(dt.Value) : null;
     }
 
+    private static DateOnly? ParseDateOnly(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            return parsed;
+        if (DateOnly.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+            return parsed;
+        var parsedDateTime = ParseDateTime(value);
+        return parsedDateTime.HasValue ? DateOnly.FromDateTime(parsedDateTime.Value) : null;
+    }
+
     private static bool? GetBool(DataRow row, int? column)
     {
         if (column is null) return null;
@@ -739,6 +762,7 @@ public record WofRecordUpdateRequest(
     string? Odo,
     string? RecordState,
     bool? IsNewWof,
+    string? NewWofDate,
     string? AuthCode,
     string? CheckSheet,
     string? CsNo,
