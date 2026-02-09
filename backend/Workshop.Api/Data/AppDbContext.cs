@@ -161,6 +161,7 @@ public class AppDbContext : DbContext
         jwr.Property(x => x.Odo).HasColumnName("odo");
         jwr.Property(x => x.RecordState).HasColumnName("record_state").HasColumnType("wof_record_state").IsRequired();
         jwr.Property(x => x.IsNewWof).HasColumnName("is_new_wof");
+        jwr.Property(x => x.NewWofDate).HasColumnName("new_wof_date");
         jwr.Property(x => x.AuthCode).HasColumnName("auth_code");
         jwr.Property(x => x.CheckSheet).HasColumnName("check_sheet");
         jwr.Property(x => x.CsNo).HasColumnName("cs_no");

@@ -8,10 +8,12 @@ namespace Workshop.Api.Controllers;
 public class WofRecordsController : ControllerBase
 {
     private readonly WofRecordsService _wofService;
+    private readonly WofPrintService _wofPrintService;
 
-    public WofRecordsController(WofRecordsService wofService)
+    public WofRecordsController(WofRecordsService wofService, WofPrintService wofPrintService)
     {
         _wofService = wofService;
+        _wofPrintService = wofPrintService;
     }
 
     [HttpGet("wof-server")]
@@ -46,6 +48,19 @@ public class WofRecordsController : ControllerBase
 
         var result = await _wofService.UpdateWofRecord(id, recordId, request, ct);
         return ToActionResult(result);
+    }
+
+    [HttpGet("wof-records/{recordId:long}/print")]
+    public async Task<IActionResult> PrintWofRecord(long id, long recordId, CancellationToken ct)
+    {
+        var result = await _wofPrintService.BuildPrintPdf(id, recordId, ct);
+        if (result.StatusCode == 200 && result.PdfBytes is not null)
+        {
+            Response.Headers.ContentDisposition = $"inline; filename=\"{result.FileName ?? "wof.pdf"}\"";
+            return File(result.PdfBytes, "application/pdf");
+        }
+
+        return StatusCode(result.StatusCode, new { error = result.Error });
     }
 
     [HttpPost("wof-server")]
