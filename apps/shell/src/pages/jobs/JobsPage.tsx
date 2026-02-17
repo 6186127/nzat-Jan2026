@@ -13,7 +13,7 @@ import {
   DEFAULT_JOBS_FILTERS,
 } from "@/features/jobs";
 import type { TagOption } from "@/components/MultiTagSelect";
-import { deleteJob, updateJobStatus, updateJobTags } from "@/features/jobDetail/api/jobDetailApi";
+import { deleteJob, updateJobCreatedAt, updateJobStatus, updateJobTags } from "@/features/jobDetail/api/jobDetailApi";
 
 
 
@@ -27,6 +27,12 @@ const [loading, setLoading] = useState(true);
 const [loadError, setLoadError] = useState<string | null>(null);
 const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
 const toast = useToast();
+
+const buildCreatedAtWithDate = (prevValue: string, date: string) => {
+  const datePart = date.replace(/-/g, "/");
+  const timePart = prevValue.includes(" ") ? prevValue.split(" ")[1] : "00:00";
+  return `${datePart} ${timePart}`;
+};
 
 const {
   filters,
@@ -247,6 +253,32 @@ useEffect(() => {
     [setAllRows, toast]
   );
 
+  const handleUpdateCreatedAt = useCallback(
+    async (id: string, date: string) => {
+      const res = await updateJobCreatedAt(id, date);
+      if (!res.ok) {
+        setLoadError(res.error || "更新创建日期失败");
+        toast.error(res.error || "更新创建日期失败");
+        return false;
+      }
+      setAllRows((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                createdAt: res.data?.createdAt
+                  ? String(res.data.createdAt)
+                  : buildCreatedAtWithDate(item.createdAt, date),
+              }
+            : item
+        )
+      );
+      toast.success("创建日期已更新");
+      return true;
+    },
+    [setAllRows, toast]
+  );
+
   return (
     <div className="space-y-4 text-[14px]">
       <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
@@ -277,6 +309,7 @@ useEffect(() => {
               onToggleUrgent={handleToggleUrgent}
               onArchive={handleArchive}
               onDelete={handleDelete}
+              onUpdateCreatedAt={handleUpdateCreatedAt}
             />
 
             <JobsPagination

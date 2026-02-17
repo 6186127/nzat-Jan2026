@@ -227,6 +227,7 @@ public class JobsController : ControllerBase
     public record UpdateJobTagsRequest(long[]? TagIds, string[]? TagNames);
 
     public record UpdateJobStatusRequest(string? Status);
+    public record UpdateJobCreatedAtRequest(string? Date);
 
     [HttpPut("{id:long}/tags")]
     public async Task<IActionResult> UpdateJobTags(long id, [FromBody] UpdateJobTagsRequest req, CancellationToken ct)
@@ -336,6 +337,32 @@ public class JobsController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         return Ok(new { status = job.Status });
+    }
+
+    [HttpPut("{id:long}/created-at")]
+    public async Task<IActionResult> UpdateCreatedAt(long id, [FromBody] UpdateJobCreatedAtRequest req, CancellationToken ct)
+    {
+        var job = await _db.Jobs.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job is null)
+            return NotFound(new { error = "Job not found." });
+
+        var dateInput = req?.Date?.Trim();
+        if (string.IsNullOrWhiteSpace(dateInput))
+            return BadRequest(new { error = "Date is required." });
+
+        if (!DateTime.TryParseExact(dateInput, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            return BadRequest(new { error = "Date must be yyyy-MM-dd." });
+
+        var time = job.CreatedAt.TimeOfDay;
+        var kind = job.CreatedAt.Kind == DateTimeKind.Unspecified ? DateTimeKind.Utc : job.CreatedAt.Kind;
+        job.CreatedAt = DateTime.SpecifyKind(date.Date + time, kind);
+        job.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            createdAt = job.CreatedAt.ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture)
+        });
     }
 
     private static string MapStatus(string? status)

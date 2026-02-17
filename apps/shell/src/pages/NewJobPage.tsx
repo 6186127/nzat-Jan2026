@@ -232,7 +232,12 @@ export function NewJobPage() {
       console.log("++++++++++++++++++++job created", data);
       setFormAlert({ variant: "success", message: "工单保存成功！" });
       toast.success("工单保存成功！");
-      navigate("/jobs");
+      const createdId = data?.jobId ? String(data.jobId) : "";
+      if (createdId) {
+        navigate(`/jobs/${createdId}`);
+      } else {
+        navigate("/jobs");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "工单保存失败，请稍后重试");
       setFormAlert({

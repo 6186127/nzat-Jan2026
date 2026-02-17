@@ -19,7 +19,7 @@ export type JobRow = {
   customerName: string;
   customerCode?: string;
   customerPhone: string;
-  createdAt: string; // 建议后期换成 ISO
+  createdAt: string; 
 };
 
 export type TimeRange = "" | "week" | "lastWeek" | "month" | "custom";
