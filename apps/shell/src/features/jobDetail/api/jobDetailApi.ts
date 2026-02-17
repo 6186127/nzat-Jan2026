@@ -27,3 +27,11 @@ export function updateJobStatus(jobId: string, status: string) {
     body: JSON.stringify({ status }),
   });
 }
+
+export function updateJobCreatedAt(jobId: string, date: string) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/created-at`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date }),
+  });
+}

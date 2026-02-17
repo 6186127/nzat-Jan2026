@@ -12,6 +12,7 @@ export type JobsTableProps = {
   onToggleUrgent: (id: string) => void | Promise<void>;
   onArchive: (id: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
+  onUpdateCreatedAt: (id: string, date: string) => boolean | Promise<boolean>;
 };
 
 const MS_PER_HOUR = 60 * 60 * 1000;
@@ -61,9 +62,19 @@ function getTimeInShop(createdAt?: string) {
   return { label, level };
 }
 
-export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete }: JobsTableProps) {
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete, onUpdateCreatedAt }: JobsTableProps) {
   const [colWidths, setColWidths] = useState(() => JOB_TABLE_COLUMNS.map((col) => col.width));
   const dragRef = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const gridTemplateColumns = useMemo(
     () => colWidths.map((width) => `${width}px`).join(" "),
@@ -112,6 +123,29 @@ export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete }: JobsTab
     },
     [colWidths, handlePointerMove, stopResize]
   );
+
+  const startEditCreatedAt = (row: JobRow) => {
+    const parsed = parseCreatedAt(row.createdAt);
+    if (!parsed) return;
+    setEditingId(row.id);
+    setEditDate(formatDateInput(parsed));
+  };
+
+  const cancelEditCreatedAt = () => {
+    setEditingId(null);
+    setEditDate("");
+    setSavingId(null);
+  };
+
+  const saveCreatedAt = async () => {
+    if (!editingId || !editDate) return;
+    setSavingId(editingId);
+    const ok = await onUpdateCreatedAt(editingId, editDate);
+    setSavingId(null);
+    if (ok !== false) {
+      cancelEditCreatedAt();
+    }
+  };
 
   return (
     <div className="overflow-x-auto">
@@ -185,7 +219,34 @@ export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete }: JobsTab
 
                 <div className="truncate">{r.customerCode || r.customerName}</div>
                 <div>{r.customerPhone}</div>
-                <div>{r.createdAt}</div>
+                <div
+                  onDoubleClick={() => startEditCreatedAt(r)}
+                  className="cursor-pointer"
+                >
+                  {editingId === r.id ? (
+                    <input
+                      type="date"
+                      className="h-8 w-full rounded border border-[var(--ds-border)] px-2 text-sm text-slate-700"
+                      value={editDate}
+                      onChange={(event) => setEditDate(event.target.value)}
+                      onBlur={() => void saveCreatedAt()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveCreatedAt();
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelEditCreatedAt();
+                        }
+                      }}
+                      disabled={savingId === r.id}
+                      autoFocus
+                    />
+                  ) : (
+                    r.createdAt
+                  )}
+                </div>
 
                 <div className="flex justify-center gap-3">
                   <button
