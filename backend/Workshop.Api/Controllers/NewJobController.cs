@@ -26,12 +26,6 @@ public class NewJobController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Plate))
             return BadRequest(new { error = "Plate is required." });
 
-        // if (req.Customer is null || string.IsNullOrWhiteSpace(req.Customer.Name))
-        //     return BadRequest(new { error = "Customer name is required." });
-
-        if (string.IsNullOrWhiteSpace(req.Customer.Type))
-            return BadRequest(new { error = "Customer type is required." });
-
         var normalizedCustomerType = NormalizeCustomerType(req.Customer.Type);
         if (!IsValidCustomerType(normalizedCustomerType))
             return BadRequest(new { error = "Customer type must be Personal or Business." });
