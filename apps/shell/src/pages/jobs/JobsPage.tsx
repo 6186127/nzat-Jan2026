@@ -13,7 +13,13 @@ import {
   DEFAULT_JOBS_FILTERS,
 } from "@/features/jobs";
 import type { TagOption } from "@/components/MultiTagSelect";
-import { deleteJob, updateJobCreatedAt, updateJobStatus, updateJobTags } from "@/features/jobDetail/api/jobDetailApi";
+import {
+  deleteJob,
+  fetchJob,
+  updateJobCreatedAt,
+  updateJobStatus,
+  updateJobTags,
+} from "@/features/jobDetail/api/jobDetailApi";
 
 
 
@@ -32,6 +38,53 @@ const buildCreatedAtWithDate = (prevValue: string, date: string) => {
   const datePart = date.replace(/-/g, "/");
   const timePart = prevValue.includes(" ") ? prevValue.split(" ")[1] : "00:00";
   return `${datePart} ${timePart}`;
+};
+
+const escapeHtml = (value?: string) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildPrintHtml = (type: "mech" | "paint", row: any, notes: string) => {
+  const title = type === "mech" ? "机修工单" : "喷漆工单";
+  const date = new Date().toLocaleString();
+  const noteText = notes?.trim() ? notes : "—";
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      .sub { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
+      .grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: 14px; }
+      .label { color: #6b7280; }
+      .section { margin-top: 18px; }
+      .notes { min-height: 120px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; white-space: pre-wrap; }
+      @media print { .no-print { display: none; } }
+    </style>
+  </head>
+  <body>
+    <h1>${title}</h1>
+    <div class="sub">打印时间：${escapeHtml(date)}</div>
+    <div class="grid">
+      <div class="label">Job ID</div><div>${escapeHtml(row?.id)}</div>
+      <div class="label">车牌号</div><div>${escapeHtml(row?.plate)}</div>
+      <div class="label">车型</div><div>${escapeHtml(row?.vehicleModel)}</div>
+      <div class="label">客户</div><div>${escapeHtml(row?.customerCode || row?.customerName)}</div>
+      <div class="label">电话</div><div>${escapeHtml(row?.customerPhone)}</div>
+      <div class="label">创建时间</div><div>${escapeHtml(row?.createdAt)}</div>
+    </div>
+    <div class="section">
+      <div class="label">备注</div>
+      <div class="notes">${escapeHtml(noteText)}</div>
+    </div>
+  </body>
+</html>`;
 };
 
 const {
@@ -253,7 +306,7 @@ useEffect(() => {
     [setAllRows, toast]
   );
 
-  const handleUpdateCreatedAt = useCallback(
+const handleUpdateCreatedAt = useCallback(
     async (id: string, date: string) => {
       const res = await updateJobCreatedAt(id, date);
       if (!res.ok) {
@@ -277,6 +330,46 @@ useEffect(() => {
       return true;
     },
     [setAllRows, toast]
+  );
+
+  const handlePrintTemplate = useCallback(
+    async (id: string, type: "mech" | "paint") => {
+      const row = allRows.find((item) => item.id === id);
+      const popup = window.open("", "_blank", "width=900,height=650");
+      if (!popup) {
+        toast.error("无法打开打印窗口，请允许弹窗");
+        return;
+      }
+      popup.document.write("<html><body>Loading...</body></html>");
+      popup.document.close();
+
+      let notes = row?.notes ?? "";
+      if (!notes) {
+        const jobRes = await fetchJob(id);
+        if (jobRes.ok) {
+          const job = (jobRes.data as any)?.job ?? jobRes.data;
+          notes = job?.notes ?? job?.customer?.notes ?? "";
+        }
+      }
+
+      const html = buildPrintHtml(type, row, notes);
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+      popup.focus();
+      setTimeout(() => popup.print(), 50);
+    },
+    [allRows, toast]
+  );
+
+  const handlePrintMech = useCallback(
+    async (id: string) => handlePrintTemplate(id, "mech"),
+    [handlePrintTemplate]
+  );
+
+  const handlePrintPaint = useCallback(
+    async (id: string) => handlePrintTemplate(id, "paint"),
+    [handlePrintTemplate]
   );
 
   return (
@@ -310,6 +403,8 @@ useEffect(() => {
               onArchive={handleArchive}
               onDelete={handleDelete}
               onUpdateCreatedAt={handleUpdateCreatedAt}
+              onPrintMech={handlePrintMech}
+              onPrintPaint={handlePrintPaint}
             />
 
             <JobsPagination
