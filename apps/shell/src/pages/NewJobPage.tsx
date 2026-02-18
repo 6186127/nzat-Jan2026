@@ -361,7 +361,7 @@ export function NewJobPage() {
  console.log("===========save body============");
   console.log(" plate:", rego);
   console.log(" services:", selectedServices);
-  console.log(" notes:", notesPayload);
+  console.log(" notesPayload:", notesPayload);
   console.log(" partsDescription:", hasMech && partsDescription.trim() ? partsDescription.trim() : undefined);
   console.log(" businessId:", customerType === "business" ? businessId : undefined);
   console.log(" customer:", customerPayload);
