@@ -13,12 +13,19 @@ export type JobsTableProps = {
   onArchive: (id: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onUpdateCreatedAt: (id: string, date: string) => boolean | Promise<boolean>;
+  onPrintMech: (id: string) => void | Promise<void>;
+  onPrintPaint: (id: string) => void | Promise<void>;
 };
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 
-const JOB_TABLE_COLUMNS = [
+const JOB_TABLE_COLUMNS: Array<{
+  key: string;
+  label: string;
+  width: number;
+  minWidth: number;
+}> = [
   { key: "urgent", label: "加急", width: 40, minWidth: 30 },
   { key: "inShop", label: "在店时间", width: 90, minWidth: 70 },
   { key: "status", label: "汽车状态", width: 110, minWidth: 90 },
@@ -33,7 +40,7 @@ const JOB_TABLE_COLUMNS = [
   { key: "phone", label: "客户电话", width: 110, minWidth: 90 },
   { key: "createdAt", label: "创建时间", width: 150, minWidth: 120 },
   { key: "actions", label: "操作", width: 80, minWidth: 60 },
-] as const;
+];
 
 function parseCreatedAt(value?: string) {
   if (!value) return null;
@@ -69,17 +76,29 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete, onUpdateCreatedAt }: JobsTableProps) {
+export function JobsTable({
+  rows,
+  onToggleUrgent,
+  onArchive,
+  onDelete,
+  onUpdateCreatedAt,
+  onPrintMech,
+  onPrintPaint,
+}: JobsTableProps) {
   const [colWidths, setColWidths] = useState(() => JOB_TABLE_COLUMNS.map((col) => col.width));
   const dragRef = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const gridTemplateColumns = useMemo(
-    () => colWidths.map((width) => `${width}px`).join(" "),
-    [colWidths]
-  );
+  const gridTemplateColumns = useMemo(() => {
+    if (colWidths.length === 0) return "";
+    return colWidths
+      .map((width, index) =>
+        index === colWidths.length - 1 ? `minmax(${width}px, 1fr)` : `${width}px`
+      )
+      .join(" ");
+  }, [colWidths]);
 
   const gridStyle = useMemo(
     () => ({ gridTemplateColumns }),
@@ -248,7 +267,19 @@ export function JobsTable({ rows, onToggleUrgent, onArchive, onDelete, onUpdateC
                   )}
                 </div>
 
-                <div className="flex justify-center gap-3">
+                <div className="flex justify-center gap-1 bg-[rgba(0,0,0,0.04)]">
+                  <button
+                    className="rounded border border-[rgba(0,0,0,0.12)] px-2 py-1 text-xs text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)]"
+                    onClick={() => onPrintMech(r.id)}
+                  >
+                    机修
+                  </button>
+                  <button
+                    className="rounded border border-[rgba(0,0,0,0.12)] px-2 py-1 text-xs text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.04)]"
+                    onClick={() => onPrintPaint(r.id)}
+                  >
+                    喷漆
+                  </button>
                   <button
                     className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]"
                     title="Archive"
