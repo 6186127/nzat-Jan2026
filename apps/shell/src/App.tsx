@@ -9,6 +9,7 @@ import { TagsPage } from "./pages/tags/TagsPage";
 import { CustomersPage } from "./pages/customers/CustomersPage";
 import { WofFailReasonsPage } from "./pages/wofFails/WofFailReasonsPage";
 import { PartFlowPage } from "./pages/PartFlowPages/PartFlowPage";
+import { PaintBoardPage } from "./pages/paint/PaintBoardPage";
 import { ToastProvider } from "@/components/ui";
 
 const router = createBrowserRouter([
@@ -18,6 +19,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "jobs", element: <JobsPage /> },
+      { path: "paint-board", element: <PaintBoardPage /> },
       { path: "parts-flow", element: <PartFlowPage /> },
       { path: "jobs/:id", element: <JobDetailPage /> },
       { path: "invoice", element: <InvoicePage /> },

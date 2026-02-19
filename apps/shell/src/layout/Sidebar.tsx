@@ -45,6 +45,15 @@ export function Sidebar() {
         </NavLink>
 
         <NavLink
+          to="/paint-board"
+          className={({ isActive }) =>
+            `${linkBase} ${isActive ? linkActive : linkIdle}`
+          }
+        >
+          喷漆Board
+        </NavLink>
+
+        <NavLink
           to="/parts-flow"
           className={({ isActive }) =>
             `${linkBase} ${isActive ? linkActive : linkIdle}`
