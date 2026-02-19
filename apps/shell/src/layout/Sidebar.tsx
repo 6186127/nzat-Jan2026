@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { PAINT_BOARD_MOCK_JOBS, countPaintOverdue } from "@/features/paint/paintBoard.mock";
 import { Plus } from "lucide-react";
 
 const linkBase =
@@ -9,6 +10,7 @@ const linkIdle =
   "text-[var(--ds-muted)] hover:text-[var(--ds-text)] hover:bg-[rgba(255,255,255,0.04)]";
 
 export function Sidebar() {
+  const paintOverdueCount = countPaintOverdue(PAINT_BOARD_MOCK_JOBS);
   return (
     <div className="h-full p-4 flex flex-col gap-6">
       <div>
@@ -50,7 +52,14 @@ export function Sidebar() {
             `${linkBase} ${isActive ? linkActive : linkIdle}`
           }
         >
-          喷漆Board
+          <span className="flex items-center justify-between gap-2">
+            <span>喷漆Board</span>
+            {paintOverdueCount > 0 ? (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                {paintOverdueCount}
+              </span>
+            ) : null}
+          </span>
         </NavLink>
 
         <NavLink
