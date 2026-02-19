@@ -61,6 +61,13 @@ type JobDetailContentProps = {
   onDeletePaintService?: () => Promise<{ success: boolean; message?: string }>;
   onRefreshPaintService?: () => Promise<void>;
   onRefreshVehicle?: () => Promise<{ success: boolean; message?: string }>;
+  onSaveVehicle?: (payload: {
+    year?: number | null;
+    make?: string | null;
+    fuelType?: string | null;
+    vin?: string | null;
+    nzFirstRegistration?: string | null;
+  }) => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: TagOption[];
@@ -100,6 +107,7 @@ export function JobDetailContent({
   onDeletePaintService,
   onRefreshPaintService,
   onRefreshVehicle,
+  onSaveVehicle,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -141,6 +149,7 @@ export function JobDetailContent({
           onDeletePaintService={onDeletePaintService}
           onRefreshPaintService={onRefreshPaintService}
           onRefreshVehicle={onRefreshVehicle}
+          onSaveVehicle={onSaveVehicle}
           onDeleteJob={onDeleteJob}
           isDeletingJob={isDeletingJob}
           tagOptions={tagOptions}

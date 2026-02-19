@@ -334,6 +334,57 @@ public class JobsController : ControllerBase
         return ("in_progress", stageIndex);
     }
 
+    public record UpdateVehicleRequest(int? Year, string? Make, string? FuelType, string? Vin, string? NzFirstRegistration);
+
+    [HttpPut("{id:long}/vehicle")]
+    public async Task<IActionResult> UpdateVehicle(long id, [FromBody] UpdateVehicleRequest req, CancellationToken ct)
+    {
+        var job = await _db.Jobs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job is null)
+            return NotFound(new { error = "Job not found." });
+
+        if (!job.VehicleId.HasValue)
+            return NotFound(new { error = "Vehicle not found." });
+
+        var vehicle = await _db.Vehicles.FirstOrDefaultAsync(x => x.Id == job.VehicleId.Value, ct);
+        if (vehicle is null)
+            return NotFound(new { error = "Vehicle not found." });
+
+        DateOnly? nzFirstRegistration = null;
+        if (!string.IsNullOrWhiteSpace(req.NzFirstRegistration))
+        {
+            if (!DateOnly.TryParse(req.NzFirstRegistration, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) &&
+                !DateOnly.TryParse(req.NzFirstRegistration, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+                return BadRequest(new { error = "Invalid NzFirstRegistration." });
+            nzFirstRegistration = parsed;
+        }
+
+        vehicle.Year = req.Year;
+        vehicle.Make = string.IsNullOrWhiteSpace(req.Make) ? null : req.Make.Trim();
+        vehicle.FuelType = string.IsNullOrWhiteSpace(req.FuelType) ? null : req.FuelType.Trim();
+        vehicle.Vin = string.IsNullOrWhiteSpace(req.Vin) ? null : req.Vin.Trim();
+        vehicle.NzFirstRegistration = nzFirstRegistration;
+        vehicle.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            success = true,
+            vehicle = new
+            {
+                plate = vehicle.Plate,
+                make = vehicle.Make,
+                model = vehicle.Model,
+                year = vehicle.Year,
+                vin = vehicle.Vin,
+                fuelType = vehicle.FuelType,
+                nzFirstRegistration = FormatDate(vehicle.NzFirstRegistration),
+                updatedAt = FormatDateTime(vehicle.UpdatedAt),
+            }
+        });
+    }
+
     public record UpdateJobNotesRequest(string? Notes);
 
     [HttpPut("{id:long}/notes")]

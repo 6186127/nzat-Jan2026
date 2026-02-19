@@ -66,6 +66,13 @@ type MainColumnProps = {
   onDeletePaintService?: () => Promise<{ success: boolean; message?: string }>;
   onRefreshPaintService?: () => Promise<void>;
   onRefreshVehicle?: () => Promise<{ success: boolean; message?: string }>;
+  onSaveVehicle?: (payload: {
+    year?: number | null;
+    make?: string | null;
+    fuelType?: string | null;
+    vin?: string | null;
+    nzFirstRegistration?: string | null;
+  }) => Promise<{ success: boolean; message?: string }>;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -103,6 +110,7 @@ export function MainColumn({
   onDeletePaintService,
   onRefreshPaintService,
   onRefreshVehicle,
+  onSaveVehicle,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -138,7 +146,12 @@ export function MainColumn({
           onCreatePaintService={onCreatePaintService}
         />
       </Card>
-      <SummaryCard vehicle={jobData.vehicle} customer={jobData.customer} onRefreshVehicle={onRefreshVehicle} />
+      <SummaryCard
+        vehicle={jobData.vehicle}
+        customer={jobData.customer}
+        onRefreshVehicle={onRefreshVehicle}
+        onSaveVehicle={onSaveVehicle}
+      />
 
       <Card className="p-4">
         <JobTabs activeTab={activeTab} onChange={onTabChange} />
