@@ -3,6 +3,9 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using ExcelDataReader;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Google.Apis.Sheets.v4;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
@@ -109,6 +112,13 @@ public class WofRecordsService
 
     public async Task<WofServiceResult> ImportWofRecords(long id, CancellationToken ct)
     {
+        var spreadsheetId = _config["WofImport:SpreadsheetId"];
+        var credentialsPath = _config["WofImport:GoogleCredentialsPath"];
+        if (!string.IsNullOrWhiteSpace(spreadsheetId) && !string.IsNullOrWhiteSpace(credentialsPath))
+        {
+            return await ImportWofRecordsFromGoogleSheet(id, ct);
+        }
+
         var filePath = _config["WofImport:FilePath"];
         if (string.IsNullOrWhiteSpace(filePath))
             return WofServiceResult.BadRequest("Missing WofImport:FilePath configuration.");
@@ -145,16 +155,149 @@ public class WofRecordsService
             }
         }
 
+        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
+    }
+
+    public async Task<WofServiceResult> ImportWofRecordsFromStream(long id, Stream stream, string? sourceFileName, CancellationToken ct)
+    {
+        var sheetName = _config["WofImport:SheetName"];
+        var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
+        var sourceFile = string.IsNullOrWhiteSpace(sourceFileName)
+            ? "upload.xlsx"
+            : Path.GetFileName(sourceFileName);
+
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+        DataTable table;
+        using (var reader = ExcelReaderFactory.CreateReader(stream))
+        {
+            var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
+            {
+                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = true }
+            });
+
+            if (!string.IsNullOrWhiteSpace(sheetName))
+            {
+                if (!dataSet.Tables.Contains(sheetName))
+                    return WofServiceResult.BadRequest($"Sheet '{sheetName}' not found.");
+                table = dataSet.Tables[sheetName]!;
+            }
+            else
+            {
+                if (dataSet.Tables.Count == 0)
+                    return WofServiceResult.BadRequest("No worksheet found in the Excel file.");
+                table = dataSet.Tables[0];
+            }
+        }
+
+        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
+    }
+
+    private async Task<WofServiceResult> ImportWofRecordsFromGoogleSheet(long id, CancellationToken ct)
+    {
+        var spreadsheetId = _config["WofImport:SpreadsheetId"];
+        var credentialsPath = _config["WofImport:GoogleCredentialsPath"];
+        if (string.IsNullOrWhiteSpace(spreadsheetId))
+            return WofServiceResult.BadRequest("Missing WofImport:SpreadsheetId configuration.");
+        if (string.IsNullOrWhiteSpace(credentialsPath))
+            return WofServiceResult.BadRequest("Missing WofImport:GoogleCredentialsPath configuration.");
+        if (!System.IO.File.Exists(credentialsPath))
+            return WofServiceResult.NotFound($"Google credentials not found: {credentialsPath}");
+
+        var sheetName = _config["WofImport:SheetName"];
+        var range = _config["WofImport:GoogleRange"];
+
+        var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
+        var credential = GoogleCredential.FromFile(credentialsPath)
+            .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
+        var service = new SheetsService(new BaseClientService.Initializer
+        {
+            HttpClientInitializer = credential,
+            ApplicationName = "Workshop.Api"
+        });
+
+        if (string.IsNullOrWhiteSpace(sheetName) && string.IsNullOrWhiteSpace(range))
+        {
+            var metaRequest = service.Spreadsheets.Get(spreadsheetId);
+            metaRequest.Fields = "sheets.properties.title";
+            var meta = await metaRequest.ExecuteAsync(ct);
+            sheetName = meta.Sheets?.FirstOrDefault()?.Properties?.Title;
+        }
+
+        if (string.IsNullOrWhiteSpace(range))
+        {
+            range = !string.IsNullOrWhiteSpace(sheetName) ? sheetName : "Sheet1";
+        }
+        if (string.IsNullOrWhiteSpace(sheetName) && range.Contains("!"))
+        {
+            sheetName = range.Split('!')[0];
+        }
+
+        var request = service.Spreadsheets.Values.Get(spreadsheetId, range);
+        var response = await request.ExecuteAsync(ct);
+        var values = response.Values;
+        if (values == null || values.Count == 0)
+            return WofServiceResult.BadRequest("No rows found in the Google Sheet.");
+
+        var table = BuildDataTable(values);
+        var sourceFile = $"google:{spreadsheetId}";
+        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
+    }
+
+    private static DataTable BuildDataTable(IList<IList<object>> values)
+    {
+        var table = new DataTable();
+        if (values.Count == 0)
+            return table;
+
+        var headerRow = values[0];
+        var maxCols = values.Max(v => v?.Count ?? 0);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < maxCols; i++)
+        {
+            var raw = i < headerRow.Count ? headerRow[i]?.ToString() : null;
+            var name = string.IsNullOrWhiteSpace(raw) ? $"col_{i + 1}" : raw!.Trim();
+            var candidate = name;
+            var suffix = 1;
+            while (used.Contains(candidate))
+            {
+                candidate = $"{name}_{suffix}";
+                suffix++;
+            }
+            used.Add(candidate);
+            table.Columns.Add(candidate);
+        }
+
+        for (var rowIndex = 1; rowIndex < values.Count; rowIndex++)
+        {
+            var rowValues = values[rowIndex];
+            var row = table.NewRow();
+            for (var col = 0; col < maxCols; col++)
+            {
+                row[col] = col < rowValues.Count ? rowValues[col]?.ToString() ?? "" : "";
+            }
+            table.Rows.Add(row);
+        }
+
+        return table;
+    }
+
+    private async Task<WofServiceResult> ImportWofRecordsFromTable(
+        long id,
+        DataTable table,
+        string? sheetName,
+        string organisationFallback,
+        string sourceFile,
+        CancellationToken ct)
+    {
         var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < table.Columns.Count; i++)
         {
             var name = NormalizeHeader(table.Columns[i].ColumnName);
             if (!string.IsNullOrWhiteSpace(name) && !columnMap.ContainsKey(name))
                 columnMap[name] = i;
-               
-    
         }
-     
 
         int? colDate = FindColumn(columnMap, "date", "occurredat", "occurred_at", "inspectiondate");
         int? colRego = FindColumn(columnMap, "rego", "registration", "plate", "reg");
@@ -178,7 +321,7 @@ public class WofRecordsService
         int? colOrganisation = FindColumn(columnMap, "organisationname", "organizationname", "organisation", "organization");
         int? colNote = FindColumn(columnMap, "note", "notes");
         int? colUiState = FindColumn(columnMap, "uistate", "wofuistate", "wof_ui_state");
-      
+
         if (colDate is null || colRego is null)
             return WofServiceResult.BadRequest("Missing required columns: Date, Rego.");
 
@@ -205,7 +348,7 @@ public class WofRecordsService
         var skipped = 0;
         var totalRows = 0;
         var missingRego = 0;
-        var missingDate = 0;
+        // var missingDate = 0;
         var unmatchedRego = 0;
         var matchedRego = 0;
 
@@ -230,12 +373,11 @@ public class WofRecordsService
             }
 
             var occurredAt = GetDateTime(row, colDate);
-            if (occurredAt is null)
-            {
-                missingDate++;
-                skipped++;
-                continue;
-            }
+            // if (occurredAt is null)
+            // {
+            //     missingDate++;
+            //     occurredAt = now;
+            // }
             matchedRego++;
 
             var recordState = ParseRecordState(GetString(row, colRecordState)) ?? WofRecordState.Pass;
@@ -246,7 +388,7 @@ public class WofRecordsService
             var record = new JobWofRecord
             {
                 JobId = id,
-                OccurredAt = EnsureUtc(occurredAt.Value),
+                OccurredAt = EnsureUtc(occurredAt ?? now),
                 Rego = rego.Trim(),
                 MakeModel = GetString(row, colMakeModel),
                 Odo = GetString(row, colOdo),
@@ -268,9 +410,8 @@ public class WofRecordsService
                 ImportedAt = now,
                 UpdatedAt = now
             };
-            // PRINT record being inserted for debugging
             Console.WriteLine($"================================================Inserting WOF Record: JobId={record.JobId}, Rego={record.Rego}, OccurredAt={record.OccurredAt}, RecordState={record.RecordState}, ExcelRowNo={record.ExcelRowNo}"); 
-            
+
             _db.JobWofRecords.Add(record);
             inserted++;
         }
@@ -280,15 +421,14 @@ public class WofRecordsService
 
         await tx.CommitAsync(ct);
 
-
-//PRINT RESULT SUMMARY FOR DEBUGGING
         Console.WriteLine("=========WOF Import Summary:========");
         Console.WriteLine($"Total Rows Processed: {totalRows}");
         Console.WriteLine($"Inserted: {inserted}");
         Console.WriteLine($"Skipped: {skipped}");
         Console.WriteLine($"Missing Rego: {missingRego}");
-        Console.WriteLine($"Missing Date: {missingDate}");
-        Console.WriteLine($"Matched Rego: {matchedRego}");          
+        // Console.WriteLine($"Missing Date: {missingDate}");
+        Console.WriteLine($"Matched Rego: {matchedRego}");
+
         return WofServiceResult.Ok(new
         {
             deleted,
@@ -300,7 +440,7 @@ public class WofRecordsService
             matchedRego,
             unmatchedRego,
             missingRego,
-            missingDate,
+            // missingDate,
             jobId = id,
             plate = job.Plate,
             columns = table.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToArray()
