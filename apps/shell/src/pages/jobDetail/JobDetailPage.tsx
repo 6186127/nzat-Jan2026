@@ -46,6 +46,7 @@ export function JobDetailPage() {
     deletePaintService,
     refreshPaintService,
     refreshVehicleInfo,
+    saveVehicleInfo,
   } = useJobDetailData({ jobId: id, onDeleted: () => navigate("/jobs") });
 
   if (loading) {
@@ -105,6 +106,7 @@ export function JobDetailPage() {
         onSaveTags={saveTags}
         onSaveNotes={saveJobNotes}
         onRefreshVehicle={refreshVehicleInfo}
+        onSaveVehicle={saveVehicleInfo}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
       />

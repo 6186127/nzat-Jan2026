@@ -10,7 +10,14 @@ import type {
   WofRecordUpdatePayload,
 } from "@/types";
 import type { TagOption } from "@/components/MultiTagSelect";
-import { fetchJob, fetchTags, updateJobNotes, updateJobTags, deleteJob as apiDeleteJob } from "../api/jobDetailApi";
+import {
+  fetchJob,
+  fetchTags,
+  updateJobNotes,
+  updateJobTags,
+  updateVehicleInfo,
+  deleteJob as apiDeleteJob,
+} from "../api/jobDetailApi";
 import {
   fetchPaintService,
   createPaintService,
@@ -540,6 +547,41 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     return { success: true, message: label ? `抓取成功：${label}` : "抓取成功" };
   }, [jobId, jobData?.vehicle?.plate, toast]);
 
+  const saveVehicleInfo = useCallback(
+    async (payload: {
+      year?: number | null;
+      make?: string | null;
+      fuelType?: string | null;
+      vin?: string | null;
+      nzFirstRegistration?: string | null;
+    }) => {
+      if (!jobId) return { success: false, message: "缺少工单 ID" };
+
+      const res = await updateVehicleInfo(jobId, payload);
+      if (!res.ok) {
+        const message = res.error || "保存车辆信息失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      const nextVehicle = res.data?.vehicle ?? {};
+      setJobData((prev) =>
+        prev
+          ? {
+              ...prev,
+              vehicle: {
+                ...prev.vehicle,
+                ...nextVehicle,
+              },
+            }
+          : prev
+      );
+      toast.success("车辆信息已更新");
+      return { success: true, message: "车辆信息已更新", vehicle: nextVehicle };
+    },
+    [jobId, toast]
+  );
+
   useEffect(() => {
     let cancelled = false;
     isMountedRef.current = true;
@@ -661,5 +703,6 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     deletePaintService: deletePaintServiceRow,
     refreshPaintService,
     refreshVehicleInfo,
+    saveVehicleInfo,
   };
 }

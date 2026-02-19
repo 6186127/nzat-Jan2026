@@ -43,3 +43,14 @@ export function updateJobNotes(jobId: string, notes: string) {
     body: JSON.stringify({ notes }),
   });
 }
+
+export function updateVehicleInfo(
+  jobId: string,
+  payload: { year?: number | null; make?: string | null; fuelType?: string | null; vin?: string | null; nzFirstRegistration?: string | null }
+) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/vehicle`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
