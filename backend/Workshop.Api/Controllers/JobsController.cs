@@ -181,6 +181,49 @@ public class JobsController : ControllerBase
     public record UpdatePaintStageRequest(int? StageIndex);
     public record UpdatePaintPanelsRequest(int? Panels);
 
+    [HttpGet("paint-board")]
+    public async Task<IActionResult> GetPaintBoard(CancellationToken ct)
+    {
+        var rows = await (
+                from p in _db.JobPaintServices.AsNoTracking()
+                join j in _db.Jobs.AsNoTracking() on p.JobId equals j.Id
+                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
+                orderby j.CreatedAt descending
+                select new
+                {
+                    j.Id,
+                    j.CreatedAt,
+                    j.Notes,
+                    v.Plate,
+                    v.Make,
+                    v.Model,
+                    v.Year,
+                    p.Status,
+                    p.CurrentStage,
+                    p.Panels,
+                    p.UpdatedAt
+                }
+            )
+            .ToListAsync(ct);
+
+        var jobs = rows.Select(r => new
+        {
+            id = r.Id.ToString(CultureInfo.InvariantCulture),
+            createdAt = FormatDateTime(r.CreatedAt),
+            plate = r.Plate,
+            year = r.Year,
+            make = r.Make,
+            model = r.Model,
+            status = r.Status,
+            currentStage = r.CurrentStage,
+            panels = r.Panels,
+            notes = r.Notes ?? "",
+            updatedAt = FormatDateTime(r.UpdatedAt)
+        });
+
+        return Ok(new { jobs });
+    }
+
     [HttpGet("{id:long}/paint-service")]
     public async Task<IActionResult> GetPaintService(long id, CancellationToken ct)
     {
