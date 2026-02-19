@@ -33,3 +33,7 @@ export function deletePaintService(jobId: string) {
     method: "DELETE",
   });
 }
+
+export function fetchPaintBoard() {
+  return requestJson<any>("/api/jobs/paint-board");
+}

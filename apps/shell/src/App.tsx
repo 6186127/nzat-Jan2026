@@ -10,9 +10,11 @@ import { CustomersPage } from "./pages/customers/CustomersPage";
 import { WofFailReasonsPage } from "./pages/wofFails/WofFailReasonsPage";
 import { PartFlowPage } from "./pages/PartFlowPages/PartFlowPage";
 import { PaintBoardPage } from "./pages/paint/PaintBoardPage";
+import { PaintTechBoardPage } from "./pages/paint/PaintTechBoardPage";
 import { ToastProvider } from "@/components/ui";
 
 const router = createBrowserRouter([
+  { path: "/paint-tech", element: <PaintTechBoardPage /> },
   {
     path: "/",
     element: <AppFrame />,

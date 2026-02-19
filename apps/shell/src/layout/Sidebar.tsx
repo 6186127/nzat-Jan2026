@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { PAINT_BOARD_MOCK_JOBS, countPaintOverdue } from "@/features/paint/paintBoard.mock";
+import { fetchPaintBoard } from "@/features/paint/api/paintApi";
+import { countOverdue, type PaintBoardJob } from "@/features/paint/paintBoard.utils";
 import { Plus } from "lucide-react";
 
 const linkBase =
@@ -10,7 +12,21 @@ const linkIdle =
   "text-[var(--ds-muted)] hover:text-[var(--ds-text)] hover:bg-[rgba(255,255,255,0.04)]";
 
 export function Sidebar() {
-  const paintOverdueCount = countPaintOverdue(PAINT_BOARD_MOCK_JOBS);
+  const [paintOverdueCount, setPaintOverdueCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const res = await fetchPaintBoard();
+      if (!res.ok) return;
+      const list = Array.isArray(res.data?.jobs) ? (res.data.jobs as PaintBoardJob[]) : [];
+      if (!cancelled) setPaintOverdueCount(countOverdue(list));
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <div className="h-full p-4 flex flex-col gap-6">
       <div>
