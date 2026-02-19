@@ -46,7 +46,7 @@ export function VehicleSection({
             </div>
             <Button
               // variant="ghost"
-              className="h-9 bg-[var(--ds-primary)] text-black hover:bg-[var(--ds-primary)] hover:text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+              className="min-w-[72px] px-4 bg-[var(--ds-primary)] text-black hover:bg-[var(--ds-primary)] hover:text-white disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
               onClick={onImport}
               disabled={!rego || importState === "loading"}
             >
