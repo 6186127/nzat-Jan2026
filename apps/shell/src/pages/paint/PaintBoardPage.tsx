@@ -233,19 +233,25 @@ export function PaintBoardPage() {
             />
             仅逾期
           </label>
+          <div>
+
+        
           <Input
             type="date"
             value={createdFrom}
             onChange={(event) => setCreatedFrom(event.target.value)}
             className="h-9 w-[150px]"
           />
+            </div>
           <span className="text-xs text-slate-400">到</span>
+          <div>
           <Input
             type="date"
             value={createdTo}
             onChange={(event) => setCreatedTo(event.target.value)}
             className="h-9 w-[150px]"
           />
+            </div>
           <button
             type="button"
             className="rounded-xl border border-[rgba(15,23,42,0.08)] bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm hover:text-slate-800"
