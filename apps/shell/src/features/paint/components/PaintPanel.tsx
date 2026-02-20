@@ -40,7 +40,6 @@ export function PaintPanel({
   const [updatingStage, setUpdatingStage] = useState<number | null>(null);
   const [updatingPanels, setUpdatingPanels] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const status = service?.status ?? "pending";
   const currentStage = typeof service?.currentStage === "number" ? service.currentStage : -1;
@@ -87,13 +86,12 @@ export function PaintPanel({
   const handleDelete = async () => {
     if (!onDeleteService) return;
     if (!window.confirm("确定删除喷漆服务？")) return;
-    setDeleteMessage(null);
     setDeleteError(null);
     setDeleting(true);
     const res = await onDeleteService();
     setDeleting(false);
     if (res.success) {
-      setDeleteMessage(res.message || "已删除喷漆服务");
+      // no-op, refresh is handled upstream
     } else {
       setDeleteError(res.message || "删除失败");
     }
@@ -117,7 +115,6 @@ export function PaintPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm font-semibold text-[var(--ds-text)]">喷漆流程</div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--ds-muted)] mt-4">
-          {/* {deleteMessage ? <div className="text-xs text-green-600">{deleteMessage}</div> : null} */}
           {deleteError ? <div className="text-xs text-red-600">{deleteError}</div> : null}
           <span>片数</span>
           <Select
