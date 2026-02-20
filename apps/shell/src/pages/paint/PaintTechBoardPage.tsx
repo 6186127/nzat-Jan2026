@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  AlertCircle,
   Car,
   CheckCircle2,
   ClipboardCheck,
@@ -12,20 +11,19 @@ import {
 } from "lucide-react";
 import { fetchPaintBoard, updatePaintStage } from "@/features/paint/api/paintApi";
 import {
-  countOverdue,
   getDurationDays,
   mapStageKey,
   normalizeDate,
   type PaintBoardJob,
   type StageKey,
 } from "@/features/paint/paintBoard.utils";
-import { Input, Select } from "@/components/ui";
+import { Select } from "@/components/ui";
 
 const STAGES: Record<
   StageKey,
   {
     label: string;
-    icon: JSX.Element;
+    icon: ReactNode;
     pill: string;
     card: string;
     text: string;

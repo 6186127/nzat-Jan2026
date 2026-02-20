@@ -5,7 +5,6 @@ type RepairPanelProps = {
   services: PartsService[];
   mechServices?: MechService[];
   isLoading?: boolean;
-  mechLoading?: boolean;
   onCreateService?: (payload: {
     description: string;
     status?: PartsServiceStatus;
@@ -30,7 +29,6 @@ export function RepairPanel({
   services,
   mechServices,
   isLoading,
-  mechLoading,
   onCreateService,
   onUpdateService,
   onDeleteService,

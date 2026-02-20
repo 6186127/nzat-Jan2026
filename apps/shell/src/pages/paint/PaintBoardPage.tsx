@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Filter, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Input, Select } from "@/components/ui";
 import { fetchPaintBoard, updatePaintStage } from "@/features/paint/api/paintApi";
 import {
