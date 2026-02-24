@@ -5,7 +5,7 @@ import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { MultiTagSelect } from "@/components/MultiTagSelect";
 import { formatJobDisplayId } from "@/utils/jobId";
-import { useJobSheetPrinter } from "@/features/jobs/useJobSheetPrinter";
+import { useJobSheetPrinter } from "@/features/printing/useJobSheetPrinter";
 
 interface JobHeaderProps {
   jobId: string;

@@ -5,7 +5,7 @@ import {
   renderJobSheetPopup,
   type JobSheetRow,
   type JobSheetType,
-} from "./jobPrint";
+} from "./jobSheetPrint";
 
 type ResolveJobSheetData = (id: string) => Promise<{ row: JobSheetRow; notes: string } | null>;
 
