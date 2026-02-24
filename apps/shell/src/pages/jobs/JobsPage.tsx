@@ -12,7 +12,7 @@ import {
   getPageFromSearchParams,
   DEFAULT_JOBS_FILTERS,
 } from "@/features/jobs";
-import { useJobSheetPrinter } from "@/features/jobs/useJobSheetPrinter";
+import { useJobSheetPrinter } from "@/features/printing/useJobSheetPrinter";
 import type { TagOption } from "@/components/MultiTagSelect";
 import {
   deleteJob,
