@@ -24,7 +24,7 @@ export const TAG_OPTIONS: TagOption[] = [
 ];
 
 // 3) pageSize：分页大小配置集中
-export const JOBS_PAGE_SIZE = 10;
+export const JOBS_PAGE_SIZE = 6;
 
 // 4) Status 的 label 映射集中（中英都可以在这里控制）
 export const JOB_STATUS_LABELS: Record<JobStatus, string> = {

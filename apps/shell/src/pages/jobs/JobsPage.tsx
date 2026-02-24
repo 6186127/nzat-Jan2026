@@ -12,6 +12,7 @@ import {
   getPageFromSearchParams,
   DEFAULT_JOBS_FILTERS,
 } from "@/features/jobs";
+import { useJobSheetPrinter } from "@/features/jobs/useJobSheetPrinter";
 import type { TagOption } from "@/components/MultiTagSelect";
 import {
   deleteJob,
@@ -21,210 +22,158 @@ import {
   updateJobTags,
 } from "@/features/jobDetail/api/jobDetailApi";
 
-
-
-
-
 export function JobsPage() {
-const [searchParams, setSearchParams] = useSearchParams();
-const initialFilters = searchParamsToFilters(searchParams);
-const initialPage = getPageFromSearchParams(searchParams);
-const [loading, setLoading] = useState(true);
-const [loadError, setLoadError] = useState<string | null>(null);
-const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFilters = searchParamsToFilters(searchParams);
+  const initialPage = getPageFromSearchParams(searchParams);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const toast = useToast();
 
-const buildCreatedAtWithDate = (prevValue: string, date: string) => {
-  const datePart = date.replace(/-/g, "/");
-  const timePart = prevValue.includes(" ") ? prevValue.split(" ")[1] : "00:00";
-  return `${datePart} ${timePart}`;
-};
+  const buildCreatedAtWithDate = (prevValue: string, date: string) => {
+    const datePart = date.replace(/-/g, "/");
+    const timePart = prevValue.includes(" ") ? prevValue.split(" ")[1] : "00:00";
+    return `${datePart} ${timePart}`;
+  };
 
-const escapeHtml = (value?: string) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  const {
+    filters,
+    setFilters,
+    paginatedRows,
+    totalPages,
+    totalItems,
+    currentPage,
+    setCurrentPage,
+    pageSize,
+    allRows,
+    setAllRows,
+  } = useJobsQuery({
+    initialRows: [],
+    pageSize: JOBS_PAGE_SIZE,
+    initialFilters,
+    initialPage,
+  });
 
-const buildPrintHtml = (type: "mech" | "paint", row: any, notes: string) => {
-  const title = type === "mech" ? "机修工单" : "喷漆工单";
-  const date = new Date().toLocaleString();
-  const noteText = notes?.trim() ? notes : "—";
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-      h1 { font-size: 22px; margin: 0 0 8px; }
-      .sub { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
-      .grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: 14px; }
-      .label { color: #6b7280; }
-      .section { margin-top: 18px; }
-      .notes { min-height: 120px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; white-space: pre-wrap; }
-      @media print { .no-print { display: none; } }
-    </style>
-  </head>
-  <body>
-    <h1>${title}</h1>
-    <div class="sub">打印时间：${escapeHtml(date)}</div>
-    <div class="grid">
-      <div class="label">Job ID</div><div>${escapeHtml(row?.id)}</div>
-      <div class="label">车牌号</div><div>${escapeHtml(row?.plate)}</div>
-      <div class="label">车型</div><div>${escapeHtml(row?.vehicleModel)}</div>
-      <div class="label">客户</div><div>${escapeHtml(row?.customerCode || row?.customerName)}</div>
-      <div class="label">电话</div><div>${escapeHtml(row?.customerPhone)}</div>
-      <div class="label">创建时间</div><div>${escapeHtml(row?.createdAt)}</div>
-    </div>
-    <div class="section">
-      <div class="label">备注</div>
-      <div class="notes">${escapeHtml(noteText)}</div>
-    </div>
-  </body>
-</html>`;
-};
+  const didSyncRef = useRef(false);
+  useEffect(() => {
+    console.log("SYNC URL", { currentPage, filters });
 
-const {
-  filters,
-  setFilters,
-  paginatedRows,
-  totalPages,
-  totalItems,
-  currentPage,
-  setCurrentPage,
-  pageSize,
-  allRows,
-  setAllRows,
-} = useJobsQuery({
-  initialRows: [],
-  pageSize: JOBS_PAGE_SIZE,
-  initialFilters,
-  initialPage,
-});
-const didSyncRef = useRef(false);
-useEffect(() => {
-  console.log("SYNC URL", { currentPage, filters });
+    if (!didSyncRef.current) {
+      didSyncRef.current = true;
+      return;
+    }
 
-  if (!didSyncRef.current) {
-    didSyncRef.current = true;
-    return;
-  }
+    const next = filtersToSearchParams(filters);
+    if (currentPage > 1) next.set("page", String(currentPage));
+    setSearchParams(next, { replace: true });
+  }, [filters, currentPage, setSearchParams]);
 
-  const next = filtersToSearchParams(filters);
-  if (currentPage > 1) next.set("page", String(currentPage));
-  setSearchParams(next, { replace: true });
-}, [filters, currentPage, setSearchParams]);
+  const onReset = () => {
+    setFilters(DEFAULT_JOBS_FILTERS);
+    setCurrentPage(1);
+    setSearchParams(new URLSearchParams(), { replace: true });
+  };
 
-const onReset = () => {
-  setFilters(DEFAULT_JOBS_FILTERS);
-  setCurrentPage(1);
-  setSearchParams(new URLSearchParams(), { replace: true });
-};
+  useEffect(() => {
+    let cancelled = false;
 
-useEffect(() => {
-  let cancelled = false;
-
-  const loadJobs = async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fetch(withApiBase("/api/jobs"));
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "加载工单失败");
-      }
-      const rows = Array.isArray(data) ? data : data?.items ?? [];
-     
-      if (!cancelled) {
-        if (rows.length === 0) {
-          setAllRows(rows);
-          return;
+    const loadJobs = async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const res = await fetch(withApiBase("/api/jobs"));
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(data?.error || "加载工单失败");
         }
+        const rows = Array.isArray(data) ? data : data?.items ?? [];
 
-        const ids = rows.map((row: { id?: string }) => row.id).filter(Boolean).join(",");
-        if (!ids) {
-          setAllRows(rows);
-          return;
-        }
+        if (!cancelled) {
+          if (rows.length === 0) {
+            setAllRows(rows);
+            return;
+          }
 
-        const tagsRes = await fetch(withApiBase(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`));
-        const tagsData = await tagsRes.json().catch(() => null);
-        if (!tagsRes.ok) {
-          throw new Error(tagsData?.error || "加载标签失败");
-        }
+          const ids = rows.map((row: { id?: string }) => row.id).filter(Boolean).join(",");
+          if (!ids) {
+            setAllRows(rows);
+            return;
+          }
 
-        const tagMap = new Map<string, string[]>();
-        if (Array.isArray(tagsData)) {
-          tagsData.forEach((entry) => {
-            if (entry?.jobId) {
-              tagMap.set(String(entry.jobId), Array.isArray(entry.tags) ? entry.tags : []);
-            }
+          const tagsRes = await fetch(withApiBase(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`));
+          const tagsData = await tagsRes.json().catch(() => null);
+          if (!tagsRes.ok) {
+            throw new Error(tagsData?.error || "加载标签失败");
+          }
+
+          const tagMap = new Map<string, string[]>();
+          if (Array.isArray(tagsData)) {
+            tagsData.forEach((entry) => {
+              if (entry?.jobId) {
+                tagMap.set(String(entry.jobId), Array.isArray(entry.tags) ? entry.tags : []);
+              }
+            });
+          }
+
+          const rowsWithTags = rows.map((row: any) => {
+            const tags = tagMap.get(String(row.id)) ?? [];
+            const mergedTags = row.urgent ? Array.from(new Set(["Urgent", ...tags])) : tags;
+            const hasUrgent = mergedTags.some((tag) => String(tag).toLowerCase() === "urgent");
+            return { ...row, urgent: hasUrgent, selectedTags: mergedTags };
           });
+
+          setAllRows(rowsWithTags);
         }
-
-        const rowsWithTags = rows.map((row: any) => {
-          const tags = tagMap.get(String(row.id)) ?? [];
-          const mergedTags = row.urgent ? Array.from(new Set(["Urgent", ...tags])) : tags;
-          const hasUrgent = mergedTags.some((tag) => String(tag).toLowerCase() === "urgent");
-          return { ...row, urgent: hasUrgent, selectedTags: mergedTags };
-        });
-
-        setAllRows(rowsWithTags);
+      } catch (err) {
+        if (!cancelled) {
+          setAllRows([]);
+          const message = err instanceof Error ? err.message : "加载工单失败";
+          setLoadError(message);
+          toast.error(message);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (err) {
-      if (!cancelled) {
-        setAllRows([]);
-        const message = err instanceof Error ? err.message : "加载工单失败";
-        setLoadError(message);
-        toast.error(message);
+    };
+
+    loadJobs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setAllRows, toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTags = async () => {
+      try {
+        const res = await fetch(withApiBase("/api/tags"));
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(data?.error || "加载标签失败");
+        }
+        const tags = Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          const activeTags = tags.filter(
+            (tag: any) => tag?.isActive !== false && typeof tag?.name === "string"
+          );
+          setTagOptions(activeTags.map((tag: any) => ({ id: tag.name, label: tag.name })));
+        }
+      } catch {
+        if (!cancelled) {
+          setTagOptions([]);
+        }
       }
-    } finally {
-      if (!cancelled) setLoading(false);
-    }
-  };
+    };
 
-  loadJobs();
+    loadTags();
 
-  return () => {
-    cancelled = true;
-  };
-}, [setAllRows, toast]);
-
-useEffect(() => {
-  let cancelled = false;
-
-  const loadTags = async () => {
-    try {
-      const res = await fetch(withApiBase("/api/tags"));
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "加载标签失败");
-      }
-      const tags = Array.isArray(data) ? data : [];
-      if (!cancelled) {
-        const activeTags = tags.filter(
-          (tag: any) => tag?.isActive !== false && typeof tag?.name === "string"
-        );
-        setTagOptions(activeTags.map((tag: any) => ({ id: tag.name, label: tag.name })));
-      }
-    } catch {
-      if (!cancelled) {
-        setTagOptions([]);
-      }
-    }
-  };
-
-  loadTags();
-
-  return () => {
-    cancelled = true;
-  };
-}, []);
-
-
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleToggleUrgent = useCallback(
     async (id: string) => {
@@ -306,7 +255,7 @@ useEffect(() => {
     [setAllRows, toast]
   );
 
-const handleUpdateCreatedAt = useCallback(
+  const handleUpdateCreatedAt = useCallback(
     async (id: string, date: string) => {
       const res = await updateJobCreatedAt(id, date);
       if (!res.ok) {
@@ -332,34 +281,56 @@ const handleUpdateCreatedAt = useCallback(
     [setAllRows, toast]
   );
 
-  const handlePrintTemplate = useCallback(
-    async (id: string, type: "mech" | "paint") => {
+  const resolveJobSheetData = useCallback(
+    async (id: string) => {
       const row = allRows.find((item) => item.id === id);
-      const popup = window.open("", "_blank", "width=900,height=650");
-      if (!popup) {
-        toast.error("无法打开打印窗口，请允许弹窗");
-        return;
-      }
-      popup.document.write("<html><body>Loading...</body></html>");
-      popup.document.close();
-
       let notes = row?.notes ?? "";
-      if (!notes) {
-        const jobRes = await fetchJob(id);
-        if (jobRes.ok) {
-          const job = (jobRes.data as any)?.job ?? jobRes.data;
+      let mergedRow: any = row ?? {};
+
+      const jobRes = await fetchJob(id);
+      if (jobRes.ok) {
+        const job = (jobRes.data as any)?.job ?? jobRes.data;
+
+        // notes 兜底（保持你原逻辑）
+        if (!notes) {
           notes = job?.notes ?? job?.customer?.notes ?? "";
         }
+
+        // 新增字段兜底：如果列表 row 没有，就从 job 里补
+        mergedRow = {
+          ...(row ?? {}),
+          nzFirstRegistration:
+            (row as any)?.nzFirstRegistration ??
+            job?.nzFirstRegistration ??
+            job?.vehicle?.nzFirstRegistration ??
+            job?.vehicle?.firstRegistration ??
+            job?.vehicle?.nz_first_registration ??
+            "",
+          vin:
+            (row as any)?.vin ??
+            job?.vin ??
+            job?.vehicle?.vin ??
+            job?.vehicle?.vehicleVin ??
+            job?.vehicle?.vehicle_vin ??
+            "",
+        };
       }
 
-      const html = buildPrintHtml(type, row, notes);
-      popup.document.open();
-      popup.document.write(html);
-      popup.document.close();
-      popup.focus();
-      setTimeout(() => popup.print(), 50);
+      return { row: mergedRow, notes };
     },
-    [allRows, toast]
+    [allRows, fetchJob]
+  );
+
+  const { printById } = useJobSheetPrinter({
+    onPopupBlocked: () => toast.error("无法打开打印窗口，请允许弹窗"),
+    resolveById: resolveJobSheetData,
+  });
+
+  const handlePrintTemplate = useCallback(
+    async (id: string, type: "mech" | "paint") => {
+      await printById(id, type);
+    },
+    [printById]
   );
 
   const handlePrintMech = useCallback(
