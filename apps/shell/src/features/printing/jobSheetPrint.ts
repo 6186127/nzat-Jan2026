@@ -6,13 +6,9 @@ export type JobSheetRow = {
   customerCode?: string | null;
   customerName?: string | null;
   createdAt?: string | null;
+  panels?: number | null;
   nzFirstRegistration?: string | null;
-  nzFirstReg?: string | null;
-  firstRegistration?: string | null;
-  nz_first_registration?: string | null;
   vin?: string | null;
-  vehicleVin?: string | null;
-  vehicle_vin?: string | null;
 };
 
 const escapeHtml = (value?: string) =>
@@ -85,20 +81,12 @@ export const buildJobSheetHtml = (type: JobSheetType, row: JobSheetRow, notes: s
   const customer = String(row?.customerCode || row?.customerName || "").trim();
   const dateStr = toDDMMYYYY(String(row?.createdAt ?? ""));
   const comments = String(notes ?? "").trim();
-  const panels = "";
+  const panels = row?.panels === null || row?.panels === undefined ? "" : String(row.panels);
 
   // 新增字段（MECH 模板）
-  const nzFirstReg =
-    String(
-      row?.nzFirstRegistration ??
-        row?.nzFirstReg ??
-        row?.firstRegistration ??
-        row?.nz_first_registration ??
-        ""
-    ).trim();
+  const nzFirstReg = String(row?.nzFirstRegistration ?? "").trim();
 
-  const vin =
-    String(row?.vin ?? row?.vehicleVin ?? row?.vehicle_vin ?? "").trim();
+  const vin = String(row?.vin ?? "").trim();
 
   const bgUrl = isMech
     ? "/print_templates/mech.png"
