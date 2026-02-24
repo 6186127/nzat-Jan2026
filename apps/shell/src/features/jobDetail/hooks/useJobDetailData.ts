@@ -54,6 +54,7 @@ import {
   updateMechService,
 } from "@/features/mech/api/mechApi";
 import { useToast } from "@/components/ui";
+import { emitJobNotesSync } from "@/utils/jobNotesSync";
 
 type UseJobDetailDataArgs = {
   jobId?: string;
@@ -312,6 +313,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
 
       setJobData((prev) => (prev ? { ...prev, notes } : prev));
+      emitJobNotesSync({ jobId, notes, updatedAt: Date.now() });
       toast.success("备注已更新");
       return { success: true, message: "备注已更新" };
     },
