@@ -21,6 +21,7 @@ interface JobHeaderProps {
   customerPhone?: string;
   vin?: string | null;
   nzFirstRegistration?: string | null;
+  paintPanels?: number | null;
   hasPaintService?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
@@ -44,6 +45,7 @@ export function JobHeader({
   customerPhone,
   vin,
   nzFirstRegistration,
+  paintPanels,
   hasPaintService,
   onDelete,
   isDeleting,
@@ -140,8 +142,9 @@ export function JobHeader({
       customerCode,
       customerName,
       createdAt,
-      nzFirstRegistration: nzFirstRegistration ?? undefined,
-      vin: vin ?? undefined,
+      panels: paintPanels ?? null,
+      nzFirstRegistration: nzFirstRegistration ?? "",
+      vin: vin ?? "",
     };
     print(type, row, noteDraft || notes);
   };

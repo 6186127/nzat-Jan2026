@@ -21,6 +21,7 @@ import {
   updateJobStatus,
   updateJobTags,
 } from "@/features/jobDetail/api/jobDetailApi";
+import { fetchPaintService } from "@/features/paint/api/paintApi";
 
 export function JobsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -283,42 +284,34 @@ export function JobsPage() {
 
   const resolveJobSheetData = useCallback(
     async (id: string) => {
-      const row = allRows.find((item) => item.id === id);
-      let notes = row?.notes ?? "";
-      let mergedRow: any = row ?? {};
-
       const jobRes = await fetchJob(id);
-      if (jobRes.ok) {
-        const job = (jobRes.data as any)?.job ?? jobRes.data;
+      if (!jobRes.ok) return null;
+      const job = (jobRes.data as any)?.job ?? jobRes.data;
 
-        // notes 兜底（保持你原逻辑）
-        if (!notes) {
-          notes = job?.notes ?? job?.customer?.notes ?? "";
-        }
+      const paintRes = await fetchPaintService(id);
+      const paintPanels =
+        paintRes.ok && paintRes.data?.exists && paintRes.data?.service?.panels !== undefined
+          ? Number(paintRes.data.service.panels)
+          : null;
 
-        // 新增字段兜底：如果列表 row 没有，就从 job 里补
-        mergedRow = {
-          ...(row ?? {}),
-          nzFirstRegistration:
-            (row as any)?.nzFirstRegistration ??
-            job?.nzFirstRegistration ??
-            job?.vehicle?.nzFirstRegistration ??
-            job?.vehicle?.firstRegistration ??
-            job?.vehicle?.nz_first_registration ??
-            "",
-          vin:
-            (row as any)?.vin ??
-            job?.vin ??
-            job?.vehicle?.vin ??
-            job?.vehicle?.vehicleVin ??
-            job?.vehicle?.vehicle_vin ??
-            "",
-        };
-      }
+      const notes = job?.notes ?? job?.customer?.notes ?? "";
 
-      return { row: mergedRow, notes };
+      const row = {
+        plate: job?.vehicle?.plate ?? "",
+        vehicleModel: [job?.vehicle?.make, job?.vehicle?.model, job?.vehicle?.year]
+          .filter(Boolean)
+          .join(" "),
+        customerCode: job?.customer?.businessCode ?? "",
+        customerName: job?.customer?.name ?? "",
+        createdAt: job?.createdAt ?? "",
+        panels: Number.isFinite(paintPanels) ? paintPanels : null,
+        nzFirstRegistration: job?.vehicle?.nzFirstRegistration ?? "",
+        vin: job?.vehicle?.vin ?? "",
+      };
+
+      return { row, notes };
     },
-    [allRows, fetchJob]
+    [fetchJob]
   );
 
   const { printById } = useJobSheetPrinter({
