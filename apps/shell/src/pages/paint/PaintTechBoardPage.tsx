@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Car,
   CheckCircle2,
@@ -18,6 +18,12 @@ import {
   type StageKey,
 } from "@/features/paint/paintBoard.utils";
 import { Select } from "@/components/ui";
+import {
+  JOB_NOTES_SYNC_EVENT,
+  JOB_NOTES_SYNC_STORAGE_KEY,
+  parseJobNotesSyncPayload,
+  type JobNotesSyncPayload,
+} from "@/utils/jobNotesSync";
 
 const STAGES: Record<
   StageKey,
@@ -98,7 +104,41 @@ export function PaintTechBoardPage() {
   const [search, setSearch] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | StageKey>("all");
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const pageSize = 20;
+
+  const applyNotesUpdate = useCallback((payload: JobNotesSyncPayload) => {
+    if (!payload?.jobId) return;
+    setJobs((prev) => {
+      const index = prev.findIndex((job) => job.id === payload.jobId);
+      if (index < 0) return prev;
+      const current = prev[index];
+      if (current.notes === payload.notes) return prev;
+      const next = [...prev];
+      next[index] = { ...current, notes: payload.notes };
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleNotesEvent = (event: Event) => {
+      const detail = (event as CustomEvent<JobNotesSyncPayload>).detail;
+      if (!detail) return;
+      applyNotesUpdate(detail);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== JOB_NOTES_SYNC_STORAGE_KEY) return;
+      const payload = parseJobNotesSyncPayload(event.newValue);
+      if (!payload) return;
+      applyNotesUpdate(payload);
+    };
+    window.addEventListener(JOB_NOTES_SYNC_EVENT, handleNotesEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(JOB_NOTES_SYNC_EVENT, handleNotesEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [applyNotesUpdate]);
 
   useEffect(() => {
     let cancelled = false;
