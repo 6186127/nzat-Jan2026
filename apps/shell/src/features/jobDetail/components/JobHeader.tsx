@@ -5,6 +5,7 @@ import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { MultiTagSelect } from "@/components/MultiTagSelect";
 import { formatJobDisplayId } from "@/utils/jobId";
+import { useJobSheetPrinter } from "@/features/jobs/useJobSheetPrinter";
 
 interface JobHeaderProps {
   jobId: string;
@@ -18,6 +19,8 @@ interface JobHeaderProps {
   customerName: string;
   customerCode?: string;
   customerPhone?: string;
+  vin?: string | null;
+  nzFirstRegistration?: string | null;
   hasPaintService?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
@@ -39,6 +42,8 @@ export function JobHeader({
   customerName,
   customerCode,
   customerPhone,
+  vin,
+  nzFirstRegistration,
   hasPaintService,
   onDelete,
   isDeleting,
@@ -126,62 +131,19 @@ export function JobHeader({
     }
   };
 
-  const escapeHtml = (value?: string) =>
-    String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-
-  const buildPrintHtml = (type: "mech" | "paint", noteText: string) => {
-    const title = type === "mech" ? "机修工单" : "喷漆工单";
-    const date = new Date().toLocaleString();
-    const noteContent = noteText?.trim() ? noteText : "—";
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
-      h1 { font-size: 22px; margin: 0 0 8px; }
-      .sub { color: #6b7280; font-size: 12px; margin-bottom: 16px; }
-      .grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 16px; font-size: 14px; }
-      .label { color: #6b7280; }
-      .section { margin-top: 18px; }
-      .notes { min-height: 120px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; white-space: pre-wrap; }
-      @media print { .no-print { display: none; } }
-    </style>
-  </head>
-  <body>
-    <h1>${title}</h1>
-    <div class="sub">打印时间：${escapeHtml(date)}</div>
-    <div class="grid">
-      <div class="label">Job ID</div><div>${escapeHtml(jobId)}</div>
-      <div class="label">车牌号</div><div>${escapeHtml(vehiclePlate)}</div>
-      <div class="label">车型</div><div>${escapeHtml(vehicleModel)}</div>
-      <div class="label">客户</div><div>${escapeHtml(customerCode || customerName)}</div>
-      <div class="label">电话</div><div>${escapeHtml(customerPhone)}</div>
-      <div class="label">创建时间</div><div>${escapeHtml(createdAt)}</div>
-    </div>
-    <div class="section">
-      <div class="label">备注</div>
-      <div class="notes">${escapeHtml(noteContent)}</div>
-    </div>
-  </body>
-</html>`;
-  };
+  const { print } = useJobSheetPrinter();
 
   const handlePrint = (type: "mech" | "paint") => {
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
-    if (!printWindow) return;
-    const html = buildPrintHtml(type, noteDraft || notes);
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    const row = {
+      plate: vehiclePlate,
+      vehicleModel,
+      customerCode,
+      customerName,
+      createdAt,
+      nzFirstRegistration: nzFirstRegistration ?? undefined,
+      vin: vin ?? undefined,
+    };
+    print(type, row, noteDraft || notes);
   };
 
   const handlePaintClick = async () => {

@@ -27,7 +27,7 @@ type Options = {
 
 
 export function useJobsQuery(options: Options) {
-  const pageSize = options.pageSize ?? 20;
+  const pageSize = options.pageSize ?? 6;
 
  
   const [allRows, setAllRows] = useState<JobRow[]>(options.initialRows);

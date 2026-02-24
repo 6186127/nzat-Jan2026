@@ -151,6 +151,8 @@ export function MainColumn({
           customerName={jobData.customer.name}
           customerCode={jobData.customer.businessCode}
           customerPhone={jobData.customer.phone}
+          vin={jobData.vehicle.vin}
+          nzFirstRegistration={jobData.vehicle.nzFirstRegistration}
           hasPaintService={Boolean(paintService?.id)}
           onDelete={onDeleteJob}
           isDeleting={isDeletingJob}
