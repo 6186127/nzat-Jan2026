@@ -418,7 +418,7 @@ export function NewJobPage() {
           plate: rego,
           services: selectedServices,
           notes: notesPayload,
-          partsDescription: normalizedPartsDescriptions[0],
+          // partsDescription: normalizedPartsDescriptions[0],
           partsDescriptions: normalizedPartsDescriptions,
           mechItems: hasMech ? selectedMechOptionLabels : [],
           paintPanels: showPaintPanels ? Number(paintPanels) || 1 : undefined,
