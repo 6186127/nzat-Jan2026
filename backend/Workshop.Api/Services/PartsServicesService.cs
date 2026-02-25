@@ -205,10 +205,12 @@ public class PartsServicesService
 
     public async Task<WofServiceResult> GetPartFlow(CancellationToken ct)
     {
-        var services = await _db.JobPartsServices.AsNoTracking()
-            .OrderByDescending(x => x.UpdatedAt)
-            .ThenByDescending(x => x.Id)
-            .ToListAsync(ct);
+        var services = await (
+            from ps in _db.JobPartsServices.AsNoTracking()
+            join j in _db.Jobs.AsNoTracking() on ps.JobId equals j.Id
+            orderby ps.UpdatedAt descending, ps.Id descending
+            select ps
+        ).ToListAsync(ct);
 
         if (services.Count == 0)
             return WofServiceResult.Ok(new List<object>());
