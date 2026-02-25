@@ -1,10 +1,10 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { Card, Button, EmptyState, Alert, useToast } from "@/components/ui";
+import { Card, Button, EmptyState, Alert, useToast, Pagination } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
+import { paginate } from "@/utils/pagination";
 import { JobsFiltersCard } from "./JobsFiltersCard";
 import { JobsTable } from "./JobsTable";
-import { JobsPagination } from "./JobsPagination";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useJobsQuery, JOBS_PAGE_SIZE, filtersToSearchParams,
@@ -41,12 +41,10 @@ export function JobsPage() {
   const {
     filters,
     setFilters,
-    paginatedRows,
-    totalPages,
-    totalItems,
     currentPage,
     setCurrentPage,
     pageSize,
+    visibleRows,
     allRows,
     setAllRows,
   } = useJobsQuery({
@@ -56,9 +54,18 @@ export function JobsPage() {
     initialPage,
   });
 
+  const pagination = paginate(visibleRows, currentPage, pageSize);
+  const safePage = pagination.currentPage;
+
+  useEffect(() => {
+    if (safePage !== currentPage) {
+      setCurrentPage(safePage);
+    }
+  }, [safePage, currentPage, setCurrentPage]);
+
   const didSyncRef = useRef(false);
   useEffect(() => {
-    console.log("SYNC URL", { currentPage, filters });
+    console.log("SYNC URL", { currentPage: safePage, filters });
 
     if (!didSyncRef.current) {
       didSyncRef.current = true;
@@ -66,9 +73,9 @@ export function JobsPage() {
     }
 
     const next = filtersToSearchParams(filters);
-    if (currentPage > 1) next.set("page", String(currentPage));
+    if (safePage > 1) next.set("page", String(safePage));
     setSearchParams(next, { replace: true });
-  }, [filters, currentPage, setSearchParams]);
+  }, [filters, safePage, setSearchParams]);
 
   const onReset = () => {
     setFilters(DEFAULT_JOBS_FILTERS);
@@ -357,12 +364,12 @@ export function JobsPage() {
       <Card className="overflow-hidden">
         {loading ? (
           <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>
-        ) : totalItems === 0 ? (
+        ) : pagination.totalItems === 0 ? (
           <EmptyState message="暂无工单" />
         ) : (
           <>
             <JobsTable
-              rows={paginatedRows}
+              rows={pagination.pageRows}
               onToggleUrgent={handleToggleUrgent}
               onArchive={handleArchive}
               onDelete={handleDelete}
@@ -371,11 +378,11 @@ export function JobsPage() {
               onPrintPaint={handlePrintPaint}
             />
 
-            <JobsPagination
-              currentPage={currentPage}
-              totalPages={totalPages}
+            <Pagination
+              currentPage={safePage}
+              totalPages={pagination.totalPages}
               pageSize={pageSize}
-              totalItems={totalItems}
+              totalItems={pagination.totalItems}
               onPageChange={setCurrentPage}
             />
           </>

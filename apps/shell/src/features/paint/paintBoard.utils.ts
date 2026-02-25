@@ -1,4 +1,11 @@
-export type StageKey = "waiting" | "sheet" | "undercoat" | "painting" | "assembly" | "done";
+export type StageKey =
+  | "waiting"
+  | "sheet"
+  | "undercoat"
+  | "sanding"
+  | "painting"
+  | "assembly"
+  | "done";
 
 export type PaintBoardJob = {
   id: string;
@@ -41,8 +48,9 @@ export const mapStageKey = (status?: string | null, currentStage?: number | null
   if (typeof currentStage !== "number" || currentStage < 0) return "waiting";
   if (currentStage <= 0) return "sheet";
   if (currentStage === 1) return "undercoat";
-  if (currentStage === 2) return "painting";
-  if (currentStage >= 3) return "assembly";
+  if (currentStage === 2) return "sanding";
+  if (currentStage === 3) return "painting";
+  if (currentStage >= 4) return "assembly";
   return "waiting";
 };
 

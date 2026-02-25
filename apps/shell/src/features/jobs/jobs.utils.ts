@@ -141,15 +141,3 @@ export function sortSelected(rows: JobRow[], selectedIds: Set<string>): JobRow[]
   });
 }
 
-
-export function paginate<T>(rows: T[], currentPage: number, pageSize: number) {
-  const totalItems = rows.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  const safePage = Math.min(Math.max(1, currentPage), totalPages);
-
-  const start = (safePage - 1) * pageSize;
-  const end = start + pageSize;
-  const pageRows = rows.slice(start, end);
-
-  return { pageRows, totalPages, totalItems, currentPage: safePage };
-}

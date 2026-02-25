@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState ,useRef} from "react";
 import type { JobRow, JobsFilters } from "@/types/JobType";
 import { DEFAULT_JOBS_FILTERS } from "./jobs.defaults";
-import { filterJobs, paginate } from "@/features/jobs/jobs.utils";
+import { filterJobs } from "@/features/jobs/jobs.utils";
 
 
 function sortJobsDefault(rows: JobRow[]): JobRow[] {
@@ -66,10 +66,6 @@ const didMountRef = useRef(false);
   }, [allRows, filters]);
 
 
-  const page = useMemo(() => {
-    return paginate(visibleRows, currentPage, pageSize);
-  }, [visibleRows, currentPage, pageSize]);
-
   const resetFilters = () => setFilters(DEFAULT_JOBS_FILTERS);
 
   return {
@@ -86,14 +82,11 @@ const didMountRef = useRef(false);
     toggleUrgent,
 
     // paging
-    currentPage: page.currentPage,
+    currentPage,
     setCurrentPage,
-    totalPages: page.totalPages,
-    totalItems: page.totalItems,
     pageSize,
 
     // results
     visibleRows,
-    paginatedRows: page.pageRows,
   };
 }
