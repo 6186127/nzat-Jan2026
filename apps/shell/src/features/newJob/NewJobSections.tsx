@@ -1,8 +1,11 @@
 import { type ChangeEvent, useState } from "react";
+import { CarFront, ClipboardList, UserRound, NotebookText } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button, Input, SectionCard, Select } from "@/components/ui";
-import { CustomerTypeToggle, ServiceOptionButton, VehicleInfoBanner } from "@/features/newJob/components";
+import { CustomerTypeToggle, VehicleInfoBanner } from "@/features/newJob/components";
 import type { BusinessOption, CustomerType, ImportState, ServiceOption, ServiceType, VehicleInfo } from "./newJob.types";
+
+type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
 
 type VehicleSectionProps = {
   rego: string;
@@ -22,7 +25,7 @@ export function VehicleSection({
   onImport,
 }: VehicleSectionProps) {
   return (
-    <SectionCard title="车辆信息">
+    <SectionCard title="车辆信息" titleIcon={<CarFront size={18} />} titleClassName="text-base font-semibold">
       <div className="mt-3 grid grid-cols-4 gap-3">
         <div className="col-span-1 space-y-1">
           <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">
@@ -73,24 +76,111 @@ type ServicesSectionProps = {
   selectedServices: ServiceType[];
   onToggleService: (service: ServiceType) => void;
   options: ServiceOption[];
+  mechOptionChoices: { id: MechOptionId; label: string }[];
+  mechOptions: MechOptionId[];
+  onToggleMechOption: (id: MechOptionId) => void;
+  showPaintPanels: boolean;
+  paintPanels: string;
+  onPaintPanelsChange: (value: string) => void;
 };
 
-export function ServicesSection({ selectedServices, onToggleService, options }: ServicesSectionProps) {
+export function ServicesSection({
+  selectedServices,
+  onToggleService,
+  options,
+  mechOptionChoices,
+  mechOptions,
+  onToggleMechOption,
+  showPaintPanels,
+  paintPanels,
+  onPaintPanelsChange,
+}: ServicesSectionProps) {
+ 
+
   return (
-    <SectionCard title="服务项目">
-      <div className="mt-3 space-y-3">
-        <label className="text-xs text-[rgba(0,0,0,0.55)] block">请选择服务</label>
-        <div className="grid grid-cols-3 gap-3">
-          {options.map((service) => (
-            <ServiceOptionButton
+    <SectionCard
+      title="服务类型"
+      titleIcon={<ClipboardList size={18} />}
+      titleClassName="text-base font-semibold"
+    >
+      <div className="mt-4 space-y-4">
+        {options.map((service) => {
+          const selected = selectedServices.includes(service.id);
+          return (
+            <div
               key={service.id}
-              label={service.label}
-              icon={service.icon}
-              selected={selectedServices.includes(service.id)}
-              onClick={() => onToggleService(service.id)}
-            />
-          ))}
-        </div>
+              className={[
+                "rounded-[12px] border-2 p-4 transition-colors",
+                selected
+                  ? "border-[rgba(220,38,38,0.88)] bg-[rgba(220,38,38,0.08)]"
+                  : "border-[rgba(0,0,0,0.12)] bg-white",
+              ].join(" ")}
+            >
+              <button type="button" onClick={() => onToggleService(service.id)} className="w-full text-left">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={[
+                      "mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-[6px] border text-[13px] font-semibold",
+                      selected
+                        ? "border-[#dc2626] bg-[#dc2626] text-white"
+                        : "border-[rgba(0,0,0,0.20)] bg-white text-transparent",
+                    ].join(" ")}
+                    aria-hidden="true"
+                  >
+                    ✓
+                  </span>
+                  <div className="mt-0.5 text-[rgba(0,0,0,0.40)]">
+                    <service.icon size={18} />
+                  </div>
+                  <div>
+                    <div className="text-base font-semibold text-[rgba(0,0,0,0.88)]">{service.label}</div>
+                    <div className="text-base text-[rgba(0,0,0,0.55)]">
+                      {/* {serviceDescriptions[service.id] || "请选择对应服务"} */}
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {service.id === "mech" && selected ? (
+                <div className="mt-4 pl-9">
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {mechOptionChoices.map((opt) => (
+                      <label
+                        key={opt.id}
+                        className="flex items-center gap-2 text-base text-[rgba(0,0,0,0.82)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={mechOptions.includes(opt.id)}
+                          onChange={() => onToggleMechOption(opt.id)}
+                          className="h-4 w-4 accent-[#dc2626]"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {service.id === "paint" && selected && showPaintPanels ? (
+                <div className="mt-4 pl-9">
+                  <label className="mb-2 block text-base font-semibold text-[rgba(0,0,0,0.88)]">
+                    喷漆片数（1-20） <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={paintPanels}
+                    onChange={(event) => onPaintPanelsChange(event.target.value)}
+                    className="h-10 w-[160px] rounded-[10px] bg-white"
+                    placeholder="输入片数"
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </SectionCard>
   );
@@ -132,7 +222,7 @@ export function CustomerSection({
   onBusinessChange,
 }: CustomerSectionProps) {
   return (
-    <SectionCard title="客户信息">
+    <SectionCard title="客户信息" titleIcon={<UserRound size={18} />} titleClassName="text-base font-semibold">
       <div className="mt-3 space-y-4">
         <div>
           <label className="text-xs text-[rgba(0,0,0,0.55)] mb-2 block">
@@ -218,6 +308,8 @@ export function NotesSection({ notes, onNotesChange }: NotesSectionProps) {
   return (
     <SectionCard
       title="备注"
+      titleIcon={<NotebookText size={18} />}
+      titleClassName="text-base font-semibold"
       actions={
         <button
           className="text-xs text-[var(--ds-muted)] hover:text-[var(--ds-text)]"

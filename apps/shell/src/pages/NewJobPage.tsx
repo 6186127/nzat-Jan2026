@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Boxes, FileText, Plus, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Input, SectionCard, Textarea, useToast } from "@/components/ui";
+import { Alert, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
   ActionsRow,
   CustomerSection,
@@ -20,6 +20,7 @@ import {
 import { withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
+  type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
   const navigate = useNavigate();
   const toast = useToast();
   const [rego, setRego] = useState("");
@@ -39,8 +40,8 @@ export function NewJobPage() {
   const [notes, setNotes] = useState("");
   const [needsPo, setNeedsPo] = useState(true);
   const [paintPanels, setPaintPanels] = useState("1");
-  const [partsDescription, setPartsDescription] = useState("");
-  const [mechOptions, setMechOptions] = useState<("maintenance" | "oil" | "tyre")[]>([]);
+  const [partsDescriptions, setPartsDescriptions] = useState<string[]>([""]);
+  const [mechOptions, setMechOptions] = useState<MechOptionId[]>([]);
   const [formAlert, setFormAlert] = useState<{ variant: "error" | "success"; message: string } | null>(
     null
   );
@@ -65,17 +66,23 @@ export function NewJobPage() {
   }, []);
   const mechOptionChoices = useMemo(
     () => [
-      { id: "maintenance" as const, label: "保养" },
+      { id: "tire" as const, label: "补胎" },
       { id: "oil" as const, label: "换机油" },
-      { id: "tyre" as const, label: "补胎" },
+      { id: "brake" as const, label: "换刹车片" },
+      { id: "battery" as const, label: "换电池" },
+      { id: "filter" as const, label: "换滤芯" },
+      { id: "other" as const, label: "其他机修" },
     ],
     []
   );
   const mechOptionLabelMap = useMemo(
     () => ({
-      maintenance: "保养",
+      tire: "补胎",
       oil: "换机油",
-      tyre: "补胎",
+      brake: "换刹车片",
+      battery: "换电池",
+      filter: "换滤芯",
+      other: "其他机修",
     }),
     []
   );
@@ -87,6 +94,14 @@ export function NewJobPage() {
     if (!selectedMechOptionLabels.length) return "";
     return `机修项目：${selectedMechOptionLabels.join("，")}`;
   }, [selectedMechOptionLabels]);
+  const normalizedPartsDescriptions = useMemo(
+    () => partsDescriptions.map((item) => item.trim()).filter(Boolean),
+    [partsDescriptions]
+  );
+  const partsSummaryLine = useMemo(() => {
+    if (!normalizedPartsDescriptions.length) return "";
+    return `配件：${normalizedPartsDescriptions.join("，")}`;
+  }, [normalizedPartsDescriptions]);
 
   const autoNotes = useMemo(() => {
     const items: string[] = [];
@@ -99,10 +114,7 @@ export function NewJobPage() {
     }
     const mechOptionText =
       selectedServices.includes("mech") && mechOptionsLine ? mechOptionsLine : "";
-    const partsText =
-      selectedServices.includes("mech") && partsDescription.trim()
-        ? `配件：${partsDescription.trim()}`
-        : "";
+    const partsText = partsSummaryLine;
     if (items.length === 0 && !partsText && !mechOptionText) return "";
     const lines: string[] = [];
     if (items.length > 0) lines.push(`服务：${items.join("，")}`);
@@ -115,7 +127,7 @@ export function NewJobPage() {
     needsPo,
     paintPanels,
     serviceLabelMap,
-    partsDescription,
+    partsSummaryLine,
     mechOptionsLine,
   ]);
 
@@ -204,7 +216,7 @@ export function NewJobPage() {
       prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
     );
   };
-  const toggleMechOption = (id: "maintenance" | "oil" | "tyre") => {
+  const toggleMechOption = (id: MechOptionId) => {
     setMechOptions((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
@@ -338,15 +350,13 @@ export function NewJobPage() {
           };
     const trimmedNotes = notes.trim();
     const baseNotes = trimmedNotes ? trimmedNotes : autoNotes;
-    const partsText =
-      hasMech && partsDescription.trim() ? `配件：${partsDescription.trim()}` : "";
+    const partsText = partsSummaryLine;
     let notesPayload = regoYearModelLabel;
     if (baseNotes) {
       notesPayload = notesPayload ? `${notesPayload}\n${baseNotes}` : baseNotes;
     }
     if (partsText) {
-      const hasPartsAlready =
-        notesPayload.includes(partsText) || notesPayload.includes(partsDescription.trim());
+      const hasPartsAlready = notesPayload.includes(partsText);
       if (!hasPartsAlready) {
         notesPayload = notesPayload ? `${notesPayload}\n${partsText}` : partsText;
       }
@@ -362,7 +372,7 @@ export function NewJobPage() {
   console.log(" plate:", rego);
   console.log(" services:", selectedServices);
   console.log(" notesPayload:", notesPayload);
-  console.log(" partsDescription:", hasMech && partsDescription.trim() ? partsDescription.trim() : undefined);
+  console.log(" partsDescriptions:", normalizedPartsDescriptions.length ? normalizedPartsDescriptions : undefined);
   console.log(" businessId:", customerType === "business" ? businessId : undefined);
   console.log(" customer:", customerPayload);
 
@@ -377,7 +387,8 @@ export function NewJobPage() {
           plate: rego,
           services: selectedServices,
           notes: notesPayload,
-          partsDescription: hasMech && partsDescription.trim() ? partsDescription.trim() : undefined,
+          partsDescription: normalizedPartsDescriptions[0],
+          partsDescriptions: normalizedPartsDescriptions,
           mechItems: hasMech ? selectedMechOptionLabels : [],
           paintPanels: showPaintPanels ? Number(paintPanels) || 1 : undefined,
           businessId: customerType === "business" ? businessId : undefined,
@@ -406,6 +417,28 @@ export function NewJobPage() {
         message: err instanceof Error ? err.message : "工单保存失败，请稍后重试",
       });
     }
+  };
+
+  const handlePaintPanelsChange = (value: string) => {
+    if (value === "") {
+      setPaintPanels("");
+      return;
+    }
+    if (!/^\d+$/.test(value)) return;
+    const num = Math.min(20, Math.max(1, Number(value)));
+    setPaintPanels(String(num));
+  };
+  const updatePartDescription = (index: number, value: string) => {
+    setPartsDescriptions((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
+  const addPartDescription = () => {
+    setPartsDescriptions((prev) => [...prev, ""]);
+  };
+  const removePartDescription = (index: number) => {
+    setPartsDescriptions((prev) => {
+      if (prev.length === 1) return [""];
+      return prev.filter((_, idx) => idx !== index);
+    });
   };
 
   return (
@@ -457,87 +490,73 @@ export function NewJobPage() {
         selectedServices={selectedServices}
         onToggleService={toggleService}
         options={serviceOptions}
+        mechOptionChoices={mechOptionChoices}
+        mechOptions={mechOptions}
+        onToggleMechOption={toggleMechOption}
+        showPaintPanels={showPaintPanels}
+        paintPanels={paintPanels}
+        onPaintPanelsChange={handlePaintPanelsChange}
       />
 
-      {showNeedsPo || selectedServices.includes("mech") ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {selectedServices.includes("mech") ? (
-            <SectionCard title="机修选项">
-              <div className="mt-3 space-y-3">
-                {showNeedsPo ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="needs-po"
-                      type="checkbox"
-                      checked={needsPo}
-                      onChange={(event) => setNeedsPo(event.target.checked)}
-                      className="h-4 w-4 accent-[var(--ds-primary)]"
-                    />
-                    <label htmlFor="needs-po" className="text-sm text-[rgba(0,0,0,0.70)]">
-                      需要PO
-                    </label>
+      <SectionCard
+        title="订配件"
+        titleIcon={<Boxes size={18} />}
+        titleClassName="text-base font-semibold"
+        actions={
+          <button
+            type="button"
+            onClick={addPartDescription}
+            className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-sm font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
+          >
+            <Plus size={14} />
+            配件
+          </button>
+        }
+      >
+          <div className="space-y-3 mt-2">
+              {partsDescriptions.map((value, index) => (
+                <div key={`part-item-${index}`} className="rounded-[10px] border border-[rgba(0,0,0,0.08)] bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="text-sm text-[rgba(0,0,0,0.65)]">配件 {index + 1}</label>
+                    <button
+                      type="button"
+                      onClick={() => removePartDescription(index)}
+                      className="inline-flex items-center gap-1 text-xs text-[rgba(0,0,0,0.50)] hover:text-[#b91c1c]"
+                    >
+                      <X size={14} />
+                      删除
+                    </button>
                   </div>
-                ) : null}
-                <div>
-                  {/* <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">机修项目（可选）</div> */}
-                  <div className="flex flex-wrap gap-3">
-                    {mechOptionChoices.map((opt) => (
-                      <label
-                        key={opt.id}
-                        className="flex items-center gap-2 text-sm text-[rgba(0,0,0,0.70)]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={mechOptions.includes(opt.id)}
-                          onChange={() => toggleMechOption(opt.id)}
-                          className="h-4 w-4 accent-[var(--ds-primary)]"
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
+                  <Textarea
+                    rows={2}
+                    placeholder="输入配件描述"
+                    value={value}
+                    onChange={(event) => updatePartDescription(index, event.target.value)}
+                  />
                 </div>
-              </div>
-            </SectionCard>
-          ) : null}
+              ))}
+            </div>
+      
+      </SectionCard>
 
-          {selectedServices.includes("mech") ? (
-            <SectionCard title="配件描述（可选）">
-              <div className="mt-3">
-                <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">配件描述</label>
-                <Textarea
-                  rows={3}
-                  placeholder="输入配件描述"
-                  value={partsDescription}
-                  onChange={(event) => setPartsDescription(event.target.value)}
-                />
-              </div>
-            </SectionCard>
-          ) : null}
-        </div>
-      ) : null}
-
-      {showPaintPanels ? (
-        <SectionCard title="喷漆片数*">
-          <div className="mt-3 flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={20}
-              value={paintPanels}
-              onChange={(event) => {
-                const next = event.target.value;
-                if (next === "") {
-                  setPaintPanels("");
-                  return;
-                }
-                if (!/^\d+$/.test(next)) return;
-                const num = Math.min(20, Math.max(1, Number(next)));
-                setPaintPanels(String(num));
-              }}
-              className="h-9 w-[120px]"
-            />
-            <span className="text-sm text-[rgba(0,0,0,0.70)]">片</span>
+      {showNeedsPo ? (
+        <SectionCard title="采购订单 (PO)" titleIcon={<FileText size={18} />} titleClassName="text-base font-semibold">
+          <div className="mt-4 flex items-center justify-between gap-4 rounded-[12px] border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)] p-4">
+            <div>
+              <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">需要 PO</div>
+              <div className="text-sm text-[rgba(0,0,0,0.55)]">商户订单是否需要采购订单号</div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={needsPo}
+                onChange={(event) => setNeedsPo(event.target.checked)}
+                className="peer sr-only"
+              />
+              <span className="relative h-7 w-12 rounded-full bg-[rgba(0,0,0,0.20)] transition peer-checked:bg-[#dc2626]">
+                <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+              </span>
+            </label>
           </div>
         </SectionCard>
       ) : null}
