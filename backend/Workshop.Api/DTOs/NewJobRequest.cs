@@ -6,7 +6,7 @@ public sealed class NewJobRequest
     public string[] Services { get; set; } = Array.Empty<string>();
     public string? Notes { get; set; }
     public string? PartsDescription { get; set; }
-    public string[] PartsDescriptions { get; set; } = Array.Empty<string>();
+    public List<string> PartsDescriptions { get; set; } = new();
     public int? PaintPanels { get; set; }
     public string[] MechItems { get; set; } = Array.Empty<string>();
     public string? BusinessId { get; set; }

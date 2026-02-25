@@ -90,21 +90,20 @@ public class NewJobController : ControllerBase
         var wofCreated = req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true;
         var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
         var hasPaint = req.Services?.Any(s => string.Equals(s, "paint", StringComparison.OrdinalIgnoreCase)) == true;
-        var partsDescriptions = req.PartsDescriptions?
-            .Select(x => x?.Trim())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Cast<string>()
-            .ToList() ?? new List<string>();
-        if (partsDescriptions.Count == 0 && !string.IsNullOrWhiteSpace(req.PartsDescription))
-        {
-            partsDescriptions.Add(req.PartsDescription.Trim());
+        var partsDescriptions = ParsePartsDescriptions(req);
+// SHOW  partsDescriptions at console for debugging
+        Console.WriteLine("===============Parsed parts descriptions:============");
+        foreach (var desc in partsDescriptions)        {
+            Console.WriteLine($"- {desc}");
         }
 
         if (partsDescriptions.Count > 0)
         {
             var now = DateTime.UtcNow;
             foreach (var partsDescription in partsDescriptions)
+
             {
+                  Console.WriteLine(partsDescription);
                 var partsService = new JobPartsService
                 {
                     JobId = job.Id,
@@ -115,7 +114,18 @@ public class NewJobController : ControllerBase
                 };
                 _db.JobPartsServices.Add(partsService);
             }
-            await _db.SaveChangesAsync(ct);
+            // await _db.SaveChangesAsync(ct);
+            try
+{
+    await _db.SaveChangesAsync(ct);
+    Console.WriteLine($"parts save ok, count={partsDescriptions.Count}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"parts save failed: {ex}");
+    throw;
+}
+
         }
 
         if (hasMech && req.MechItems is { Length: > 0 })
@@ -166,6 +176,32 @@ public class NewJobController : ControllerBase
             vehicleId = vehicle.Id,
             wofCreated,
         });
+    }
+
+    private static List<string> ParsePartsDescriptions(NewJobRequest req)
+    {
+        var fromArray = (req.PartsDescriptions ?? new List<string>())
+            .Select(x => x?.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .ToList();
+
+        if (fromArray.Count > 0)
+            return fromArray;
+
+        if (string.IsNullOrWhiteSpace(req.PartsDescription))
+            return new List<string>();
+
+        var split = req.PartsDescription
+            .Split(new[] { '\n', '\r', ',', '，', ';', '；', '、', '/' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+
+        if (split.Count > 0)
+            return split;
+
+        return new List<string> { req.PartsDescription.Trim() };
     }
 
     private async Task<Customer> UpsertCustomerAsync(NewJobRequest.CustomerInput input, CancellationToken ct)
