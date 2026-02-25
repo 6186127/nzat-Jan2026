@@ -31,6 +31,7 @@ public class JobsController : ControllerBase
                     j.Status,
                     j.IsUrgent,
                     j.CreatedAt,
+                    j.Notes,
                     Vehicle = v,
                     Customer = c
                 }
@@ -51,6 +52,7 @@ public class JobsController : ControllerBase
             customerName = r.Customer.Name,
             customerCode = r.Customer.BusinessCode,
             customerPhone = r.Customer.Phone ?? "",
+            notes = r.Notes ?? "",
             createdAt = r.CreatedAt.ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture)
         });
 

@@ -4,9 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { StatusPill, ProgressRing, TagsCell } from "@/features/jobs/components";
 import type { JobRow } from "@/types/JobType";
-import { formatJobDisplayId } from "@/utils/jobId";
-
-
 export type JobsTableProps = {
   rows: JobRow[];
   onToggleUrgent: (id: string) => void | Promise<void>;
@@ -26,13 +23,14 @@ const JOB_TABLE_COLUMNS: Array<{
   width: number;
   minWidth: number;
 }> = [
+  { key: "jobId", label: "ID", width: 60, minWidth: 50 },
   { key: "urgent", label: "加急", width: 40, minWidth: 30 },
   { key: "inShop", label: "在店时间", width: 90, minWidth: 70 },
   { key: "status", label: "汽车状态", width: 110, minWidth: 90 },
-  { key: "jobId", label: "JOB ID", width: 140, minWidth: 120 },
   { key: "tag", label: "TAG", width: 90, minWidth: 70 },
   { key: "plate", label: "车牌号", width: 100, minWidth: 80 },
   { key: "model", label: "汽车型号", width: 140, minWidth: 110 },
+  { key: "note", label: "备注", width: 160, minWidth: 120 },
   { key: "wof", label: "WOF", width: 70, minWidth: 60 },
   { key: "mech", label: "机修", width: 70, minWidth: 60 },
   { key: "paint", label: "喷漆", width: 70, minWidth: 60 },
@@ -63,8 +61,12 @@ function getTimeInShop(createdAt?: string) {
   if (!created) return { label: "—", level: "normal" as const };
   const now = Date.now();
   const diffMs = Math.max(0, now - created.getTime());
+  if (diffMs < MS_PER_DAY) {
+    const hours = Math.max(1, Math.floor(diffMs / MS_PER_HOUR));
+    return { label: `${hours}小时`, level: "normal" as const };
+  }
   const days = Math.floor(diffMs / MS_PER_DAY);
-  const label = days > 0 ? `${days}天` : "不到1天";
+  const label = `${days}天`;
   const level = days >= 5 ? "danger" : days >= 3 ? "warn" : "normal";
   return { label, level };
 }
@@ -208,29 +210,42 @@ export function JobsTable({
                   hover:bg-[rgba(0,0,0,0.02)]`}
                 style={gridStyle}
               >
-                <div className="flex justify-center">
-                 <input
-  type="checkbox"
-  className="h-4 w-4 accent-[var(--ds-primary)]"
-  checked={r.urgent}
-  onChange={() => onToggleUrgent(r.id)}
-/>
+                <div className="text-[11px] text-[rgba(0,0,0,0.55)]">{r.id}</div>
 
+                <div className="flex justify-center">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[var(--ds-primary)]"
+                    checked={r.urgent}
+                    onChange={() => onToggleUrgent(r.id)}
+                  />
                 </div>
 
                 <div className={timeClass}>{timeInShop.label}</div>
 
                 <div><StatusPill status={r.vehicleStatus} /></div>
 
-                <div className="min-w-0">
+                <div className="min-w-0"><TagsCell selectedTags={r.selectedTags} /></div>
+                <div className="font-medium text-[rgba(0,0,0,0.70)]">
                   <Link to={`/jobs/${r.id}`} className="text-[rgba(37,99,235,1)] font-semibold underline">
-                    {formatJobDisplayId(r.id, r.createdAt)}
+                    {r.plate}
                   </Link>
                 </div>
-
-                <div className="min-w-0"><TagsCell selectedTags={r.selectedTags} /></div>
-                <div className="font-medium text-[rgba(0,0,0,0.70)]">{r.plate}</div>
-                <div className="min-w-0 text-[rgba(0,0,0,0.60)] truncate">{r.vehicleModel}</div>
+                <div className="min-w-0 font-semibold text-[rgba(0,0,0,0.60)] truncate">{r.vehicleModel}</div>
+                <div className="min-w-0 text-left text-[rgba(0,0,0,0.45)]">
+                  {r.notes ? (
+                    <span className="relative inline-flex max-w-full align-middle group">
+                      <span className="truncate">
+                        {`${r.notes.slice(0, 10)}${r.notes.length > 10 ? "…" : ""}`}
+                      </span>
+                      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-[260px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 text-xs text-[rgba(0,0,0,0.75)] shadow-lg opacity-0 translate-y-1 transition group-hover:opacity-100 group-hover:translate-y-0">
+                        {r.notes}
+                      </span>
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </div>
 
                 <div className="flex justify-center"><ProgressRing value={r.wofPct} /></div>
                 <div className="flex justify-center"><ProgressRing value={r.mechPct} /></div>
