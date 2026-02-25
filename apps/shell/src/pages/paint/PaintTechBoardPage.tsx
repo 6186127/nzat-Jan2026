@@ -115,10 +115,11 @@ export function PaintTechBoardPage() {
   const [search, setSearch] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | StageKey>("all");
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 30;
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
