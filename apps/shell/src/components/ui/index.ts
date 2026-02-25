@@ -10,3 +10,4 @@ export * from "./EmptyState";
 export * from "./Alert";
 export * from "./Textarea";
 export * from "./Toast";
+export * from "./Pagination";

@@ -44,30 +44,38 @@ const STAGES: Record<
   },
   undercoat: {
     label: "打底漆",
-    dot: "bg-indigo-500",
-    pill: "bg-indigo-100 text-indigo-700",
-    bar: "bg-indigo-500",
-    barSoft: "bg-indigo-100",
-    text: "text-indigo-700",
+    dot: "bg-amber-500",
+    pill: "bg-amber-100 text-amber-700",
+    bar: "bg-amber-500",
+    barSoft: "bg-amber-100",
+    text: "text-amber-700",
   },
-  painting: {
-    label: "喷漆",
+  sanding: {
+    label: "底漆打磨",
     dot: "bg-fuchsia-500",
     pill: "bg-fuchsia-100 text-fuchsia-700",
     bar: "bg-fuchsia-500",
     barSoft: "bg-fuchsia-100",
     text: "text-fuchsia-700",
   },
+  painting: {
+    label: "喷漆",
+    dot: "bg-rose-500",
+    pill: "bg-rose-100 text-rose-700",
+    bar: "bg-rose-500",
+    barSoft: "bg-rose-100",
+    text: "text-rose-700",
+  },
   assembly: {
-    label: "配件组装",
-    dot: "bg-orange-500",
-    pill: "bg-orange-100 text-orange-700",
-    bar: "bg-orange-500",
-    barSoft: "bg-orange-100",
-    text: "text-orange-700",
+    label: "组装抛光",
+    dot: "bg-teal-500",
+    pill: "bg-teal-100 text-teal-700",
+    bar: "bg-teal-500",
+    barSoft: "bg-teal-100",
+    text: "text-teal-700",
   },
   done: {
-    label: "完成",
+    label: "完成喷漆",
     dot: "bg-emerald-500",
     pill: "bg-emerald-100 text-emerald-700",
     bar: "bg-emerald-500",
@@ -79,9 +87,10 @@ const STAGES: Record<
 const STAGE_PROGRESS: Record<StageKey, number> = {
   waiting: 0.12,
   sheet: 0.28,
-  undercoat: 0.46,
-  painting: 0.68,
-  assembly: 0.84,
+  undercoat: 0.44,
+  sanding: 0.58,
+  painting: 0.72,
+  assembly: 0.88,
   done: 1,
 };
 
@@ -155,9 +164,10 @@ export function PaintBoardPage() {
     waiting: 0,
     sheet: 1,
     undercoat: 2,
-    painting: 3,
-    assembly: 4,
-    done: 5,
+    sanding: 3,
+    painting: 4,
+    assembly: 5,
+    done: 6,
   };
   const sortedJobs = useMemo(() => {
     const copy = [...filteredJobs];
@@ -181,9 +191,10 @@ export function PaintBoardPage() {
       waiting: -1,
       sheet: 0,
       undercoat: 1,
-      painting: 2,
-      assembly: 3,
-      done: 4,
+      sanding: 2,
+      painting: 3,
+      assembly: 4,
+      done: 5,
     };
     const stageIndex = stageIndexMap[nextStage];
     await updatePaintStage(jobId, stageIndex);

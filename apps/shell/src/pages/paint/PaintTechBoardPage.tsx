@@ -17,7 +17,8 @@ import {
   type PaintBoardJob,
   type StageKey,
 } from "@/features/paint/paintBoard.utils";
-import { Select } from "@/components/ui";
+import { Pagination, Select } from "@/components/ui";
+import { paginate } from "@/utils/pagination";
 
 const STAGES: Record<
   StageKey,
@@ -31,49 +32,64 @@ const STAGES: Record<
 > = {
   waiting: {
     label: "等待处理",
-    icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
-    pill: "bg-emerald-50 text-emerald-700",
-    card: "border-emerald-100",
-    text: "text-emerald-700",
+    icon: <CheckCircle2 className="h-4 w-4 text-slate-500" />,
+    pill: "bg-slate-100 text-slate-700",
+    card: "border-slate-200",
+    text: "text-slate-700",
   },
   sheet: {
     label: "钣金/底漆",
-    icon: <Hammer className="h-4 w-4 text-sky-500" />,
+    icon: <Hammer className="h-4 w-4 text-sky-600" />,
     pill: "bg-sky-50 text-sky-700",
     card: "border-sky-100",
     text: "text-sky-700",
   },
   undercoat: {
     label: "打底漆",
-    icon: <Paintbrush2 className="h-4 w-4 text-violet-500" />,
-    pill: "bg-violet-50 text-violet-700",
-    card: "border-violet-100",
-    text: "text-violet-700",
-  },
-  painting: {
-    label: "喷漆",
-    icon: <Droplets className="h-4 w-4 text-orange-500" />,
-    pill: "bg-orange-50 text-orange-700",
-    card: "border-orange-100",
-    text: "text-orange-700",
-  },
-  assembly: {
-    label: "配件组装",
-    icon: <ClipboardCheck className="h-4 w-4 text-amber-500" />,
+    icon: <Paintbrush2 className="h-4 w-4 text-amber-600" />,
     pill: "bg-amber-50 text-amber-700",
     card: "border-amber-100",
     text: "text-amber-700",
   },
+  sanding: {
+    label: "底漆打磨",
+    icon: <Settings2 className="h-4 w-4 text-fuchsia-600" />,
+    pill: "bg-fuchsia-50 text-fuchsia-700",
+    card: "border-fuchsia-100",
+    text: "text-fuchsia-700",
+  },
+  painting: {
+    label: "喷漆",
+    icon: <Droplets className="h-4 w-4 text-rose-600" />,
+    pill: "bg-rose-50 text-rose-700",
+    card: "border-rose-100",
+    text: "text-rose-700",
+  },
+  assembly: {
+    label: "组装抛光",
+    icon: <ClipboardCheck className="h-4 w-4 text-teal-600" />,
+    pill: "bg-teal-50 text-teal-700",
+    card: "border-teal-100",
+    text: "text-teal-700",
+  },
   done: {
-    label: "可以交车",
-    icon: <Car className="h-4 w-4 text-slate-500" />,
-    pill: "bg-slate-100 text-slate-700",
-    card: "border-slate-200",
-    text: "text-slate-700",
+    label: "完成喷漆",
+    icon: <Car className="h-4 w-4 text-emerald-600" />,
+    pill: "bg-emerald-50 text-emerald-700",
+    card: "border-emerald-100",
+    text: "text-emerald-700",
   },
 };
 
-const STAGE_ORDER: StageKey[] = ["waiting", "sheet", "undercoat", "painting", "assembly", "done"];
+const STAGE_ORDER: StageKey[] = [
+  "waiting",
+  "sheet",
+  "undercoat",
+  "sanding",
+  "painting",
+  "assembly",
+  "done",
+];
 
 const extractServiceNote = (note?: string | null) => {
   if (!note) return "";
@@ -98,7 +114,7 @@ export function PaintTechBoardPage() {
   const [search, setSearch] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | StageKey>("all");
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const pageSize = 20;
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +149,7 @@ export function PaintTechBoardPage() {
       waiting: 0,
       sheet: 0,
       undercoat: 0,
+      sanding: 0,
       painting: 0,
       assembly: 0,
       done: 0,
@@ -171,9 +188,18 @@ export function PaintTechBoardPage() {
     setPage(1);
   }, [search, selectedStage, jobs.length]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedJobs.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pagedJobs = sortedJobs.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pagination = useMemo(
+    () => paginate(sortedJobs, page, pageSize),
+    [sortedJobs, page, pageSize]
+  );
+  const safePage = pagination.currentPage;
+  const pagedJobs = pagination.pageRows;
+
+  useEffect(() => {
+    if (safePage !== page) {
+      setPage(safePage);
+    }
+  }, [safePage, page]);
 
   const topFive = useMemo(() => {
     return [...jobs]
@@ -190,9 +216,10 @@ export function PaintTechBoardPage() {
       waiting: -1,
       sheet: 0,
       undercoat: 1,
-      painting: 2,
-      assembly: 3,
-      done: 4,
+      sanding: 2,
+      painting: 3,
+      assembly: 4,
+      done: 5,
     };
     await updatePaintStage(jobId, stageIndexMap[nextStage]);
     const res = await fetchPaintBoard();
@@ -419,29 +446,15 @@ export function PaintTechBoardPage() {
                   })}
                 </tbody>
               </table>
-              {sortedJobs.length > pageSize ? (
-                <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-                  <div>
-                    第 {safePage} / {totalPages} 页
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                      disabled={safePage <= 1}
-                    >
-                      上一页
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 px-3 py-1 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                      disabled={safePage >= totalPages}
-                    >
-                      下一页
-                    </button>
-                  </div>
+              {pagination.totalItems > 0 ? (
+                <div className="mt-4">
+                  <Pagination
+                    currentPage={safePage}
+                    totalPages={pagination.totalPages}
+                    pageSize={pageSize}
+                    totalItems={pagination.totalItems}
+                    onPageChange={setPage}
+                  />
                 </div>
               ) : null}
             </div>
