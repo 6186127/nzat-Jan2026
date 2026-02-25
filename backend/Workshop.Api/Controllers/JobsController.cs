@@ -456,6 +456,20 @@ public class JobsController : ControllerBase
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
+        var partServiceIds = await _db.JobPartsServices.AsNoTracking()
+            .Where(x => x.JobId == id)
+            .Select(x => x.Id)
+            .ToListAsync(ct);
+        if (partServiceIds.Count > 0)
+        {
+            await _db.JobPartsNotes
+                .Where(x => partServiceIds.Contains(x.PartsServiceId))
+                .ExecuteDeleteAsync(ct);
+        }
+        await _db.JobPartsServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+        await _db.JobMechServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+        await _db.JobPaintServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+        await _db.JobTags.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
 
         var deletedJobs = await _db.Jobs.Where(x => x.Id == id).ExecuteDeleteAsync(ct);

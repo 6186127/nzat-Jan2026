@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { Input, Select } from "@/components/ui";
@@ -95,12 +95,14 @@ const STAGE_PROGRESS: Record<StageKey, number> = {
   done: 1,
 };
 
-const DAY_WIDTH = 96;
+const TIMELINE_DAYS = 7;
 const FUTURE_BUFFER_DAYS = 3;
-const MIN_TIMELINE_DAYS = 7;
+const LEFT_COLUMN_WIDTH = 320;
+const BOARD_MAX_HEIGHT = "calc(100dvh - 8.5rem)";
 
 export function PaintBoardPage() {
   const navigate = useNavigate();
+  const tableViewportRef = useRef<HTMLDivElement | null>(null);
   const [jobs, setJobs] = useState<PaintBoardJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -108,6 +110,7 @@ export function PaintBoardPage() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
+  const [timelineWidth, setTimelineWidth] = useState(960);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,21 +148,11 @@ export function PaintBoardPage() {
     });
   }, [jobs, selectedStage, overdueOnly, createdFrom, createdTo, today]);
 
-  const activeJobs = filteredJobs.filter((job) => mapStageKey(job.status, job.currentStage) !== "done");
-  const baseJobs = activeJobs.length > 0 ? activeJobs : filteredJobs;
-  const timelineStart =
-    baseJobs.length > 0
-      ? baseJobs
-          .map((job) => normalizeDate(job.createdAt))
-          .reduce((min, current) => (current < min ? current : min), today)
-      : today;
-  const timelineEnd = addDays(today, FUTURE_BUFFER_DAYS);
-  const totalDays = Math.max(MIN_TIMELINE_DAYS, diffDays(timelineEnd, timelineStart) + 1);
-  const days = buildDays(timelineStart, totalDays);
-  const todayIndex = Math.max(0, Math.min(totalDays - 1, diffDays(today, timelineStart)));
-
-  const timelineWidth = days.length * DAY_WIDTH;
-  const todayLeft = todayIndex * DAY_WIDTH;
+  const timelineStart = addDays(today, -(TIMELINE_DAYS - FUTURE_BUFFER_DAYS - 1));
+  const days = buildDays(timelineStart, TIMELINE_DAYS);
+  const todayIndex = Math.max(0, Math.min(TIMELINE_DAYS - 1, diffDays(today, timelineStart)));
+  const dayWidth = timelineWidth / TIMELINE_DAYS;
+  const todayLeft = todayIndex * dayWidth;
   const overdueCount = countOverdue(filteredJobs, today);
   const stageOrder: Record<StageKey, number> = {
     waiting: 0,
@@ -182,6 +175,21 @@ export function PaintBoardPage() {
       return a.plate.localeCompare(b.plate);
     });
   }, [filteredJobs]);
+
+  useEffect(() => {
+    const viewport = tableViewportRef.current;
+    if (!viewport) return;
+
+    const updateTimelineWidth = () => {
+      const next = Math.max(480, viewport.clientWidth - LEFT_COLUMN_WIDTH);
+      setTimelineWidth(next);
+    };
+
+    updateTimelineWidth();
+    const observer = new ResizeObserver(updateTimelineWidth);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   const handleRowClick = (id: string) => {
     navigate(`/jobs/${id}`);
@@ -216,7 +224,7 @@ export function PaintBoardPage() {
 
   return (
     <div
-      className="flex h-full max-h-full flex-col gap-5"
+      className="flex h-full min-h-0 flex-col gap-5"
       style={{
         fontFamily: '"Manrope","Plus Jakarta Sans","Space Grotesk","Segoe UI",sans-serif',
       }}
@@ -275,7 +283,10 @@ export function PaintBoardPage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-[rgba(15,23,42,0.08)] bg-white/90 shadow-sm">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[rgba(15,23,42,0.08)] bg-white/90 shadow-sm"
+        style={{ maxHeight: BOARD_MAX_HEIGHT }}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(15,23,42,0.06)] px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="text-xl font-semibold text-slate-800">Paint Status Timeline</div>
@@ -293,7 +304,7 @@ export function PaintBoardPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={tableViewportRef} className="paint-board-scroll min-h-0 flex-1 overflow-y-scroll overflow-x-hidden">
           {loading ? (
             <div className="p-6 text-sm text-[var(--ds-muted)]">加载中...</div>
           ) : loadError ? (
@@ -302,21 +313,21 @@ export function PaintBoardPage() {
             <div className="p-6 text-sm text-[var(--ds-muted)]">暂无喷漆数据</div>
           ) : null}
           <div
-            className="grid"
-            style={{ gridTemplateColumns: "320px minmax(600px,1fr)" }}
+            className="grid w-full"
+            style={{ gridTemplateColumns: `${LEFT_COLUMN_WIDTH}px minmax(0,1fr)` }}
           >
             <div className="border-b border-[rgba(15,23,42,0.06)] bg-slate-50 px-6 py-4 text-xs font-semibold tracking-[0.12em] text-slate-400">
               VEHICLE DETAILS
             </div>
             <div className="relative border-b border-[rgba(15,23,42,0.06)]">
-              <div className="flex items-center" style={{ minWidth: timelineWidth }}>
+              <div className="flex items-center" style={{ width: timelineWidth }}>
                 {days.map((item, index) => {
                   const isToday = index === todayIndex;
                   return (
                     <div
                       key={`${item.label}-${item.day}`}
                       className="flex h-16 flex-col items-center justify-center border-l border-[rgba(15,23,42,0.06)] text-xs font-semibold text-slate-500"
-                      style={{ width: DAY_WIDTH }}
+                      style={{ width: dayWidth }}
                     >
                       <span className="uppercase">{item.label}</span>
                       <span
@@ -347,8 +358,8 @@ export function PaintBoardPage() {
               const durationDays = getDurationDays(job.createdAt, today);
               const maxDuration = Math.max(1, days.length - startIndex);
               const clampedDuration = Math.min(durationDays, maxDuration);
-              const left = startIndex * DAY_WIDTH;
-              const width = clampedDuration * DAY_WIDTH;
+              const left = startIndex * dayWidth;
+              const width = clampedDuration * dayWidth;
               const overdue = durationDays >= 3;
               const rowBg = index % 2 === 0 ? "bg-white" : "bg-slate-50/60";
               return (
@@ -411,8 +422,8 @@ export function PaintBoardPage() {
                     <div
                       className="relative h-16"
                       style={{
-                        minWidth: timelineWidth,
-                        backgroundImage: `repeating-linear-gradient(to right, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 1px, transparent 1px, transparent ${DAY_WIDTH}px)`,
+                        width: timelineWidth,
+                        backgroundImage: `repeating-linear-gradient(to right, rgba(15,23,42,0.05) 0, rgba(15,23,42,0.05) 1px, transparent 1px, transparent ${dayWidth}px)`,
                       }}
                     >
                       <div
