@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ArrowLeft, Boxes, FileText, Plus, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, FileText, Plus, ReceiptText, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, SectionCard, Textarea, useToast } from "@/components/ui";
+import { Alert, Button, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
-  ActionsRow,
   CustomerSection,
   NotesSection,
   ServicesSection,
@@ -54,8 +53,12 @@ export function NewJobPage() {
     return parts.join("-");
   }, [rego, vehicleInfo?.year, vehicleInfo?.model]);
 
-  const showNeedsPo = customerType === "business" && selectedServices.includes("mech");
+  const showNeedsPo = customerType === "business";
   const showPaintPanels = selectedServices.includes("paint");
+  const selectedBusiness = useMemo(
+    () => businessOptions.find((biz) => biz.id === businessId),
+    [businessOptions, businessId]
+  );
 
   const serviceLabelMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -92,7 +95,7 @@ export function NewJobPage() {
   );
   const mechOptionsLine = useMemo(() => {
     if (!selectedMechOptionLabels.length) return "";
-    return `机修项目：${selectedMechOptionLabels.join("，")}`;
+    return selectedMechOptionLabels.join("，");
   }, [selectedMechOptionLabels]);
   const normalizedPartsDescriptions = useMemo(
     () => partsDescriptions.map((item) => item.trim()).filter(Boolean),
@@ -102,6 +105,35 @@ export function NewJobPage() {
     if (!normalizedPartsDescriptions.length) return "";
     return `配件：${normalizedPartsDescriptions.join("，")}`;
   }, [normalizedPartsDescriptions]);
+  const selectedServiceSummaries = useMemo(() => {
+    const rows: string[] = [];
+    if (selectedServices.includes("wof")) {
+      rows.push(serviceLabelMap.wof || "WOF");
+    }
+    if (selectedServices.includes("mech")) {
+      rows.push(
+        selectedMechOptionLabels.length
+          ? `机修（${selectedMechOptionLabels.join("，")}）`
+          : (serviceLabelMap.mech || "机修")
+      );
+    }
+    if (selectedServices.includes("paint")) {
+      rows.push(`喷漆（${paintPanels || "1"}片）`);
+    }
+    return rows;
+  }, [selectedServices, serviceLabelMap, selectedMechOptionLabels, paintPanels]);
+  const customerTypeLabel = customerType === "business" ? "商户客户" : "个人客户";
+  const customerDisplayName =
+    customerType === "business"
+      ? selectedBusiness?.label?.trim() || "未填写"
+      : personalName.trim() || "未填写";
+  const missingRequiredFields = useMemo(() => {
+    const missing: string[] = [];
+    if (!rego.trim()) missing.push("车牌号码");
+    if (customerType === "business" && !businessId) missing.push("商户名称");
+    if (showPaintPanels && !paintPanels.trim()) missing.push("喷漆片数");
+    return missing;
+  }, [rego, customerType, businessId, showPaintPanels, paintPanels]);
 
   const autoNotes = useMemo(() => {
     const items: string[] = [];
@@ -117,7 +149,7 @@ export function NewJobPage() {
     const partsText = partsSummaryLine;
     if (items.length === 0 && !partsText && !mechOptionText) return "";
     const lines: string[] = [];
-    if (items.length > 0) lines.push(`服务：${items.join("，")}`);
+    if (items.length > 0) lines.push(items.join("，"));
     if (mechOptionText) lines.push(mechOptionText);
     if (partsText) lines.push(partsText);
     return lines.join("\n");
@@ -312,7 +344,6 @@ export function NewJobPage() {
       return;
     }
 
-    const selectedBusiness = businessOptions.find((biz) => biz.id === businessId);
     const hasMech = selectedServices.includes("mech");
     const personalHasInfo = [
       personalName,
@@ -442,12 +473,12 @@ export function NewJobPage() {
   };
 
   return (
-    <div className="space-y-4 text-[14px]">
+    <div className="space-y-4 text-base">
       <div className="flex items-center gap-3">
         <Link to="/jobs" className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]">
           <ArrowLeft size={20} />
         </Link>
-        <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">新建工单</h1>
+        <h1 className="text-lg font-semibold text-[rgba(0,0,0,0.72)]">新建工单</h1>
       </div>
 
       {formAlert ? (
@@ -458,112 +489,191 @@ export function NewJobPage() {
         />
       ) : null}
 
-      <VehicleSection
-        rego={rego}
-        importState={importState}
-        importError={importError}
-        vehicleInfo={vehicleInfo}
-        onRegoChange={handleRegoChange}
-        onImport={handleImportClick}
-      />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(320px,1fr)]">
+        <div className="space-y-4">
+          <VehicleSection
+            rego={rego}
+            importState={importState}
+            importError={importError}
+            vehicleInfo={vehicleInfo}
+            onRegoChange={handleRegoChange}
+            onImport={handleImportClick}
+          />
 
-  
+          <CustomerSection
+            customerType={customerType}
+            onCustomerTypeChange={setCustomerType}
+            personalName={personalName}
+            personalPhone={personalPhone}
+            // personalWechat={personalWechat}
+            personalEmail={personalEmail}
+            onPersonalNameChange={setPersonalName}
+            onPersonalPhoneChange={setPersonalPhone}
+            // onPersonalWechatChange={setPersonalWechat}
+            onPersonalEmailChange={setPersonalEmail}
+            customerAddress={customerAddress}
+            onCustomerAddressChange={setCustomerAddress}
+            businessId={businessId}
+            businessOptions={businessOptions}
+            onBusinessChange={setBusinessId}
+          />
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+            <ServicesSection
+              selectedServices={selectedServices}
+              onToggleService={toggleService}
+              options={serviceOptions}
+              mechOptionChoices={mechOptionChoices}
+              mechOptions={mechOptions}
+              onToggleMechOption={toggleMechOption}
+              showPaintPanels={showPaintPanels}
+              paintPanels={paintPanels}
+              onPaintPanelsChange={handlePaintPanelsChange}
+            />
 
-      <CustomerSection
-        customerType={customerType}
-        onCustomerTypeChange={setCustomerType}
-        personalName={personalName}
-        personalPhone={personalPhone}
-        // personalWechat={personalWechat}
-        personalEmail={personalEmail}
-        onPersonalNameChange={setPersonalName}
-        onPersonalPhoneChange={setPersonalPhone}
-        // onPersonalWechatChange={setPersonalWechat}
-        onPersonalEmailChange={setPersonalEmail}
-        customerAddress={customerAddress}
-        onCustomerAddressChange={setCustomerAddress}
-        businessId={businessId}
-        businessOptions={businessOptions}
-        onBusinessChange={setBusinessId}
-      />
-      <ServicesSection
-        selectedServices={selectedServices}
-        onToggleService={toggleService}
-        options={serviceOptions}
-        mechOptionChoices={mechOptionChoices}
-        mechOptions={mechOptions}
-        onToggleMechOption={toggleMechOption}
-        showPaintPanels={showPaintPanels}
-        paintPanels={paintPanels}
-        onPaintPanelsChange={handlePaintPanelsChange}
-      />
-
-      <SectionCard
-        title="订配件"
-        titleIcon={<Boxes size={18} />}
-        titleClassName="text-base font-semibold"
-        actions={
-          <button
-            type="button"
-            onClick={addPartDescription}
-            className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-sm font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
-          >
-            <Plus size={14} />
-            配件
-          </button>
-        }
-      >
-          <div className="space-y-3 mt-2">
-              {partsDescriptions.map((value, index) => (
-                <div key={`part-item-${index}`} className="rounded-[10px] border border-[rgba(0,0,0,0.08)] bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="text-sm text-[rgba(0,0,0,0.65)]">配件 {index + 1}</label>
-                    <button
-                      type="button"
-                      onClick={() => removePartDescription(index)}
-                      className="inline-flex items-center gap-1 text-xs text-[rgba(0,0,0,0.50)] hover:text-[#b91c1c]"
+            <div className="space-y-4">
+              <SectionCard
+                title="订配件"
+                titleIcon={<Boxes size={18} />}
+                titleClassName="text-lg font-semibold"
+                actions={
+                  <button
+                    type="button"
+                    onClick={addPartDescription}
+                    className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-base font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
+                  >
+                    <Plus size={14} />
+                    配件
+                  </button>
+                }
+              >
+                <div className="space-y-3 mt-2">
+                  {partsDescriptions.map((value, index) => (
+                    <div
+                      key={`part-item-${index}`}
+                      className="rounded-[10px] border border-[rgba(0,0,0,0.08)] bg-white p-3"
                     >
-                      <X size={14} />
-                      删除
-                    </button>
-                  </div>
-                  <Textarea
-                    rows={2}
-                    placeholder="输入配件描述"
-                    value={value}
-                    onChange={(event) => updatePartDescription(index, event.target.value)}
-                  />
+                      <div className="mb-2 flex items-center justify-between">
+                        <label className="text-base text-[rgba(0,0,0,0.65)]">配件 {index + 1}</label>
+                        <button
+                          type="button"
+                          onClick={() => removePartDescription(index)}
+                          className="inline-flex items-center gap-1 text-base text-[rgba(0,0,0,0.50)] hover:text-[#b91c1c]"
+                        >
+                          <X size={14} />
+                          删除
+                        </button>
+                      </div>
+                      <Textarea
+                        rows={2}
+                        placeholder="输入配件描述"
+                        value={value}
+                        onChange={(event) => updatePartDescription(index, event.target.value)}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-      
-      </SectionCard>
+              </SectionCard>
 
-      {showNeedsPo ? (
-        <SectionCard title="采购订单 (PO)" titleIcon={<FileText size={18} />} titleClassName="text-base font-semibold">
-          <div className="mt-4 flex items-center justify-between gap-4 rounded-[12px] border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)] p-4">
-            <div>
-              <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">需要 PO</div>
-              <div className="text-sm text-[rgba(0,0,0,0.55)]">商户订单是否需要采购订单号</div>
+              {showNeedsPo ? (
+                <SectionCard
+                  title="采购订单 (PO)"
+                  titleIcon={<FileText size={18} />}
+                  titleClassName="text-lg font-semibold"
+                  actions={
+                    <label className="inline-flex cursor-pointer items-center">
+                      <input
+                        type="checkbox"
+                        checked={needsPo}
+                        onChange={(event) => setNeedsPo(event.target.checked)}
+                        className="peer sr-only"
+                      />
+                      <span className="relative h-7 w-12 rounded-full bg-[rgba(0,0,0,0.20)] transition peer-checked:bg-[#dc2626]">
+                        <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                      </span>
+                    </label>
+                  }
+                >
+                  {null}
+                </SectionCard>
+              ) : null}
             </div>
-            <label className="inline-flex cursor-pointer items-center">
-              <input
-                type="checkbox"
-                checked={needsPo}
-                onChange={(event) => setNeedsPo(event.target.checked)}
-                className="peer sr-only"
-              />
-              <span className="relative h-7 w-12 rounded-full bg-[rgba(0,0,0,0.20)] transition peer-checked:bg-[#dc2626]">
-                <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
-              </span>
-            </label>
           </div>
-        </SectionCard>
-      ) : null}
 
-      <NotesSection notes={notes} onNotesChange={setNotes} />
+          <NotesSection notes={notes} onNotesChange={setNotes} />
+        </div>
 
-      <ActionsRow onSave={handleSave} />
+        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start ">
+          <SectionCard
+            title="订单摘要"
+            titleIcon={<ReceiptText size={18} />}
+            titleClassName="text-lg font-semibold"
+          >
+            <div className="mt-4 space-y-5">
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">车牌号码</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">
+                  {rego.trim() || "未填写"}
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">客户信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">{customerDisplayName}</div>
+                <div className="mt-1 inline-flex rounded-full border border-[rgba(0,0,0,0.12)] px-3 py-1 text-base text-[rgba(0,0,0,0.70)]">
+                  {customerTypeLabel}
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">已选服务</div>
+                {selectedServiceSummaries.length ? (
+                  <ul className="mt-2 space-y-1 text-base text-[rgba(0,0,0,0.80)]">
+                    {selectedServiceSummaries.map((item) => (
+                      <li key={item}>• {item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-base text-[rgba(0,0,0,0.45)]">未选择</div>
+                )}
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">喷漆片数</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {showPaintPanels ? `${paintPanels || "1"} 片` : "不适用"}
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">配件信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {normalizedPartsDescriptions.length} 个配件
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">PO 信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {showNeedsPo ? (needsPo ? "需要 PO" : "不需要 PO") : "不适用"}
+                </div>
+              </div>
+              {missingRequiredFields.length ? (
+                <div className="border-t border-[rgba(220,38,38,0.15)] pt-4">
+                  <div className="flex items-center gap-2 text-base font-semibold text-[#dc2626]">
+                    <AlertCircle size={18} />
+                    缺失必填项
+                  </div>
+                  <ul className="mt-2 space-y-1 text-base text-[#dc2626]">
+                    {missingRequiredFields.map((field) => (
+                      <li key={field}>• {field}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </SectionCard>
+          <div className="flex justify-end">
+            <Button variant="primary" className="w-[80px] justify-center text-center" onClick={handleSave}>
+              保存
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

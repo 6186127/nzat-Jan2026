@@ -25,10 +25,10 @@ export function VehicleSection({
   onImport,
 }: VehicleSectionProps) {
   return (
-    <SectionCard title="车辆信息" titleIcon={<CarFront size={18} />} titleClassName="text-base font-semibold">
+    <SectionCard title="车辆信息" titleIcon={<CarFront size={18} />} titleClassName="text-lg font-semibold">
       <div className="mt-3 grid grid-cols-4 gap-3">
         <div className="col-span-1 space-y-1">
-          <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">
+          <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
             车牌号 <span className="text-red-500">*</span>
           </label>
           <div className="flex gap-2 items-end">
@@ -38,7 +38,7 @@ export function VehicleSection({
                 value={rego}
                 onChange={onRegoChange}
                 className={[
-                  "px-3 text-sm font-semibold text-center rounded-[8px] border-2",
+                  "px-3 text-base font-semibold text-center rounded-[8px] border-2",
                   "bg-white tracking-widest",
                   "w-[140px]",
                   rego
@@ -56,14 +56,14 @@ export function VehicleSection({
               {importState === "loading" ? "抓取中" : "抓取"}
             </Button>
             {rego ? (
-              <span className="text-xs text-[rgba(0,0,0,0.45)] flex-shrink-0">长度 {rego.length}</span>
+              <span className="text-base text-[rgba(0,0,0,0.45)] flex-shrink-0">长度 {rego.length}</span>
             ) : null}
           </div>
           {importState === "loading" && (
-            <div className="text-xs text-[rgba(37,99,235,0.85)] mt-1">正在抓取车辆信息…</div>
+            <div className="text-base text-[rgba(37,99,235,0.85)] mt-1">正在抓取车辆信息…</div>
           )}
-          {importState === "error" && <div className="text-xs text-red-600 mt-1">{importError}</div>}
-          <div className="text-xs text-[rgba(0,0,0,0.45)] mt-1">例：ABC1234</div>
+          {importState === "error" && <div className="text-base text-red-600 mt-1">{importError}</div>}
+          <div className="text-base text-[rgba(0,0,0,0.45)] mt-1">例：ABC1234</div>
         </div>
 
         {vehicleInfo && importState === "success" && <VehicleInfoBanner info={vehicleInfo} />}
@@ -101,7 +101,7 @@ export function ServicesSection({
     <SectionCard
       title="服务类型"
       titleIcon={<ClipboardList size={18} />}
-      titleClassName="text-base font-semibold"
+      titleClassName="text-lg font-semibold"
     >
       <div className="mt-4 space-y-4">
         {options.map((service) => {
@@ -116,30 +116,48 @@ export function ServicesSection({
                   : "border-[rgba(0,0,0,0.12)] bg-white",
               ].join(" ")}
             >
-              <button type="button" onClick={() => onToggleService(service.id)} className="w-full text-left">
-                <div className="flex items-start gap-3">
-                  <span
-                    className={[
-                      "mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-[6px] border text-[13px] font-semibold",
-                      selected
-                        ? "border-[#dc2626] bg-[#dc2626] text-white"
-                        : "border-[rgba(0,0,0,0.20)] bg-white text-transparent",
-                    ].join(" ")}
-                    aria-hidden="true"
-                  >
-                    ✓
-                  </span>
-                  <div className="mt-0.5 text-[rgba(0,0,0,0.40)]">
-                    <service.icon size={18} />
-                  </div>
-                  <div>
-                    <div className="text-base font-semibold text-[rgba(0,0,0,0.88)]">{service.label}</div>
-                    <div className="text-base text-[rgba(0,0,0,0.55)]">
-                      {/* {serviceDescriptions[service.id] || "请选择对应服务"} */}
+              <div className="flex items-start justify-between gap-4">
+                <button type="button" onClick={() => onToggleService(service.id)} className="flex-1 text-left">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={[
+                        "mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-[6px] border text-[13px] font-semibold",
+                        selected
+                          ? "border-[#dc2626] bg-[#dc2626] text-white"
+                          : "border-[rgba(0,0,0,0.20)] bg-white text-transparent",
+                      ].join(" ")}
+                      aria-hidden="true"
+                    >
+                      ✓
+                    </span>
+                    <div className="mt-0.5 text-[rgba(0,0,0,0.40)]">
+                      <service.icon size={18} />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-[rgba(0,0,0,0.88)]">{service.label}</div>
+                      <div className="text-base text-[rgba(0,0,0,0.55)]">
+                        {/* {serviceDescriptions[service.id] || "请选择对应服务"} */}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {service.id === "paint" && selected && showPaintPanels ? (
+                  <div className="ml-auto flex items-center justify-end gap-2">
+                    <label className="text-base font-semibold whitespace-nowrap text-[rgba(0,0,0,0.88)]">
+                      喷漆片数 <span className="text-red-500">*</span>
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={paintPanels}
+                      onChange={(event) => onPaintPanelsChange(event.target.value)}
+                      className="h-[30px] w-[120px] rounded-[10px] bg-white"
+                      placeholder="输入片数"
+                    />
+                  </div>
+                ) : null}
+              </div>
 
               {service.id === "mech" && selected ? (
                 <div className="mt-4 pl-9">
@@ -162,22 +180,7 @@ export function ServicesSection({
                 </div>
               ) : null}
 
-              {service.id === "paint" && selected && showPaintPanels ? (
-                <div className="mt-4 pl-9">
-                  <label className="mb-2 block text-base font-semibold text-[rgba(0,0,0,0.88)]">
-                    喷漆片数（1-20） <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={paintPanels}
-                    onChange={(event) => onPaintPanelsChange(event.target.value)}
-                    className="h-10 w-[160px] rounded-[10px] bg-white"
-                    placeholder="输入片数"
-                  />
-                </div>
-              ) : null}
+
             </div>
           );
         })}
@@ -222,10 +225,10 @@ export function CustomerSection({
   onBusinessChange,
 }: CustomerSectionProps) {
   return (
-    <SectionCard title="客户信息" titleIcon={<UserRound size={18} />} titleClassName="text-base font-semibold">
+    <SectionCard title="客户信息" titleIcon={<UserRound size={18} />} titleClassName="text-lg font-semibold">
       <div className="mt-3 space-y-4">
         <div>
-          <label className="text-xs text-[rgba(0,0,0,0.55)] mb-2 block">
+          <label className="text-base text-[rgba(0,0,0,0.55)] mb-2 block">
             客户类型 <span className="text-red-500">*</span>
           </label>
           <CustomerTypeToggle value={customerType} onChange={onCustomerTypeChange} />
@@ -234,7 +237,7 @@ export function CustomerSection({
         {customerType === "personal" ? (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">
+              <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
                 名字
               </label>
               <Input
@@ -244,7 +247,7 @@ export function CustomerSection({
               />
             </div>
             <div>
-              <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">
+              <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
                 电话
               </label>
               <Input
@@ -254,7 +257,7 @@ export function CustomerSection({
               />
             </div>
             {/* <div>
-              <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">微信</label>
+              <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">微信</label>
               <Input
                 placeholder="输入微信"
                 value={personalWechat}
@@ -262,7 +265,7 @@ export function CustomerSection({
               />
             </div> */}
             <div>
-              <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">邮箱</label>
+              <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">邮箱</label>
               <Input
                 placeholder="输入邮箱"
                 value={personalEmail}
@@ -270,7 +273,7 @@ export function CustomerSection({
               />
             </div>
             <div className="">
-              <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">地址</label>
+              <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">地址</label>
               <Input
                 placeholder="输入地址"
                 value={customerAddress}
@@ -280,7 +283,7 @@ export function CustomerSection({
           </div>
         ) : (
           <div>
-            <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">
+            <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
               选择商户 <span className="text-red-500">*</span>
             </label>
             <Select value={businessId} onChange={(event) => onBusinessChange(event.target.value)}>
@@ -309,10 +312,10 @@ export function NotesSection({ notes, onNotesChange }: NotesSectionProps) {
     <SectionCard
       title="备注"
       titleIcon={<NotebookText size={18} />}
-      titleClassName="text-base font-semibold"
+      titleClassName="text-lg font-semibold"
       actions={
         <button
-          className="text-xs text-[var(--ds-muted)] hover:text-[var(--ds-text)]"
+          className="text-base text-[var(--ds-muted)] hover:text-[var(--ds-text)]"
           onClick={() => setIsOpen((prev) => !prev)}
         >
           {isOpen ? "收起" : "展开"}
@@ -321,14 +324,14 @@ export function NotesSection({ notes, onNotesChange }: NotesSectionProps) {
     >
       {isOpen ? (
         <div className="mt-3">
-          <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">备注信息（选填）</label>
+          <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">备注信息（选填）</label>
           <textarea
             placeholder="输入备注信息"
             value={notes}
             onChange={(event) => onNotesChange(event.target.value)}
             rows={4}
             className={[
-              "w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 py-2 text-sm",
+              "w-full rounded-[8px] border border-[rgba(0,0,0,0.10)] bg-white px-3 py-2 text-base",
               "outline-none focus:border-[rgba(37,99,235,0.45)] focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]",
               "resize-none",
             ].join(" ")}

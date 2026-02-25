@@ -25,7 +25,7 @@ export function CustomerTypeToggle({ value, onChange }: CustomerTypeToggleProps)
           />
           <span
             className={[
-              "inline-flex min-w-[96px] items-center justify-center rounded-[10px] px-5 py-2 text-sm font-medium transition-colors",
+              "inline-flex min-w-[96px] items-center justify-center rounded-[10px] px-5 py-2 text-base font-medium transition-colors",
               value === option.id
                 ? "bg-[#dc2626] text-white shadow-sm"
                 : "text-[rgba(0,0,0,0.70)] hover:bg-[rgba(0,0,0,0.06)]",
