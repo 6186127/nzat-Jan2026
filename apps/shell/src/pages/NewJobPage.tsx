@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, FileText, Plus, ReceiptText, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Input, SectionCard, Textarea, useToast } from "@/components/ui";
+import { Alert, Button, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
-  ActionsRow,
   CustomerSection,
   NotesSection,
   ServicesSection,
@@ -20,6 +19,7 @@ import {
 import { withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
+  type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
   const navigate = useNavigate();
   const toast = useToast();
   const [rego, setRego] = useState("");
@@ -39,8 +39,8 @@ export function NewJobPage() {
   const [notes, setNotes] = useState("");
   const [needsPo, setNeedsPo] = useState(true);
   const [paintPanels, setPaintPanels] = useState("1");
-  const [partsDescription, setPartsDescription] = useState("");
-  const [mechOptions, setMechOptions] = useState<("maintenance" | "oil" | "tyre")[]>([]);
+  const [partsDescriptions, setPartsDescriptions] = useState<string[]>([""]);
+  const [mechOptions, setMechOptions] = useState<MechOptionId[]>([]);
   const [formAlert, setFormAlert] = useState<{ variant: "error" | "success"; message: string } | null>(
     null
   );
@@ -53,8 +53,12 @@ export function NewJobPage() {
     return parts.join("-");
   }, [rego, vehicleInfo?.year, vehicleInfo?.model]);
 
-  const showNeedsPo = customerType === "business" && selectedServices.includes("mech");
+  const showNeedsPo = customerType === "business";
   const showPaintPanels = selectedServices.includes("paint");
+  const selectedBusiness = useMemo(
+    () => businessOptions.find((biz) => biz.id === businessId),
+    [businessOptions, businessId]
+  );
 
   const serviceLabelMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -65,17 +69,23 @@ export function NewJobPage() {
   }, []);
   const mechOptionChoices = useMemo(
     () => [
-      { id: "maintenance" as const, label: "保养" },
+      { id: "tire" as const, label: "补胎" },
       { id: "oil" as const, label: "换机油" },
-      { id: "tyre" as const, label: "补胎" },
+      { id: "brake" as const, label: "换刹车片" },
+      { id: "battery" as const, label: "换电池" },
+      { id: "filter" as const, label: "换滤芯" },
+      { id: "other" as const, label: "其他机修" },
     ],
     []
   );
   const mechOptionLabelMap = useMemo(
     () => ({
-      maintenance: "保养",
+      tire: "补胎",
       oil: "换机油",
-      tyre: "补胎",
+      brake: "换刹车片",
+      battery: "换电池",
+      filter: "换滤芯",
+      other: "其他机修",
     }),
     []
   );
@@ -85,8 +95,45 @@ export function NewJobPage() {
   );
   const mechOptionsLine = useMemo(() => {
     if (!selectedMechOptionLabels.length) return "";
-    return `机修项目：${selectedMechOptionLabels.join("，")}`;
+    return selectedMechOptionLabels.join("，");
   }, [selectedMechOptionLabels]);
+  const normalizedPartsDescriptions = useMemo(
+    () => partsDescriptions.map((item) => item.trim()).filter(Boolean),
+    [partsDescriptions]
+  );
+  const partsSummaryLine = useMemo(() => {
+    if (!normalizedPartsDescriptions.length) return "";
+    return `配件：${normalizedPartsDescriptions.join("，")}`;
+  }, [normalizedPartsDescriptions]);
+  const selectedServiceSummaries = useMemo(() => {
+    const rows: string[] = [];
+    if (selectedServices.includes("wof")) {
+      rows.push(serviceLabelMap.wof || "WOF");
+    }
+    if (selectedServices.includes("mech")) {
+      rows.push(
+        selectedMechOptionLabels.length
+          ? `机修（${selectedMechOptionLabels.join("，")}）`
+          : (serviceLabelMap.mech || "机修")
+      );
+    }
+    if (selectedServices.includes("paint")) {
+      rows.push(`喷漆（${paintPanels || "1"}片）`);
+    }
+    return rows;
+  }, [selectedServices, serviceLabelMap, selectedMechOptionLabels, paintPanels]);
+  const customerTypeLabel = customerType === "business" ? "商户客户" : "个人客户";
+  const customerDisplayName =
+    customerType === "business"
+      ? selectedBusiness?.label?.trim() || "未填写"
+      : personalName.trim() || "未填写";
+  const missingRequiredFields = useMemo(() => {
+    const missing: string[] = [];
+    if (!rego.trim()) missing.push("车牌号码");
+    if (customerType === "business" && !businessId) missing.push("商户名称");
+    if (showPaintPanels && !paintPanels.trim()) missing.push("喷漆片数");
+    return missing;
+  }, [rego, customerType, businessId, showPaintPanels, paintPanels]);
 
   const autoNotes = useMemo(() => {
     const items: string[] = [];
@@ -99,13 +146,10 @@ export function NewJobPage() {
     }
     const mechOptionText =
       selectedServices.includes("mech") && mechOptionsLine ? mechOptionsLine : "";
-    const partsText =
-      selectedServices.includes("mech") && partsDescription.trim()
-        ? `配件：${partsDescription.trim()}`
-        : "";
+    const partsText = partsSummaryLine;
     if (items.length === 0 && !partsText && !mechOptionText) return "";
     const lines: string[] = [];
-    if (items.length > 0) lines.push(`服务：${items.join("，")}`);
+    if (items.length > 0) lines.push(items.join("，"));
     if (mechOptionText) lines.push(mechOptionText);
     if (partsText) lines.push(partsText);
     return lines.join("\n");
@@ -115,7 +159,7 @@ export function NewJobPage() {
     needsPo,
     paintPanels,
     serviceLabelMap,
-    partsDescription,
+    partsSummaryLine,
     mechOptionsLine,
   ]);
 
@@ -204,7 +248,7 @@ export function NewJobPage() {
       prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
     );
   };
-  const toggleMechOption = (id: "maintenance" | "oil" | "tyre") => {
+  const toggleMechOption = (id: MechOptionId) => {
     setMechOptions((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
@@ -300,7 +344,6 @@ export function NewJobPage() {
       return;
     }
 
-    const selectedBusiness = businessOptions.find((biz) => biz.id === businessId);
     const hasMech = selectedServices.includes("mech");
     const personalHasInfo = [
       personalName,
@@ -338,15 +381,13 @@ export function NewJobPage() {
           };
     const trimmedNotes = notes.trim();
     const baseNotes = trimmedNotes ? trimmedNotes : autoNotes;
-    const partsText =
-      hasMech && partsDescription.trim() ? `配件：${partsDescription.trim()}` : "";
+    const partsText = partsSummaryLine;
     let notesPayload = regoYearModelLabel;
     if (baseNotes) {
       notesPayload = notesPayload ? `${notesPayload}\n${baseNotes}` : baseNotes;
     }
     if (partsText) {
-      const hasPartsAlready =
-        notesPayload.includes(partsText) || notesPayload.includes(partsDescription.trim());
+      const hasPartsAlready = notesPayload.includes(partsText);
       if (!hasPartsAlready) {
         notesPayload = notesPayload ? `${notesPayload}\n${partsText}` : partsText;
       }
@@ -362,7 +403,7 @@ export function NewJobPage() {
   console.log(" plate:", rego);
   console.log(" services:", selectedServices);
   console.log(" notesPayload:", notesPayload);
-  console.log(" partsDescription:", hasMech && partsDescription.trim() ? partsDescription.trim() : undefined);
+  console.log(" partsDescriptions:", normalizedPartsDescriptions.length ? normalizedPartsDescriptions : undefined);
   console.log(" businessId:", customerType === "business" ? businessId : undefined);
   console.log(" customer:", customerPayload);
 
@@ -377,7 +418,8 @@ export function NewJobPage() {
           plate: rego,
           services: selectedServices,
           notes: notesPayload,
-          partsDescription: hasMech && partsDescription.trim() ? partsDescription.trim() : undefined,
+          // partsDescription: normalizedPartsDescriptions[0],
+          partsDescriptions: normalizedPartsDescriptions,
           mechItems: hasMech ? selectedMechOptionLabels : [],
           paintPanels: showPaintPanels ? Number(paintPanels) || 1 : undefined,
           businessId: customerType === "business" ? businessId : undefined,
@@ -408,13 +450,35 @@ export function NewJobPage() {
     }
   };
 
+  const handlePaintPanelsChange = (value: string) => {
+    if (value === "") {
+      setPaintPanels("");
+      return;
+    }
+    if (!/^\d+$/.test(value)) return;
+    const num = Math.min(20, Math.max(1, Number(value)));
+    setPaintPanels(String(num));
+  };
+  const updatePartDescription = (index: number, value: string) => {
+    setPartsDescriptions((prev) => prev.map((item, idx) => (idx === index ? value : item)));
+  };
+  const addPartDescription = () => {
+    setPartsDescriptions((prev) => [...prev, ""]);
+  };
+  const removePartDescription = (index: number) => {
+    setPartsDescriptions((prev) => {
+      if (prev.length === 1) return [""];
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
   return (
-    <div className="space-y-4 text-[14px]">
+    <div className="space-y-4 text-base">
       <div className="flex items-center gap-3">
         <Link to="/jobs" className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]">
           <ArrowLeft size={20} />
         </Link>
-        <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">新建工单</h1>
+        <h1 className="text-lg font-semibold text-[rgba(0,0,0,0.72)]">新建工单</h1>
       </div>
 
       {formAlert ? (
@@ -425,126 +489,191 @@ export function NewJobPage() {
         />
       ) : null}
 
-      <VehicleSection
-        rego={rego}
-        importState={importState}
-        importError={importError}
-        vehicleInfo={vehicleInfo}
-        onRegoChange={handleRegoChange}
-        onImport={handleImportClick}
-      />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(320px,1fr)]">
+        <div className="space-y-4">
+          <VehicleSection
+            rego={rego}
+            importState={importState}
+            importError={importError}
+            vehicleInfo={vehicleInfo}
+            onRegoChange={handleRegoChange}
+            onImport={handleImportClick}
+          />
 
-  
+          <CustomerSection
+            customerType={customerType}
+            onCustomerTypeChange={setCustomerType}
+            personalName={personalName}
+            personalPhone={personalPhone}
+            // personalWechat={personalWechat}
+            personalEmail={personalEmail}
+            onPersonalNameChange={setPersonalName}
+            onPersonalPhoneChange={setPersonalPhone}
+            // onPersonalWechatChange={setPersonalWechat}
+            onPersonalEmailChange={setPersonalEmail}
+            customerAddress={customerAddress}
+            onCustomerAddressChange={setCustomerAddress}
+            businessId={businessId}
+            businessOptions={businessOptions}
+            onBusinessChange={setBusinessId}
+          />
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+            <ServicesSection
+              selectedServices={selectedServices}
+              onToggleService={toggleService}
+              options={serviceOptions}
+              mechOptionChoices={mechOptionChoices}
+              mechOptions={mechOptions}
+              onToggleMechOption={toggleMechOption}
+              showPaintPanels={showPaintPanels}
+              paintPanels={paintPanels}
+              onPaintPanelsChange={handlePaintPanelsChange}
+            />
 
-      <CustomerSection
-        customerType={customerType}
-        onCustomerTypeChange={setCustomerType}
-        personalName={personalName}
-        personalPhone={personalPhone}
-        // personalWechat={personalWechat}
-        personalEmail={personalEmail}
-        onPersonalNameChange={setPersonalName}
-        onPersonalPhoneChange={setPersonalPhone}
-        // onPersonalWechatChange={setPersonalWechat}
-        onPersonalEmailChange={setPersonalEmail}
-        customerAddress={customerAddress}
-        onCustomerAddressChange={setCustomerAddress}
-        businessId={businessId}
-        businessOptions={businessOptions}
-        onBusinessChange={setBusinessId}
-      />
-      <ServicesSection
-        selectedServices={selectedServices}
-        onToggleService={toggleService}
-        options={serviceOptions}
-      />
+            <div className="space-y-4">
+              <SectionCard
+                title="订配件"
+                titleIcon={<Boxes size={18} />}
+                titleClassName="text-lg font-semibold"
+                actions={
+                  <button
+                    type="button"
+                    onClick={addPartDescription}
+                    className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-base font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
+                  >
+                    <Plus size={14} />
+                    配件
+                  </button>
+                }
+              >
+                <div className="space-y-3 mt-2">
+                  {partsDescriptions.map((value, index) => (
+                    <div
+                      key={`part-item-${index}`}
+                      className="rounded-[10px] border border-[rgba(0,0,0,0.08)] bg-white p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <label className="text-base text-[rgba(0,0,0,0.65)]">配件 {index + 1}</label>
+                        <button
+                          type="button"
+                          onClick={() => removePartDescription(index)}
+                          className="inline-flex items-center gap-1 text-base text-[rgba(0,0,0,0.50)] hover:text-[#b91c1c]"
+                        >
+                          <X size={14} />
+                          删除
+                        </button>
+                      </div>
+                      <Textarea
+                        rows={2}
+                        placeholder="输入配件描述"
+                        value={value}
+                        onChange={(event) => updatePartDescription(index, event.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
 
-      {showNeedsPo || selectedServices.includes("mech") ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {selectedServices.includes("mech") ? (
-            <SectionCard title="机修选项">
-              <div className="mt-3 space-y-3">
-                {showNeedsPo ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="needs-po"
-                      type="checkbox"
-                      checked={needsPo}
-                      onChange={(event) => setNeedsPo(event.target.checked)}
-                      className="h-4 w-4 accent-[var(--ds-primary)]"
-                    />
-                    <label htmlFor="needs-po" className="text-sm text-[rgba(0,0,0,0.70)]">
-                      需要PO
+              {showNeedsPo ? (
+                <SectionCard
+                  title="采购订单 (PO)"
+                  titleIcon={<FileText size={18} />}
+                  titleClassName="text-lg font-semibold"
+                  actions={
+                    <label className="inline-flex cursor-pointer items-center">
+                      <input
+                        type="checkbox"
+                        checked={needsPo}
+                        onChange={(event) => setNeedsPo(event.target.checked)}
+                        className="peer sr-only"
+                      />
+                      <span className="relative h-7 w-12 rounded-full bg-[rgba(0,0,0,0.20)] transition peer-checked:bg-[#dc2626]">
+                        <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                      </span>
                     </label>
-                  </div>
-                ) : null}
-                <div>
-                  {/* <div className="text-xs text-[rgba(0,0,0,0.55)] mb-1">机修项目（可选）</div> */}
-                  <div className="flex flex-wrap gap-3">
-                    {mechOptionChoices.map((opt) => (
-                      <label
-                        key={opt.id}
-                        className="flex items-center gap-2 text-sm text-[rgba(0,0,0,0.70)]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={mechOptions.includes(opt.id)}
-                          onChange={() => toggleMechOption(opt.id)}
-                          className="h-4 w-4 accent-[var(--ds-primary)]"
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
+                  }
+                >
+                  {null}
+                </SectionCard>
+              ) : null}
+            </div>
+          </div>
+
+          <NotesSection notes={notes} onNotesChange={setNotes} />
+        </div>
+
+        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start ">
+          <SectionCard
+            title="订单摘要"
+            titleIcon={<ReceiptText size={18} />}
+            titleClassName="text-lg font-semibold"
+          >
+            <div className="mt-4 space-y-5">
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">车牌号码</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">
+                  {rego.trim() || "未填写"}
                 </div>
               </div>
-            </SectionCard>
-          ) : null}
-
-          {selectedServices.includes("mech") ? (
-            <SectionCard title="配件描述（可选）">
-              <div className="mt-3">
-                <label className="text-xs text-[rgba(0,0,0,0.55)] mb-1 block">配件描述</label>
-                <Textarea
-                  rows={3}
-                  placeholder="输入配件描述"
-                  value={partsDescription}
-                  onChange={(event) => setPartsDescription(event.target.value)}
-                />
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">客户信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.86)]">{customerDisplayName}</div>
+                <div className="mt-1 inline-flex rounded-full border border-[rgba(0,0,0,0.12)] px-3 py-1 text-base text-[rgba(0,0,0,0.70)]">
+                  {customerTypeLabel}
+                </div>
               </div>
-            </SectionCard>
-          ) : null}
-        </div>
-      ) : null}
-
-      {showPaintPanels ? (
-        <SectionCard title="喷漆片数*">
-          <div className="mt-3 flex items-center gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={20}
-              value={paintPanels}
-              onChange={(event) => {
-                const next = event.target.value;
-                if (next === "") {
-                  setPaintPanels("");
-                  return;
-                }
-                if (!/^\d+$/.test(next)) return;
-                const num = Math.min(20, Math.max(1, Number(next)));
-                setPaintPanels(String(num));
-              }}
-              className="h-9 w-[120px]"
-            />
-            <span className="text-sm text-[rgba(0,0,0,0.70)]">片</span>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">已选服务</div>
+                {selectedServiceSummaries.length ? (
+                  <ul className="mt-2 space-y-1 text-base text-[rgba(0,0,0,0.80)]">
+                    {selectedServiceSummaries.map((item) => (
+                      <li key={item}>• {item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-base text-[rgba(0,0,0,0.45)]">未选择</div>
+                )}
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">喷漆片数</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {showPaintPanels ? `${paintPanels || "1"} 片` : "不适用"}
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">配件信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {normalizedPartsDescriptions.length} 个配件
+                </div>
+              </div>
+              <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">PO 信息</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {showNeedsPo ? (needsPo ? "需要 PO" : "不需要 PO") : "不适用"}
+                </div>
+              </div>
+              {missingRequiredFields.length ? (
+                <div className="border-t border-[rgba(220,38,38,0.15)] pt-4">
+                  <div className="flex items-center gap-2 text-base font-semibold text-[#dc2626]">
+                    <AlertCircle size={18} />
+                    缺失必填项
+                  </div>
+                  <ul className="mt-2 space-y-1 text-base text-[#dc2626]">
+                    {missingRequiredFields.map((field) => (
+                      <li key={field}>• {field}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </SectionCard>
+          <div className="flex justify-end">
+            <Button variant="primary" className="w-[80px] justify-center text-center" onClick={handleSave}>
+              保存
+            </Button>
           </div>
-        </SectionCard>
-      ) : null}
-
-      <NotesSection notes={notes} onNotesChange={setNotes} />
-
-      <ActionsRow onSave={handleSave} />
+        </div>
+      </div>
     </div>
   );
 }
