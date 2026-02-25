@@ -91,11 +91,7 @@ public class NewJobController : ControllerBase
         var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
         var hasPaint = req.Services?.Any(s => string.Equals(s, "paint", StringComparison.OrdinalIgnoreCase)) == true;
         var partsDescriptions = ParsePartsDescriptions(req);
-// SHOW  partsDescriptions at console for debugging
-        Console.WriteLine("===============Parsed parts descriptions:============");
-        foreach (var desc in partsDescriptions)        {
-            Console.WriteLine($"- {desc}");
-        }
+
 
         if (partsDescriptions.Count > 0)
         {
@@ -103,7 +99,7 @@ public class NewJobController : ControllerBase
             foreach (var partsDescription in partsDescriptions)
 
             {
-                  Console.WriteLine(partsDescription);
+                //   Console.WriteLine(partsDescription);
                 var partsService = new JobPartsService
                 {
                     JobId = job.Id,
@@ -225,8 +221,7 @@ catch (Exception ex)
             BusinessCode = "WI",
             Notes = input.Notes?.Trim(),
         };
-            Console.WriteLine("======Creating new person & saving to database");
-            _db.Customers.Add(existing);
+           _db.Customers.Add(existing);
         
 
         await _db.SaveChangesAsync(ct);
