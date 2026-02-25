@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { Input, Select } from "@/components/ui";
+import { notifyPaintBoardRefresh } from "@/utils/refreshSignals";
 import { fetchPaintBoard, updatePaintStage } from "@/features/paint/api/paintApi";
 import {
   addDays,
@@ -203,6 +204,7 @@ export function PaintBoardPage() {
       const list = Array.isArray(res.data?.jobs) ? res.data.jobs : [];
       setJobs(list);
     }
+    notifyPaintBoardRefresh();
   };
 
   const handleResetFilters = () => {

@@ -234,6 +234,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
       setPaintService(res.data ?? null);
       toast.success("喷漆服务已创建");
+      notifyPaintBoardRefresh();
       return { success: true, message: "喷漆服务已创建" };
     },
     [jobId, toast]
@@ -259,6 +260,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
           : prev
       );
       toast.success("喷漆阶段已更新");
+      notifyPaintBoardRefresh();
       return { success: true, message: "喷漆阶段已更新" };
     },
     [jobId, toast]
@@ -278,6 +280,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         prev ? { ...prev, panels: typeof res.data?.panels === "number" ? res.data.panels : panels } : prev
       );
       toast.success("喷漆片数已更新");
+      notifyPaintBoardRefresh();
       return { success: true, message: "喷漆片数已更新" };
     },
     [jobId, toast]
@@ -295,6 +298,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
       setPaintService(null);
       toast.success("喷漆服务已删除");
+      notifyPaintBoardRefresh();
       return { success: true, message: "喷漆服务已删除" };
     },
     [jobId, toast]
