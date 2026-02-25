@@ -24,9 +24,10 @@ const PAINT_STAGES: StageItem[] = [
   { key: "not_started", label: "等待处理", stageIndex: -1 },
   { key: "panel_primer", label: "钣金/底漆", description: "钣金修复与底层处理", stageIndex: 0 },
   { key: "primer", label: "打底漆", description: "喷涂打底漆", stageIndex: 1 },
-  { key: "paint", label: "喷漆", description: "喷涂面漆", stageIndex: 2 },
-  { key: "assembly", label: "配件组装", description: "配件安装与复位", stageIndex: 3 },
-  { key: "done", label: "完成", stageIndex: 4 },
+  { key: "sanding", label: "底漆打磨", description: "底漆打磨处理", stageIndex: 2 },
+  { key: "paint", label: "喷漆", description: "喷涂面漆", stageIndex: 3 },
+  { key: "assembly", label: "组装抛光", description: "配件安装与抛光", stageIndex: 4 },
+  { key: "done", label: "完成喷漆", stageIndex: 5 },
 ];
 
 export function PaintPanel({
