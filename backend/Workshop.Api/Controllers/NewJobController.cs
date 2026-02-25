@@ -90,18 +90,31 @@ public class NewJobController : ControllerBase
         var wofCreated = req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true;
         var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
         var hasPaint = req.Services?.Any(s => string.Equals(s, "paint", StringComparison.OrdinalIgnoreCase)) == true;
-
-        if (hasMech && !string.IsNullOrWhiteSpace(req.PartsDescription))
+        var partsDescriptions = req.PartsDescriptions?
+            .Select(x => x?.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .ToList() ?? new List<string>();
+        if (partsDescriptions.Count == 0 && !string.IsNullOrWhiteSpace(req.PartsDescription))
         {
-            var partsService = new JobPartsService
+            partsDescriptions.Add(req.PartsDescription.Trim());
+        }
+
+        if (partsDescriptions.Count > 0)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var partsDescription in partsDescriptions)
             {
-                JobId = job.Id,
-                Description = req.PartsDescription.Trim(),
-                Status = PartsServiceStatus.PendingOrder,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow,
-            };
-            _db.JobPartsServices.Add(partsService);
+                var partsService = new JobPartsService
+                {
+                    JobId = job.Id,
+                    Description = partsDescription,
+                    Status = PartsServiceStatus.PendingOrder,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                };
+                _db.JobPartsServices.Add(partsService);
+            }
             await _db.SaveChangesAsync(ct);
         }
 
