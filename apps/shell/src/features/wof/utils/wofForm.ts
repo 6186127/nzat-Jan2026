@@ -7,6 +7,7 @@ export type WofFormState = {
   odo: string;
   recordState: "" | "Pass" | "Fail" | "Recheck";
   isNewWof: "" | "true" | "false";
+  newWofDate: string;
   authCode: string;
   checkSheet: string;
   csNo: string;
@@ -36,6 +37,7 @@ export function toWofFormState(record: WofCheckItem): WofFormState {
         : record.isNewWof
           ? "true"
           : "false",
+    newWofDate: record.newWofDate ?? "",
     authCode: record.authCode ?? "",
     checkSheet: record.checkSheet ?? "",
     csNo: record.csNo ?? "",
@@ -61,6 +63,7 @@ export function buildWofPayload(form: WofFormState): WofRecordUpdatePayload {
     odo: form.odo || null,
     recordState: form.recordState || null,
     isNewWof: form.isNewWof === "" ? null : form.isNewWof === "true",
+    newWofDate: form.newWofDate || null,
     authCode: form.authCode || null,
     checkSheet: form.checkSheet || null,
     csNo: form.csNo || null,
@@ -85,6 +88,7 @@ export function createEmptyWofFormState(): WofFormState {
     odo: "",
     recordState: "",
     isNewWof: "",
+    newWofDate: "",
     authCode: "",
     checkSheet: "",
     csNo: "",

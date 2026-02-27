@@ -102,6 +102,7 @@ export type WofRecordUpdatePayload = {
   odo?: string | null;
   recordState?: WofRecordStatus | null;
   isNewWof?: boolean | null;
+  newWofDate?: string | null;
   authCode?: string | null;
   checkSheet?: string | null;
   csNo?: string | null;
