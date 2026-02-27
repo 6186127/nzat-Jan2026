@@ -105,10 +105,10 @@ public class WofPrintService
     };
 
     private static string FormatDate(DateOnly? date)
-        => date.HasValue ? date.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "";
+        => date.HasValue ? date.Value.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("en-NZ")) : "";
 
     private static string FormatDate(DateTime dateTime)
-        => dateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        => dateTime.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("en-NZ"));
 }
 
 public record WofPrintPdfResult(int StatusCode, byte[]? PdfBytes, string? FileName, string? Error)

@@ -317,7 +317,12 @@ public class WofRecordsService
         int? colWofLabel = FindColumn(columnMap, "woflabel", "wof_label");
         int? colLabelNo = FindColumn(columnMap, "labelno", "label_no");
         int? colFailReasons = FindColumn(columnMap, "failreasons", "failreason", "fail_reasons");
-        int? colPrevExpiry = FindColumn(columnMap, "previousexpirydate", "previous_expiry_date", "expirydate");
+        int? colPrevExpiry = FindColumn(
+            columnMap,
+          
+            "previous_expiry_date"
+        
+        );
         int? colOrganisation = FindColumn(columnMap, "organisationname", "organizationname", "organisation", "organization");
         int? colNote = FindColumn(columnMap, "note", "notes");
         int? colUiState = FindColumn(columnMap, "uistate", "wofuistate", "wof_ui_state");
@@ -478,10 +483,9 @@ public class WofRecordsService
         DateOnly? previousExpiry = null;
         if (!string.IsNullOrWhiteSpace(request.PreviousExpiryDate))
         {
-            if (!DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) &&
-                !DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+            previousExpiry = ParseDateOnly(request.PreviousExpiryDate);
+            if (previousExpiry is null)
                 return WofServiceResult.BadRequest("Invalid previous expiry date.");
-            previousExpiry = parsed;
         }
 
         DateTime? importedAt = null;
@@ -569,10 +573,9 @@ public class WofRecordsService
         DateOnly? previousExpiry = null;
         if (!string.IsNullOrWhiteSpace(request.PreviousExpiryDate))
         {
-            if (!DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) &&
-                !DateOnly.TryParse(request.PreviousExpiryDate, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+            previousExpiry = ParseDateOnly(request.PreviousExpiryDate);
+            if (previousExpiry is null)
                 return WofServiceResult.BadRequest("Invalid previous expiry date.");
-            previousExpiry = parsed;
         }
 
         DateTime? importedAt = null;
@@ -771,9 +774,34 @@ public class WofRecordsService
         if (value is double d) return DateTime.FromOADate(d);
         if (value is string s)
         {
-            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+            var normalized = NormalizeDateString(s);
+            if (string.IsNullOrWhiteSpace(normalized)) return null;
+            if (DateTime.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
                 return parsed;
-            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+            if (DateTime.TryParse(normalized, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+                return parsed;
+            var nz = CultureInfo.GetCultureInfo("en-NZ");
+            if (DateTime.TryParse(normalized, nz, DateTimeStyles.AssumeLocal, out parsed))
+                return parsed;
+            var formats = new[]
+            {
+                "d/M/yyyy",
+                "dd/MM/yyyy",
+                "d/M/yyyy HH:mm",
+                "dd/MM/yyyy HH:mm",
+                "d/M/yyyy H:mm",
+                "dd/MM/yyyy H:mm",
+                "yyyy-M-d",
+                "yyyy-MM-dd",
+                "yyyy/M/d",
+                "yyyy/MM/dd",
+                "yyyy-MM-dd HH:mm",
+                "yyyy/MM/dd HH:mm",
+                "yyyyMMdd",
+            };
+            if (DateTime.TryParseExact(normalized.Trim(), formats, nz, DateTimeStyles.AssumeLocal, out parsed))
+                return parsed;
+            if (DateTime.TryParseExact(normalized.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed))
                 return parsed;
         }
         return null;
@@ -788,9 +816,34 @@ public class WofRecordsService
     private static DateOnly? ParseDateOnly(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        var normalized = NormalizeDateString(value);
+        if (string.IsNullOrWhiteSpace(normalized)) return null;
+        if (DateOnly.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
             return parsed;
-        if (DateOnly.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+        if (DateOnly.TryParse(normalized, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+            return parsed;
+        var nz = CultureInfo.GetCultureInfo("en-NZ");
+        if (DateOnly.TryParse(normalized, nz, DateTimeStyles.None, out parsed))
+            return parsed;
+        var formats = new[]
+        {
+            "d/M/yyyy",
+            "dd/MM/yyyy",
+            "d/M/yyyy HH:mm",
+            "dd/MM/yyyy HH:mm",
+            "d/M/yyyy H:mm",
+            "dd/MM/yyyy H:mm",
+            "yyyy-M-d",
+            "yyyy-MM-dd",
+            "yyyy/M/d",
+            "yyyy/MM/dd",
+            "yyyy-MM-dd HH:mm",
+            "yyyy/MM/dd HH:mm",
+            "yyyyMMdd",
+        };
+        if (DateOnly.TryParseExact(normalized.Trim(), formats, nz, DateTimeStyles.None, out parsed))
+            return parsed;
+        if (DateOnly.TryParseExact(normalized.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
             return parsed;
         var parsedDateTime = ParseDateTime(value);
         return parsedDateTime.HasValue ? DateOnly.FromDateTime(parsedDateTime.Value) : null;
@@ -869,11 +922,28 @@ public class WofRecordsService
     private static DateTime? ParseDateTime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+        var normalized = NormalizeDateString(value);
+        if (string.IsNullOrWhiteSpace(normalized)) return null;
+        if (DateTime.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
             return parsed;
-        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+        if (DateTime.TryParse(normalized, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
             return parsed;
         return null;
+    }
+
+    private static string NormalizeDateString(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var trimmed = value.Trim();
+        var chars = trimmed.Where(c =>
+            char.IsDigit(c) ||
+            c == '/' ||
+            c == '-' ||
+            c == ':' ||
+            c == 'T' ||
+            char.IsWhiteSpace(c)
+        ).ToArray();
+        return new string(chars).Trim();
     }
 
     private static string? NormalizeOptional(string? value)

@@ -683,7 +683,8 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
       if (!cancelled) {
         const list = Array.isArray(res.data) ? res.data : [];
-        setWofFailReasons(list.filter((item) => item?.isActive !== false));
+        const active = list.filter((item) => item?.isActive !== false);
+        setWofFailReasons(active.length ? active : list);
       }
     };
 

@@ -15,6 +15,18 @@ export function formatNzDateTime(value?: string | null) {
   return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute} `;
 }
 
+export function formatUtcDateTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const hh = String(date.getUTCHours()).padStart(2, "0");
+  const min = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
 export function formatNzDate(value?: string | Date | null) {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);

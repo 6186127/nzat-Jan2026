@@ -25,6 +25,8 @@ export type WofPanelProps = {
   vehiclePlate?: string;
   vehicleMakeModel?: string;
   vehicleOdometer?: number | null;
+  nzFirstRegistration?: string;
+  vin?: string | null;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
@@ -44,6 +46,8 @@ export function WofPanel(props: WofPanelProps) {
     vehiclePlate,
     vehicleMakeModel,
     vehicleOdometer,
+    nzFirstRegistration,
+    vin,
     customerName,
     customerPhone,
     customerEmail,
@@ -71,6 +75,8 @@ export function WofPanel(props: WofPanelProps) {
             jobId,
             vehicleMakeModel,
             vehicleOdometer,
+            nzFirstRegistration,
+            vin,
             customerName,
             customerPhone,
             customerEmail,
