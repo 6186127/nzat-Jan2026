@@ -4,6 +4,8 @@ export type WofPrintData = {
   recordStateLabel: string;
   rego: string;
   makeModel: string;
+  nzFirstRegistration: string;
+  vin: string;
   odoText: string;
   organisationName: string;
   customerName: string;
@@ -14,6 +16,7 @@ export type WofPrintData = {
   inspectionNumber: string;
   recheckDate: string;
   recheckNumber: string;
+  recheckOdo: string;
   isNewWof: boolean;
   newWofDate: string;
   authCode: string;
@@ -26,6 +29,10 @@ export type WofPrintData = {
   previousExpiryDate: string;
   failRecheckDate: string;
   note: string;
+  placeholderDash: string;
+  placeholderCheck: string;
+  placeholderMs: string;
+  placeholderCode: string;
 };
 
 type FieldLayout = {
@@ -60,32 +67,39 @@ const field = (layout: FieldLayout, text: string, pageW: number) => {
 };
 
 const FIELD_LAYOUTS: FieldLayout[] = [
-  { key: "rego", x: 40, y: 40, w: 260, h: 22, size: 12 },
+  { key: "rego", x: 540, y: 40, w: 260, h: 60, size: 24 },
   { key: "makeModel", x: 40, y: 70, w: 360, h: 22, size: 12 },
+  { key: "nzFirstRegistration", x: 420, y: 70, w: 200, h: 22, size: 12 },
+  { key: "vin", x: 420, y: 100, w: 320, h: 22, size: 12 },
   { key: "odoText", x: 40, y: 100, w: 200, h: 22, size: 12 },
   { key: "organisationName", x: 40, y: 130, w: 360, h: 22, size: 12 },
   { key: "customerName", x: 40, y: 160, w: 360, h: 22, size: 12 },
   { key: "customerPhone", x: 40, y: 190, w: 200, h: 22, size: 12 },
   { key: "customerEmail", x: 40, y: 220, w: 360, h: 22, size: 11 },
   { key: "customerAddress", x: 40, y: 250, w: 420, h: 60, size: 11 },
+  { key: "rego", x: 240, y: 40, w: 260, h: 60, size: 24 },
 
-  { key: "jobId", x: 40, y: 330, w: 140, h: 22, size: 12 },
-  { key: "msNumber", x: 200, y: 330, w: 140, h: 22, size: 12 },
-  { key: "isNewWof", x: 40, y: 360, w: 120, h: 22, size: 12 },
+  // { key: "jobId", x: 40, y: 330, w: 140, h: 22, size: 12 },
+  // { key: "msNumber", x: 200, y: 330, w: 140, h: 22, size: 12 },
+  // { key: "isNewWof", x: 40, y: 360, w: 120, h: 22, size: 12 },
   { key: "newWofDate", x: 170, y: 360, w: 160, h: 22, size: 12 },
   { key: "authCode", x: 40, y: 390, w: 200, h: 22, size: 12 },
   { key: "wofLabel", x: 260, y: 390, w: 140, h: 22, size: 12 },
   { key: "checkSheet", x: 40, y: 420, w: 180, h: 22, size: 12 },
   { key: "csNo", x: 240, y: 420, w: 160, h: 22, size: 12 },
   { key: "labelNo", x: 40, y: 450, w: 160, h: 22, size: 12 },
+  { key: "placeholderDash", x: 220, y: 450, w: 140, h: 22, size: 12 },
+  { key: "placeholderCheck", x: 380, y: 450, w: 40, h: 22, size: 14 },
+  { key: "placeholderMs", x: 440, y: 450, w: 120, h: 22, size: 12 },
+  { key: "placeholderCode", x: 580, y: 450, w: 120, h: 22, size: 12 },
 
   { key: "inspectionDate", x: 40, y: 500, w: 160, h: 22, size: 12 },
-  { key: "inspectionNumber", x: 220, y: 500, w: 160, h: 22, size: 12 },
+  // { key: "inspectionNumber", x: 220, y: 500, w: 160, h: 22, size: 12 },
   { key: "recordStateLabel", x: 40, y: 530, w: 160, h: 22, size: 12 },
   { key: "previousExpiryDate", x: 220, y: 530, w: 160, h: 22, size: 12 },
 
   { key: "recheckDate", x: 40, y: 580, w: 160, h: 22, size: 12 },
-  { key: "recheckNumber", x: 220, y: 580, w: 160, h: 22, size: 12 },
+  { key: "recheckOdo", x: 220, y: 580, w: 160, h: 22, size: 12 },
 
   { key: "failReasons", x: 40, y: 640, w: 720, h: 80, size: 11 },
   { key: "failRecheckDate", x: 40, y: 730, w: 220, h: 22, size: 12 },
@@ -229,7 +243,7 @@ export const buildWofHtml = (data: WofPrintData) => {
     }
   </style>
 </head>
-<body class="debug">
+<body>
   <button class="noprint debug-toggle" onclick="document.body.classList.toggle('debug')">Debug</button>
   <button class="noprint" onclick="window.print()">Print</button>
   <div class="page">
@@ -240,6 +254,11 @@ export const buildWofHtml = (data: WofPrintData) => {
   <script>
     (function () {
       try {
+        var params = new URLSearchParams(window.location.search || "");
+        var flag = params.get("printDebug") || (window.localStorage && window.localStorage.getItem("printDebug"));
+        if (flag === "1" || flag === "true") {
+          document.body.classList.add("debug");
+        }
         document.addEventListener("keydown", function (event) {
           if (event.key === "d" || event.key === "D") {
             document.body.classList.toggle("debug");

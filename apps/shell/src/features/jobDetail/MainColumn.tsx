@@ -237,6 +237,8 @@ export function MainColumn({
             vehiclePlate={jobData.vehicle.plate}
             vehicleMakeModel={vehicleMakeModel}
             vehicleOdometer={jobData.vehicle.odometer ?? null}
+            nzFirstRegistration={jobData.vehicle.nzFirstRegistration ?? ""}
+            vin={jobData.vehicle.vin ?? null}
             customerName={jobData.customer.name}
             customerPhone={jobData.customer.phone}
             customerEmail={jobData.customer.email}

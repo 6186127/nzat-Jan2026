@@ -1,6 +1,7 @@
 import type { WofCheckItem, WofFailReason, WofRecordUpdatePayload } from "@/types";
 import { WofResultsCard } from "./WofResultsCard";
 import { WofResultItem, type WofPrintContext } from "./WofResultItem";
+import { useMemo } from "react";
 
 type WofResultsListProps = {
   isLoading?: boolean;
@@ -27,6 +28,29 @@ export function WofResultsList({
   defaultMakeModel,
   failReasons,
 }: WofResultsListProps) {
+  const mergedFailReasons = useMemo(() => {
+    const list = Array.isArray(failReasons) ? failReasons : [];
+    const map = new Map<string, WofFailReason>();
+    list.forEach((reason) => {
+      if (!reason?.label) return;
+      map.set(reason.label, reason);
+    });
+    checkItems.forEach((item) => {
+      const raw = String(item?.failReasons ?? "").trim();
+      if (!raw) return;
+      raw
+        .split(/[,;|\n]+/g)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .forEach((label) => {
+          if (!map.has(label)) {
+            map.set(label, { id: `sheet:${label}`, label, isActive: true });
+          }
+        });
+    });
+    return Array.from(map.values());
+  }, [failReasons, checkItems]);
+
   if (isLoading) {
     return <div className="py-6 text-center text-sm text-[var(--ds-muted)]">加载中...</div>;
   }
@@ -65,7 +89,7 @@ export function WofResultsList({
           printContext={printContext}
           onCreate={onCreate}
           onCancel={onCancelCreate}
-          failReasons={failReasons}
+          failReasons={mergedFailReasons}
         />
       ) : null}
        {/* list  results from DB */}
@@ -74,7 +98,7 @@ export function WofResultsList({
           wofResults={checkItems}
           printContext={printContext}
           onUpdate={onUpdate}
-          failReasons={failReasons}
+          failReasons={mergedFailReasons}
         />
       ) : null}
     </div>

@@ -22,7 +22,12 @@ const TWO_LINE_CLAMP_STYLE = {
   WebkitLineClamp: 2,
   wordBreak: "break-word",
 } as const;
-const MAX_MODEL_LINES = 3;
+const ONE_LINE_CLAMP_STYLE = {
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 1,
+  wordBreak: "break-word",
+} as const;
 
 const JOB_TABLE_COLUMNS: Array<{
   key: string;
@@ -30,19 +35,17 @@ const JOB_TABLE_COLUMNS: Array<{
   width: number;
   minWidth: number;
 }> = [
-  { key: "urgent", label: "加急", width: 40, minWidth: 30 },
+  { key: "createdAt", label: "创建时间", width: 140, minWidth: 130 },
   { key: "inShop", label: "在店时间", width: 90, minWidth: 70 },
   { key: "status", label: "汽车状态", width: 110, minWidth: 90 },
   { key: "tag", label: "TAG", width: 90, minWidth: 70 },
-  { key: "plate", label: "车牌号", width: 100, minWidth: 80 },
-  { key: "model", label: "汽车型号", width: 140, minWidth: 150 },
+  { key: "code", label: "code", width: 90, minWidth: 80 },
+  { key: "plate", label: "车牌", width: 110, minWidth: 90 },
+  { key: "model", label: "汽车型号", width: 180, minWidth: 160 },
   { key: "note", label: "备注", width: 250, minWidth: 280 },
   { key: "wof", label: "WOF", width: 70, minWidth: 60 },
   { key: "mech", label: "机修", width: 70, minWidth: 60 },
   { key: "paint", label: "喷漆", width: 70, minWidth: 60 },
-  { key: "customer", label: "客户Code", width: 70, minWidth: 90 },
-  { key: "phone", label: "客户电话", width: 110, minWidth: 90 },
-  { key: "createdAt", label: "创建时间", width: 100, minWidth: 120 },
   { key: "actions", label: "操作", width: 80, minWidth: 60 },
 ];
 
@@ -84,14 +87,15 @@ function formatDateInput(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getModelLines(value?: string) {
-  const text = String(value ?? "").trim();
-  if (!text) return { lines: ["—"], truncated: false };
-  const parts = text.split(/\s+/).filter(Boolean);
-  if (parts.length <= MAX_MODEL_LINES) {
-    return { lines: parts, truncated: false };
-  }
-  return { lines: parts.slice(0, MAX_MODEL_LINES), truncated: true };
+function formatCreatedAtDisplay(value?: string) {
+  const parsed = parseCreatedAt(value);
+  if (!parsed) return value || "—";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const hour = String(parsed.getHours()).padStart(2, "0");
+  const minute = String(parsed.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hour}:${minute}`;
 }
 
 export function JobsTable({
@@ -231,66 +235,6 @@ export function JobsTable({
                   hover:bg-[rgba(0,0,0,0.02)]`}
                 style={gridStyle}
               >
-                <div className="flex justify-center">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-[var(--ds-primary)]"
-                    checked={r.urgent}
-                    onChange={() => onToggleUrgent(r.id)}
-                  />
-                </div>
-
-                <div className={timeClass}>{timeInShop.label}</div>
-
-                <div><StatusPill status={r.vehicleStatus} /></div>
-
-                <div className="min-w-0"><TagsCell selectedTags={r.selectedTags} /></div>
-                <div className="text-left font-medium text-[rgba(0,0,0,0.70)]">
-                  <div className="h-10 overflow-hidden leading-5" style={TWO_LINE_CLAMP_STYLE}>
-                    <Link
-                      to={`/jobs/${r.id}`}
-                      className="block text-[rgba(37,99,235,1)] font-semibold underline"
-                    >
-                      {r.plate}
-                    </Link>
-                  </div>
-                </div>
-                <div
-                  className="min-w-0 text-left font-semibold text-[rgba(0,0,0,0.60)]"
-                  title={r.vehicleModel || ""}
-                >
-                  <div className="h-[60px] overflow-hidden leading-5">
-                    {(() => {
-                      const { lines, truncated } = getModelLines(r.vehicleModel);
-                      return lines.map((line, index) => (
-                        <span key={`${line}-${index}`} className="block">
-                          {index === lines.length - 1 && truncated ? `${line}…` : line}
-                        </span>
-                      ));
-                    })()}
-                  </div>
-                </div>
-                <div className="min-w-0 text-left text-[rgba(0,0,0,0.45)]">
-                  {r.notes ? (
-                    <span className="relative inline-flex max-w-full align-middle group">
-                      <span className="h-10 overflow-hidden leading-5" style={TWO_LINE_CLAMP_STYLE}>
-                        {r.notes}
-                      </span>
-                      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-[260px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 text-xs text-[rgba(0,0,0,0.75)] shadow-lg opacity-0 translate-y-1 transition group-hover:opacity-100 group-hover:translate-y-0">
-                        {r.notes}
-                      </span>
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </div>
-
-                <div className="flex justify-center"><ProgressRing value={r.wofPct} /></div>
-                <div className="flex justify-center"><ProgressRing value={r.mechPct} /></div>
-                <div className="flex justify-center"><ProgressRing value={r.paintPct} /></div>
-
-                <div className="truncate">{r.customerCode || r.customerName}</div>
-                <div>{r.customerPhone}</div>
                 <div
                   onDoubleClick={() => startEditCreatedAt(r)}
                   className="cursor-pointer"
@@ -316,12 +260,64 @@ export function JobsTable({
                       autoFocus
                     />
                   ) : (
-                    (() => {
-                      const parsed = parseCreatedAt(r.createdAt);
-                      return parsed ? formatDateInput(parsed) : r.createdAt;
-                    })()
+                    formatCreatedAtDisplay(r.createdAt)
                   )}
                 </div>
+
+                <div className={timeClass}>{timeInShop.label}</div>
+
+                <div><StatusPill status={r.vehicleStatus} /></div>
+
+                <div className="min-w-0 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[var(--ds-primary)]"
+                    checked={r.urgent}
+                    onChange={() => onToggleUrgent(r.id)}
+                    title="加急"
+                  />
+                  <TagsCell selectedTags={r.selectedTags} />
+                </div>
+
+                <div className="truncate">{r.customerCode || r.customerName || "—"}</div>
+
+                <div className="text-left font-medium text-[rgba(0,0,0,0.70)]">
+                  <div className="h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
+                    <Link
+                      to={`/jobs/${r.id}`}
+                      className="block text-[rgba(37,99,235,1)] font-semibold underline"
+                    >
+                      {r.plate}
+                    </Link>
+                  </div>
+                </div>
+
+                <div
+                  className="min-w-0 text-left font-semibold text-[rgba(0,0,0,0.60)]"
+                  title={r.vehicleModel || ""}
+                >
+                  <div className="h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
+                    {r.vehicleModel || "—"}
+                  </div>
+                </div>
+                <div className="min-w-0 text-left text-[rgba(0,0,0,0.45)]">
+                  {r.notes ? (
+                    <span className="relative inline-flex max-w-full align-middle group">
+                      <span className="h-10 overflow-hidden leading-5" style={TWO_LINE_CLAMP_STYLE}>
+                        {r.notes}
+                      </span>
+                      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-[260px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 text-xs text-[rgba(0,0,0,0.75)] shadow-lg opacity-0 translate-y-1 transition group-hover:opacity-100 group-hover:translate-y-0">
+                        {r.notes}
+                      </span>
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </div>
+
+                <div className="flex justify-center"><ProgressRing value={r.wofPct} /></div>
+                <div className="flex justify-center"><ProgressRing value={r.mechPct} /></div>
+                <div className="flex justify-center"><ProgressRing value={r.paintPct} /></div>
 
                 <div className="flex justify-center gap-1 ">
                   <button
