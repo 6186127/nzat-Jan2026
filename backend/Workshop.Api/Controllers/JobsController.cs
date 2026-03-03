@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
 
@@ -704,13 +705,5 @@ public class JobsController : ControllerBase
         => date.HasValue ? date.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "";
 
     private static string FormatDateTime(DateTime dateTime)
-    {
-        var normalized = dateTime.Kind switch
-        {
-            DateTimeKind.Utc => dateTime,
-            DateTimeKind.Local => dateTime.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
-        };
-        return normalized.ToString("O", CultureInfo.InvariantCulture);
-    }
+        => DateTimeHelper.FormatUtc(dateTime);
 }
