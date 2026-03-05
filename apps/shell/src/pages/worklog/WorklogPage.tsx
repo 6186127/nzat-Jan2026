@@ -5,28 +5,30 @@ import { notifyWorklogCostAlert } from "@/utils/refreshSignals";
 import { Button, useToast } from "@/components/ui";
 import { StaffManagement } from "@/features/worklog/components/StaffManagement";
 import { WorkLogTable } from "@/features/worklog/components/WorkLogTable";
-import { initialWorklogEntries, worklogJobs, worklogStaffProfiles } from "@/features/worklog/mockData";
 import {
-  buildStaffColorMap,
-  calculateDuration,
-  detectFlags,
-  formatDateTime,
-  parseTimeRange,
-} from "@/features/worklog/worklog.utils";
-import type { WorklogEntry, WorklogFlag, WorklogJob, WorklogStaffProfile } from "@/features/worklog/types";
+  createStaff,
+  createWorklog,
+  deleteStaff,
+  deleteWorklog,
+  fetchStaff,
+  fetchWorklogs,
+  updateStaff,
+  updateWorklog,
+} from "@/features/worklog/api/worklogApi";
+import { buildStaffColorMap, calculateDuration, detectFlags, parseTimeRange } from "@/features/worklog/worklog.utils";
+import type {
+  WorklogEntry,
+  WorklogFlag,
+  WorklogJob,
+  WorklogStaffProfile,
+  WorklogRole,
+} from "@/features/worklog/types";
 
 export function WorklogPage() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [logs, setLogs] = useState<WorklogEntry[]>(() =>
-    initialWorklogEntries.map((log) => ({
-      ...log,
-      flags: log.flagDismissed ? [] : detectFlags(log, initialWorklogEntries),
-    }))
-  );
-  const [staffList, setStaffList] = useState<WorklogStaffProfile[]>(worklogStaffProfiles);
-  const [nextId, setNextId] = useState(initialWorklogEntries.length + 1);
-  const [nextStaffId, setNextStaffId] = useState(worklogStaffProfiles.length + 1);
+  const [logs, setLogs] = useState<WorklogEntry[]>([]);
+  const [staffList, setStaffList] = useState<WorklogStaffProfile[]>([]);
   const [apiJobs, setApiJobs] = useState<WorklogJob[]>([]);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
 
@@ -51,7 +53,49 @@ export function WorklogPage() {
       );
     };
 
+    const loadStaff = async () => {
+      const res = await fetchStaff();
+      if (!res.ok || !Array.isArray(res.data) || cancelled) return;
+      setStaffList(
+        res.data.map((item) => ({
+          id: String(item.id),
+          name: String(item.name ?? ""),
+          role: "Technician" as WorklogRole,
+          cost_rate: Number(item.cost_rate ?? 0),
+        }))
+      );
+    };
+
+    const loadWorklogs = async () => {
+      const res = await fetchWorklogs();
+      if (!res.ok || !Array.isArray(res.data) || cancelled) return;
+      const entries = res.data.map((row) => ({
+        id: String(row.id),
+        staff_name: String(row.staff_name ?? ""),
+        staff_id: String(row.staff_id ?? ""),
+        team: "",
+        role: "Technician" as WorklogRole,
+        service_type: String(row.service_type ?? "PNP") as "PNP" | "MECH",
+        rego: String(row.rego ?? ""),
+        job_id: String(row.job_id ?? ""),
+        job_note: "",
+        task_types: [],
+        work_date: String(row.work_date ?? ""),
+        start_time: String(row.start_time ?? ""),
+        end_time: String(row.end_time ?? ""),
+        cost_rate: Number(row.cost_rate ?? 0),
+        admin_note: String(row.admin_note ?? ""),
+        source: String(row.source ?? "admin") as WorklogEntry["source"],
+        created_at: String(row.created_at ?? ""),
+        created_by: "db",
+        flags: [],
+      }));
+      setLogs(recalculateFlags(entries));
+    };
+
     void loadJobs();
+    void loadStaff();
+    void loadWorklogs();
     return () => {
       cancelled = true;
     };
@@ -59,7 +103,7 @@ export function WorklogPage() {
 
   const jobs = useMemo(() => {
     const merged = new Map<string, WorklogJob>();
-    [...worklogJobs, ...apiJobs].forEach((job) => {
+    [...apiJobs].forEach((job) => {
       merged.set(job.rego, job);
     });
     return Array.from(merged.values());
@@ -91,40 +135,92 @@ export function WorklogPage() {
       flags: log.flagDismissed ? [] : detectFlags(log, entries),
     }));
 
-  const handleAddLog = (newLog: Omit<WorklogEntry, "id" | "created_at" | "created_by" | "flags">) => {
-    const log: WorklogEntry = {
-      ...newLog,
-      id: String(nextId),
-      created_at: formatDateTime(new Date()),
-      created_by: "admin",
+  const refreshWorklogs = async () => {
+    const res = await fetchWorklogs();
+    if (!res.ok || !Array.isArray(res.data)) return;
+    const entries = res.data.map((row) => ({
+      id: String(row.id),
+      staff_name: String(row.staff_name ?? ""),
+      staff_id: String(row.staff_id ?? ""),
+      team: "",
+      role: "Technician" as WorklogRole,
+      service_type: String(row.service_type ?? "PNP") as "PNP" | "MECH",
+      rego: String(row.rego ?? ""),
+      job_id: String(row.job_id ?? ""),
+      job_note: "",
+      task_types: [],
+      work_date: String(row.work_date ?? ""),
+      start_time: String(row.start_time ?? ""),
+      end_time: String(row.end_time ?? ""),
+      cost_rate: Number(row.cost_rate ?? 0),
+      admin_note: String(row.admin_note ?? ""),
+      source: String(row.source ?? "admin") as WorklogEntry["source"],
+      created_at: String(row.created_at ?? ""),
+      created_by: "db",
       flags: [],
-    };
-    const updated = recalculateFlags([...logs, log]);
-    setLogs(updated);
-    setEditingLogId(null);
-    setNextId((prev) => prev + 1);
+    }));
+    setLogs(recalculateFlags(entries));
   };
 
-  const handleEditLog = (id: string, updates: Partial<WorklogEntry>) => {
-    const updated = recalculateFlags(logs.map((log) => (log.id === id ? { ...log, ...updates } : log)));
-    setLogs(updated);
+  const handleAddLog = async (newLog: Omit<WorklogEntry, "id" | "created_at" | "created_by" | "flags">) => {
+    if (!newLog.job_id || !newLog.staff_id) {
+      toast.error("请选择有效的工单和员工");
+      return;
+    }
+    const res = await createWorklog({
+      jobId: String(newLog.job_id),
+      staffId: String(newLog.staff_id),
+      serviceType: newLog.service_type ?? "PNP",
+      workDate: newLog.work_date,
+      startTime: newLog.start_time,
+      endTime: newLog.end_time,
+      adminNote: newLog.admin_note ?? "",
+      source: newLog.source ?? "admin",
+    });
+    if (!res.ok) {
+      toast.error(res.error || "新增失败");
+      return;
+    }
+    await refreshWorklogs();
+    setEditingLogId(null);
+  };
+
+  const handleEditLog = async (id: string, updates: Partial<WorklogEntry>) => {
+    const res = await updateWorklog(id, {
+      jobId: updates.job_id,
+      staffId: updates.staff_id,
+      serviceType: updates.service_type,
+      workDate: updates.work_date,
+      startTime: updates.start_time,
+      endTime: updates.end_time,
+      adminNote: updates.admin_note,
+      source: updates.source,
+    });
+    if (!res.ok) {
+      toast.error(res.error || "更新失败");
+      return;
+    }
+    await refreshWorklogs();
     setEditingLogId((prev) => (prev === id ? null : prev));
   };
 
-  const handleCopyLog = (log: WorklogEntry) => {
-    const copiedId = String(nextId);
-    const copied: WorklogEntry = {
-      ...log,
-      id: copiedId,
-      created_at: formatDateTime(new Date()),
-      created_by: "admin",
-      flagDismissed: false,
-      flags: [],
-    };
-    const updated = recalculateFlags([...logs, copied]);
-    setLogs(updated);
-    setEditingLogId(copiedId);
-    setNextId((prev) => prev + 1);
+  const handleCopyLog = async (log: WorklogEntry) => {
+    if (!log.job_id || !log.staff_id) return;
+    const res = await createWorklog({
+      jobId: String(log.job_id),
+      staffId: String(log.staff_id),
+      serviceType: log.service_type ?? "PNP",
+      workDate: log.work_date,
+      startTime: log.start_time,
+      endTime: log.end_time,
+      adminNote: log.admin_note ?? "",
+      source: log.source ?? "admin",
+    });
+    if (!res.ok) {
+      toast.error(res.error || "复制失败");
+      return;
+    }
+    await refreshWorklogs();
   };
 
   const handleDismissFlag = (id: string, flag: WorklogFlag) => {
@@ -141,21 +237,63 @@ export function WorklogPage() {
     );
   };
 
-  const handleAddStaff = (newStaff: Omit<WorklogStaffProfile, "id">) => {
-    setStaffList((prev) => [...prev, { ...newStaff, id: String(nextStaffId) }]);
-    setNextStaffId((prev) => prev + 1);
+  const handleAddStaff = async (newStaff: Omit<WorklogStaffProfile, "id">) => {
+    const res = await createStaff({ name: newStaff.name, costRate: newStaff.cost_rate });
+    if (!res.ok) {
+      toast.error(res.error || "新增员工失败");
+      return;
+    }
+    const refreshed = await fetchStaff();
+    if (refreshed.ok && Array.isArray(refreshed.data)) {
+      setStaffList(
+        refreshed.data.map((item) => ({
+          id: String(item.id),
+          name: String(item.name ?? ""),
+          role: "Technician" as WorklogRole,
+          cost_rate: Number(item.cost_rate ?? 0),
+        }))
+      );
+    }
   };
 
-  const handleEditStaff = (id: string, updates: Partial<WorklogStaffProfile>) => {
-    setStaffList((prev) => prev.map((staff) => (staff.id === id ? { ...staff, ...updates } : staff)));
+  const handleEditStaff = async (id: string, updates: Partial<WorklogStaffProfile>) => {
+    const res = await updateStaff(id, {
+      name: updates.name,
+      costRate: updates.cost_rate,
+    });
+    if (!res.ok) {
+      toast.error(res.error || "更新员工失败");
+      return;
+    }
+    const refreshed = await fetchStaff();
+    if (refreshed.ok && Array.isArray(refreshed.data)) {
+      setStaffList(
+        refreshed.data.map((item) => ({
+          id: String(item.id),
+          name: String(item.name ?? ""),
+          role: "Technician" as WorklogRole,
+          cost_rate: Number(item.cost_rate ?? 0),
+        }))
+      );
+    }
   };
 
-  const handleDeleteStaff = (id: string) => {
+  const handleDeleteStaff = async (id: string) => {
+    const res = await deleteStaff(id);
+    if (!res.ok) {
+      toast.error(res.error || "删除员工失败");
+      return;
+    }
     setStaffList((prev) => prev.filter((staff) => staff.id !== id));
   };
 
-  const handleDeleteLog = (id: string) => {
-    setLogs((prev) => recalculateFlags(prev.filter((log) => log.id !== id)));
+  const handleDeleteLog = async (id: string) => {
+    const res = await deleteWorklog(id);
+    if (!res.ok) {
+      toast.error(res.error || "删除失败");
+      return;
+    }
+    await refreshWorklogs();
   };
 
   const handleDownloadTemplate = () => {
@@ -207,10 +345,8 @@ export function WorklogPage() {
         return;
       }
 
-      const createdAt = formatDateTime(new Date());
       const imported: WorklogEntry[] = [];
       const errors: string[] = [];
-      let nextLocalId = nextId;
 
       rows.forEach((row, index) => {
         const rowNumber = index + 2;
@@ -230,14 +366,15 @@ export function WorklogPage() {
         const job = jobs.find((item) => item.rego === rego);
 
         imported.push({
-          id: String(nextLocalId++),
+          id: "",
           staff_name: staffName,
+          staff_id: staff?.id,
           team: "",
           role: staff?.role || "Technician",
           service_type: "PNP",
           rego,
           job_id: job?.id,
-          job_note: job?.note || "",
+          job_note: "",
           task_types: [],
           work_date: workDate,
           start_time: parsedRange.start,
@@ -245,7 +382,7 @@ export function WorklogPage() {
           cost_rate: staff?.cost_rate || 0,
           admin_note: adminNote,
           source: "admin",
-          created_at: createdAt,
+          created_at: "",
           created_by: "import",
           flags: [],
           flagDismissed: false,
@@ -257,8 +394,23 @@ export function WorklogPage() {
         return;
       }
 
-      setLogs((prev) => recalculateFlags([...prev, ...imported]));
-      setNextId(nextLocalId);
+      for (const item of imported) {
+        if (!item.job_id || !item.staff_id) {
+          errors.push("导入数据缺少工单或员工");
+          continue;
+        }
+        await createWorklog({
+          jobId: String(item.job_id),
+          staffId: String(item.staff_id),
+          serviceType: item.service_type ?? "PNP",
+          workDate: item.work_date,
+          startTime: item.start_time,
+          endTime: item.end_time,
+          adminNote: item.admin_note ?? "",
+          source: item.source ?? "admin",
+        });
+      }
+      await refreshWorklogs();
 
       if (errors.length) {
         toast.error(`部分行导入失败：${errors.slice(0, 3).join("；")}`);
@@ -272,12 +424,12 @@ export function WorklogPage() {
 
   return (
     <div
-      className="min-h-full space-y-4 text-[14px]"
+      className="flex min-h-full flex-col text-[14px]"
       style={{
         fontFamily: '"Manrope","Plus Jakarta Sans","Space Grotesk","Segoe UI",sans-serif',
       }}
     >
-      <div className="mx-auto max-w-[1800px] p-6">
+      <div className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-semibold text-[rgba(0,0,0,0.72)]">工时明细列表</h1>
           <div className="flex flex-wrap items-center gap-2">
@@ -311,18 +463,20 @@ export function WorklogPage() {
           onDeleteStaff={handleDeleteStaff}
         />
 
-        <WorkLogTable
-          logs={logs}
-          staffProfiles={staffList}
-          jobs={jobs}
-          staffColorMap={staffColorMap}
-          editingLogId={editingLogId}
-          onAddLog={handleAddLog}
-          onEditLog={handleEditLog}
-          onCopyLog={handleCopyLog}
-          onDismissFlag={handleDismissFlag}
-          onDeleteLog={handleDeleteLog}
-        />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <WorkLogTable
+            logs={logs}
+            staffProfiles={staffList}
+            jobs={jobs}
+            staffColorMap={staffColorMap}
+            editingLogId={editingLogId}
+            onAddLog={handleAddLog}
+            onEditLog={handleEditLog}
+            onCopyLog={handleCopyLog}
+            onDismissFlag={handleDismissFlag}
+            onDeleteLog={handleDeleteLog}
+          />
+        </div>
       </div>
     </div>
   );

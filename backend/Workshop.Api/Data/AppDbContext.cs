@@ -22,6 +22,8 @@ public class AppDbContext : DbContext
     public DbSet<JobPartsNote> JobPartsNotes => Set<JobPartsNote>();
     public DbSet<JobMechService> JobMechServices => Set<JobMechService>();
     public DbSet<JobPaintService> JobPaintServices => Set<JobPaintService>();
+    public DbSet<Staff> Staff => Set<Staff>();
+    public DbSet<WorklogEntry> WorklogEntries => Set<WorklogEntry>();
     
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -43,6 +45,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasPostgresEnum<WofRecordState>("public", "wof_record_state");
         modelBuilder.HasPostgresEnum<WofUiState>("public", "wof_ui_state");
         modelBuilder.HasPostgresEnum<PartsServiceStatus>("public", "parts_service_status");
+        modelBuilder.HasPostgresEnum<WorklogServiceType>("public", "worklog_service_type");
 
         var e = modelBuilder.Entity<Vehicle>();
         e.ToTable("vehicles");
@@ -106,6 +109,35 @@ public class AppDbContext : DbContext
         j.Property(x => x.Notes).HasColumnName("notes");
         j.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         j.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+        var s = modelBuilder.Entity<Staff>();
+        s.ToTable("staff");
+        s.HasKey(x => x.Id);
+        s.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        s.Property(x => x.Name).HasColumnName("name").IsRequired();
+        s.Property(x => x.CostRate).HasColumnName("cost_rate").IsRequired();
+        s.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        s.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+        var wl = modelBuilder.Entity<WorklogEntry>();
+        wl.ToTable("worklogs");
+        wl.HasKey(x => x.Id);
+        wl.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        wl.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+        wl.Property(x => x.StaffId).HasColumnName("staff_id").IsRequired();
+        wl.Property(x => x.ServiceType)
+            .HasColumnName("service_type")
+            .HasColumnType("worklog_service_type")
+            .IsRequired();
+        wl.Property(x => x.WorkDate).HasColumnName("work_date").IsRequired();
+        wl.Property(x => x.StartTime).HasColumnName("start_time").IsRequired();
+        wl.Property(x => x.EndTime).HasColumnName("end_time").IsRequired();
+        wl.Property(x => x.AdminNote).HasColumnName("admin_note");
+        wl.Property(x => x.Source).HasColumnName("source").IsRequired();
+        wl.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        wl.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        wl.HasOne(x => x.Staff).WithMany().HasForeignKey(x => x.StaffId).OnDelete(DeleteBehavior.Restrict);
+        wl.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
 
         var t = modelBuilder.Entity<Tag>();
         t.ToTable("tags");

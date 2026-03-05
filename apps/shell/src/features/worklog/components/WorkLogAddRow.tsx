@@ -59,6 +59,7 @@ export function WorkLogAddRow({ staffProfiles, jobs, totalsByJob, onAdd }: Props
 
     onAdd({
       staff_name: staffName.trim(),
+      staff_id: selectedStaff?.id,
       team: "",
       role: selectedStaff?.role || "Technician",
       service_type: serviceType,

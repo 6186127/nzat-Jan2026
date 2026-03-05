@@ -89,8 +89,8 @@ export function WorkLogTable({
   }, [editingLogId]);
 
   return (
-    <div className="space-y-4">
-      <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200 bg-white">
+    <div className="flex min-h-0 flex-1 flex-col space-y-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-auto rounded-lg border border-slate-200 bg-white">
         <table className="w-full min-w-[1560px] border-collapse">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
