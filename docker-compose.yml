@@ -15,9 +15,7 @@ services:
       - /www/wwwroot/NZAT.NET/db/init:/docker-entrypoint-initdb.d:ro
 
   api:
-    build:
-      context: /www/wwwroot/NZAT.NET/backend
-      dockerfile: Workshop.Api/Dockerfile
+    image: ghcr.io/lynn61liu/nzat-api:latest
     restart: unless-stopped
     env_file:
       - .env
@@ -31,9 +29,7 @@ services:
       - "${API_PORT:-8080}:8080"
 
   web:
-    build:
-      context: /www/wwwroot/NZAT.NET/apps/shell
-      dockerfile: Dockerfile
+    image: ghcr.io/lynn61liu/nzat-web:latest
     restart: unless-stopped
     depends_on:
       - api
