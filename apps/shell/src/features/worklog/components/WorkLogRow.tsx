@@ -45,10 +45,6 @@ export function WorkLogRow({
   const [editRegoInput, setEditRegoInput] = useState(log.rego);
   const [showRegoSuggestions, setShowRegoSuggestions] = useState(false);
 
-  const selectedStaff = useMemo(
-    () => staffProfiles.find((item) => item.name === editData.staff_name),
-    [editData.staff_name, staffProfiles]
-  );
   const selectedJob = useMemo(() => jobs.find((item) => item.rego === editData.rego), [editData.rego, jobs]);
   const makeModel = selectedJob?.makeModel;
   const customerCode = selectedJob?.customerCode;

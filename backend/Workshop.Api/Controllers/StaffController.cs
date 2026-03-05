@@ -21,6 +21,7 @@ public class StaffController : ControllerBase
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
         var rows = await _db.Staff.AsNoTracking()
+            .Where(x => x.IsActive)
             .OrderBy(x => x.Name)
             .ToListAsync(ct);
 
@@ -50,6 +51,7 @@ public class StaffController : ControllerBase
         {
             Name = payload.Name.Trim(),
             CostRate = payload.CostRate.Value,
+            IsActive = true,
         };
 
         _db.Staff.Add(entity);
@@ -93,8 +95,9 @@ public class StaffController : ControllerBase
     {
         var entity = await _db.Staff.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (entity is null) return NotFound(new { error = "Staff not found." });
+        if (!entity.IsActive) return Ok(new { success = true });
 
-        _db.Staff.Remove(entity);
+        entity.IsActive = false;
         await _db.SaveChangesAsync(ct);
         return Ok(new { success = true });
     }
