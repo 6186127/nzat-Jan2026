@@ -23,6 +23,7 @@ export type WorklogJob = {
 export type WorklogEntry = {
   id: string;
   staff_name: string;
+  staff_id?: string;
   team: string;
   role: WorklogRole;
   service_type?: "PNP" | "MECH";

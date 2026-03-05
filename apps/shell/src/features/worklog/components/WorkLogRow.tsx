@@ -147,6 +147,7 @@ export function WorkLogRow({
                     setEditData((prev) => ({
                       ...prev,
                       staff_name: staff.name,
+                      staff_id: staff.id,
                       team: "",
                       role: staff.role,
                       cost_rate: staff.cost_rate,

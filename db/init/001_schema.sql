@@ -9,6 +9,7 @@ CREATE TYPE parts_service_status AS ENUM (
   'parts_trader',
   'pickup_or_transit'
 );
+CREATE TYPE worklog_service_type AS ENUM ('pnp', 'mech');
 
 -- Vehicles
 CREATE TABLE vehicles (
@@ -52,6 +53,15 @@ CREATE TABLE customers (
   address TEXT,
   business_code TEXT,
   notes TEXT
+);
+
+-- Staff
+CREATE TABLE staff (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  cost_rate NUMERIC NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Jobs
@@ -165,4 +175,21 @@ CREATE TABLE job_paint_services (
   panels INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Worklogs
+CREATE TABLE worklogs (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL,
+  staff_id BIGINT NOT NULL,
+  service_type worklog_service_type NOT NULL DEFAULT 'pnp',
+  work_date DATE NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  admin_note TEXT,
+  source TEXT NOT NULL DEFAULT 'admin',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_worklogs_job FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+  CONSTRAINT fk_worklogs_staff FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE RESTRICT
 );
