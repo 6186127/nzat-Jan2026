@@ -101,13 +101,7 @@ export function WorklogPage() {
     };
   }, []);
 
-  const jobs = useMemo(() => {
-    const merged = new Map<string, WorklogJob>();
-    [...apiJobs].forEach((job) => {
-      merged.set(job.rego, job);
-    });
-    return Array.from(merged.values());
-  }, [apiJobs]);
+  const jobs = useMemo(() => [...apiJobs], [apiJobs]);
 
   const staffColorMap = useMemo(
     () => buildStaffColorMap(staffList.map((staff) => staff.name)),
