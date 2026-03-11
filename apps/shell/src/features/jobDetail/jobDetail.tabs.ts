@@ -9,4 +9,5 @@ export const jobDetailTabs: { key: JobDetailTabKey; label: string }[] = [
   { key: "Worklog", label: JOB_DETAIL_TEXT.tabs.worklog },
   { key: "Log", label: JOB_DETAIL_TEXT.tabs.log },
   { key: "Invoice", label: JOB_DETAIL_TEXT.tabs.invoice },
+  { key: "PO", label: JOB_DETAIL_TEXT.tabs.po },
 ];

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Workshop.Api.DTOs;
 
 public sealed class NewJobRequest
@@ -10,6 +12,13 @@ public sealed class NewJobRequest
     public int? PaintPanels { get; set; }
     public string[] MechItems { get; set; } = Array.Empty<string>();
     public string? BusinessId { get; set; }
+    public bool? NeedsPo { get; set; }
+    [JsonPropertyName("needPO")]
+    public bool? NeedPoLegacy
+    {
+        get => NeedsPo;
+        set => NeedsPo = value;
+    }
     public CustomerInput Customer { get; set; } = new();
 
     public sealed class CustomerInput

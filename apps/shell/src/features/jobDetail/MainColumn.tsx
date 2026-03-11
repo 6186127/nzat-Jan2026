@@ -21,8 +21,10 @@ import { RepairPanel } from "@/features/jobDetail/components/RepairPanel";
 import { PaintPanel } from "@/features/paint";
 import { LogPanel } from "@/features/jobDetail/components/LogPanel";
 import { InvoicePanel } from "@/features/jobDetail/components/InvoicePanel";
+import { PoPanel } from "@/features/jobDetail/components/PoPanel";
 import { WorklogPanel } from "@/features/jobDetail/components/WorklogPanel";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
+import { useInvoiceDashboardState } from "@/features/invoice/hooks/useInvoiceDashboardState";
 
 type MainColumnProps = {
   jobData: JobDetailData;
@@ -143,6 +145,9 @@ export function MainColumn({
   const hasPartsServices = partsServices.length > 0;
   const [partsTabVisibleForCreate, setPartsTabVisibleForCreate] = useState(false);
   const [partsCreateTrigger, setPartsCreateTrigger] = useState(0);
+  const invoiceDashboard = useInvoiceDashboardState();
+  const needsPo = Boolean(jobData.needsPo);
+
   const tabs = useMemo(() => {
     const base: { key: JobDetailTabKey; label: string }[] = [
       { key: "WOF", label: JOB_DETAIL_TEXT.tabs.wof },
@@ -157,14 +162,23 @@ export function MainColumn({
       { key: "Log", label: JOB_DETAIL_TEXT.tabs.log },
       { key: "Invoice", label: JOB_DETAIL_TEXT.tabs.invoice }
     );
+    if (needsPo) {
+      base.push({ key: "PO", label: JOB_DETAIL_TEXT.tabs.po });
+    }
     return base;
-  }, [hasPartsServices, partsTabVisibleForCreate]);
+  }, [hasPartsServices, needsPo, partsTabVisibleForCreate]);
 
   useEffect(() => {
     if (activeTab === "Parts" && !hasPartsServices && !partsTabVisibleForCreate) {
       onTabChange("Mechanical");
     }
   }, [activeTab, hasPartsServices, onTabChange, partsTabVisibleForCreate]);
+
+  useEffect(() => {
+    if (activeTab === "PO" && !needsPo) {
+      onTabChange("Invoice");
+    }
+  }, [activeTab, needsPo, onTabChange]);
 
   useEffect(() => {
     if (partsTabVisibleForCreate && activeTab !== "Parts" && !hasPartsServices) {
@@ -191,6 +205,7 @@ export function MainColumn({
           customerName={jobData.customer.name}
           customerCode={jobData.customer.businessCode}
           customerPhone={jobData.customer.phone}
+          needsPo={needsPo}
           paintPanels={paintService?.panels ?? null}
           vin={jobData.vehicle.vin}
           nzFirstRegistration={jobData.vehicle.nzFirstRegistration}
@@ -294,7 +309,8 @@ export function MainColumn({
           <WorklogPanel jobData={jobData} paintPanels={paintService?.panels ?? null} />
         ) : null}
         {activeTab === "Log" ? <LogPanel /> : null}
-        {activeTab === "Invoice" ? <InvoicePanel /> : null}
+        {activeTab === "Invoice" ? <InvoicePanel model={invoiceDashboard} /> : null}
+        {activeTab === "PO" && needsPo ? <PoPanel model={invoiceDashboard} /> : null}
       </Card>
     </div>
   );

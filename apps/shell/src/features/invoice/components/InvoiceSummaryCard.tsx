@@ -61,8 +61,8 @@ export function InvoiceSummaryCard({
         <SummaryField label="Reference" value={invoice.reference} />
         <SummaryField label="Amounts are" value={invoice.amountsAre} />
         <SummaryField label="Subtotal" value={`$${subtotal.toFixed(2)}`} />
-        <SummaryField label="Tax" value={`$${taxTotal.toFixed(2)}`} />
-        <SummaryField label="Total" value={`$${totalAmount.toFixed(2)}`} className="text-[var(--ds-primary)]" />
+        <SummaryField label="Tax total" value={`$${taxTotal.toFixed(2)}`} />
+        <SummaryField label="Invoice total" value={`$${totalAmount.toFixed(2)}`} className="text-[var(--ds-primary)]" />
         <SummaryField label="Last Sync Time" value={invoice.lastSyncTime} />
         <SummaryField label="Sync Direction" value={invoice.lastSyncDirection} className="text-[var(--ds-primary)]" />
       </div>

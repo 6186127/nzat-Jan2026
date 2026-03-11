@@ -78,6 +78,7 @@ public class NewJobController : ControllerBase
         {
             Status = "InProgress",
             IsUrgent = false,
+            NeedsPo = req.NeedsPo ?? false,
             VehicleId = vehicle.Id,
             CustomerId = jobCustomerId,
             Notes = req.Notes?.Trim(),

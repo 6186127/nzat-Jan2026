@@ -19,6 +19,7 @@ interface JobHeaderProps {
   customerName: string;
   customerCode?: string;
   customerPhone?: string;
+  needsPo?: boolean;
   vin?: string | null;
   nzFirstRegistration?: string | null;
   paintPanels?: number | null;
@@ -45,6 +46,7 @@ export function JobHeader({
   customerName,
   customerCode,
   customerPhone,
+  needsPo = false,
   vin,
   nzFirstRegistration,
   paintPanels,
@@ -160,7 +162,6 @@ export function JobHeader({
     handlePrint("paint");
   };
 
-  const needsPo = (noteDraft || notes).includes("需要PO");
   const handlePoEmail = () => {
     if (!needsPo) return;
     const subject = `PO申请 - ${vehiclePlate}`;

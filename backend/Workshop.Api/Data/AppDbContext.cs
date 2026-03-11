@@ -104,6 +104,7 @@ public class AppDbContext : DbContext
         j.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
         j.Property(x => x.Status).HasColumnName("status").IsRequired();
         j.Property(x => x.IsUrgent).HasColumnName("is_urgent");
+        j.Property(x => x.NeedsPo).HasColumnName("needs_po");
         j.Property(x => x.VehicleId).HasColumnName("vehicle_id");
         j.Property(x => x.CustomerId).HasColumnName("customer_id");
         j.Property(x => x.Notes).HasColumnName("notes");

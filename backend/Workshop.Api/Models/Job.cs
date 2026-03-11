@@ -5,6 +5,7 @@ public class Job
     public long Id { get; set; }
     public string Status { get; set; } = "";
     public bool IsUrgent { get; set; }
+    public bool NeedsPo { get; set; }
     public long? VehicleId { get; set; }
     public long? CustomerId { get; set; }
     public string? Notes { get; set; }
