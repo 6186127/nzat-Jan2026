@@ -1,4 +1,4 @@
-export type JobDetailTabKey = "WOF" | "Mechanical" | "Parts" | "Paint" | "Worklog" | "Log" | "Invoice";
+export type JobDetailTabKey = "WOF" | "Mechanical" | "Parts" | "Paint" | "Worklog" | "Log" | "Invoice" | "PO";
 
 export type VehicleInfo = {
   plate: string;
@@ -169,6 +169,7 @@ export type JobDetailData = {
   isUrgent: boolean;
   tags: string[];
   notes?: string;
+  needsPo?: boolean;
   createdAt?: string;
   vehicle: VehicleInfo;
   customer: CustomerInfo;

@@ -405,6 +405,7 @@ export function NewJobPage() {
         body: JSON.stringify({
           plate: rego,
           services: selectedServices,
+          needsPo: showNeedsPo ? needsPo : false,
           notes: notesPayload,
           // partsDescription: normalizedPartsDescriptions[0],
           partsDescriptions: normalizedPartsDescriptions,

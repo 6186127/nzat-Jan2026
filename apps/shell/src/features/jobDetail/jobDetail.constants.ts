@@ -7,6 +7,7 @@ export const JOB_DETAIL_TEXT = {
     worklog: "工时",
     log: "Log",
     invoice: "Invoice",
+    po: "PO",
   },
   empty: {
     noData: "没有任何数据",

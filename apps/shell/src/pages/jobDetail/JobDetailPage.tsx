@@ -136,6 +136,7 @@ function isJobDetailTab(value: string | null): value is JobDetailTabKey {
     value === "Paint" ||
     value === "Worklog" ||
     value === "Log" ||
-    value === "Invoice"
+    value === "Invoice" ||
+    value === "PO"
   );
 }
