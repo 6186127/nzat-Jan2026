@@ -7,6 +7,7 @@ using CarjamImporter.Playwright;
 using QuestPDF.Infrastructure;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Options;
 using Workshop.Api.Services;
 using Workshop.Api.Utils;
 
@@ -17,6 +18,9 @@ QuestPDF.Settings.License = LicenseType.Community;
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient();
+builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
