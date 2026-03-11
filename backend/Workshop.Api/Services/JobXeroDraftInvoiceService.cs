@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Workshop.Api.Data;
-using Workshop.Api.Options;
+using Workshop.Api.DTOs;
 
 namespace Workshop.Api.Services;
 
@@ -9,19 +8,13 @@ public sealed class JobXeroDraftInvoiceService
 {
     private readonly AppDbContext _db;
     private readonly XeroInvoiceService _xeroInvoiceService;
-    private readonly XeroTokenService _xeroTokenService;
-    private readonly XeroOptions _xeroOptions;
 
     public JobXeroDraftInvoiceService(
         AppDbContext db,
-        XeroInvoiceService xeroInvoiceService,
-        XeroTokenService xeroTokenService,
-        IOptions<XeroOptions> xeroOptions)
+        XeroInvoiceService xeroInvoiceService)
     {
         _db = db;
         _xeroInvoiceService = xeroInvoiceService;
-        _xeroTokenService = xeroTokenService;
-        _xeroOptions = xeroOptions.Value;
     }
 
     public async Task<JobXeroDraftInvoiceResult> CreateForJobAsync(long jobId, CancellationToken ct)
@@ -43,70 +36,67 @@ public sealed class JobXeroDraftInvoiceService
         if (row is null)
             return JobXeroDraftInvoiceResult.Fail(404, "Job not found.");
 
-        var mechServices = await _db.JobMechServices.AsNoTracking()
-            .Where(x => x.JobId == jobId)
-            .OrderBy(x => x.CreatedAt)
-            .ToListAsync(ct);
-
-        var partsServices = await _db.JobPartsServices.AsNoTracking()
-            .Where(x => x.JobId == jobId)
-            .OrderBy(x => x.CreatedAt)
-            .ToListAsync(ct);
-
         var contactName = BuildContactName(row.Customer.Type, row.Customer.Name, row.Vehicle.Plate, row.Vehicle.Make, row.Vehicle.Model);
         if (string.IsNullOrWhiteSpace(contactName))
-            return JobXeroDraftInvoiceResult.Fail(400, "Unable to derive a Xero contact name from this job.");
+            return JobXeroDraftInvoiceResult.Fail(400, "Unable to derive contact name for Xero.");
 
-        var reference = BuildReference(row.Customer.Type, row.Customer.Name);
-        var lineItems = BuildLineItems(mechServices, partsServices, _xeroOptions.LabourAccountCode, _xeroOptions.PartsAccountCode);
+        var jobNote = row.Job.Notes?.Trim();
+        if (string.IsNullOrWhiteSpace(jobNote))
+        {
+            return JobXeroDraftInvoiceResult.Fail(400, "Job note is empty. Please fill in the job note before creating the Xero invoice.");
+        }
 
-        var createResult = await _xeroInvoiceService.CreateDraftInvoiceAsync(
-            new XeroDraftInvoiceCreateRequest
+        var request = new CreateXeroInvoiceRequest
+        {
+            Type = "ACCREC",
+            Status = "DRAFT",
+            Date = DateOnly.FromDateTime(DateTime.UtcNow),
+            Reference = $"JOB-{jobId}",
+            Contact = new XeroInvoiceContactInput
             {
-                ContactName = contactName,
-                Reference = reference,
-                Date = DateOnly.FromDateTime(DateTime.UtcNow),
-                DueDate = null,
-                LineItems = lineItems,
+                Name = contactName,
+            },
+            LineItems =
+            [
+                new XeroInvoiceLineItemInput
+                {
+                    Description = jobNote,
+                    LineAmount = 0m,
+                },
+            ],
+        };
+
+        var createResult = await _xeroInvoiceService.CreateInvoiceAsync(
+            request,
+            new XeroInvoiceCreateOptions
+            {
+                SummarizeErrors = true,
             },
             ct);
+
+        var details = new JobXeroDraftInvoiceDetails
+        {
+            JobId = jobId,
+            CustomerType = row.Customer.Type,
+            ContactName = contactName,
+            JobNote = jobNote,
+            RequestBody = request,
+            XeroResponse = createResult.Payload,
+            Scope = createResult.Scope,
+            AccessTokenExpiresIn = createResult.ExpiresIn,
+            LatestRefreshToken = createResult.RefreshToken,
+            RefreshTokenUpdated = createResult.RefreshTokenUpdated,
+        };
 
         if (!createResult.Ok)
         {
             return JobXeroDraftInvoiceResult.Fail(
                 createResult.StatusCode,
                 createResult.Error ?? "Failed to create Xero draft invoice.",
-                new JobXeroDraftInvoiceDetails
-                {
-                    JobId = jobId,
-                    ContactName = contactName,
-                    Reference = reference,
-                    CustomerType = row.Customer.Type,
-                    LineItemCount = lineItems.Count,
-                    LatestRefreshToken = createResult.RefreshToken,
-                    RefreshTokenUpdated = !string.IsNullOrWhiteSpace(createResult.RefreshToken) &&
-                                          !string.Equals(createResult.RefreshToken, _xeroTokenService.GetConfiguredRefreshToken(), StringComparison.Ordinal),
-                    LineItems = lineItems,
-                });
+                details);
         }
 
-        return JobXeroDraftInvoiceResult.Success(new JobXeroDraftInvoiceDetails
-        {
-            JobId = jobId,
-            ContactName = contactName,
-            Reference = reference,
-            CustomerType = row.Customer.Type,
-            XeroInvoiceId = createResult.InvoiceId,
-            InvoiceNumber = createResult.InvoiceNumber,
-            Status = createResult.InvoiceStatus,
-            Scope = createResult.Scope,
-            AccessTokenExpiresIn = createResult.ExpiresIn,
-            LineItemCount = lineItems.Count,
-            LatestRefreshToken = createResult.RefreshToken,
-            RefreshTokenUpdated = !string.IsNullOrWhiteSpace(createResult.RefreshToken) &&
-                                  !string.Equals(createResult.RefreshToken, _xeroTokenService.GetConfiguredRefreshToken(), StringComparison.Ordinal),
-            LineItems = lineItems,
-        });
+        return JobXeroDraftInvoiceResult.Success(details);
     }
 
     private static string BuildContactName(string customerType, string customerName, string plate, string? make, string? model)
@@ -119,53 +109,6 @@ public sealed class JobXeroDraftInvoiceService
         }
 
         return customerName.Trim();
-    }
-
-    private static string? BuildReference(string customerType, string customerName)
-    {
-        if (string.Equals(customerType, "Personal", StringComparison.OrdinalIgnoreCase))
-            return string.IsNullOrWhiteSpace(customerName) ? null : customerName.Trim();
-
-        return null;
-    }
-
-    private static IReadOnlyList<XeroDraftInvoiceLineItem> BuildLineItems(
-        IReadOnlyList<Workshop.Api.Models.JobMechService> mechServices,
-        IReadOnlyList<Workshop.Api.Models.JobPartsService> partsServices,
-        string labourAccountCode,
-        string partsAccountCode)
-    {
-        var lineItems = new List<XeroDraftInvoiceLineItem>();
-
-        foreach (var mech in mechServices)
-        {
-            if (string.IsNullOrWhiteSpace(mech.Description))
-                continue;
-
-            lineItems.Add(new XeroDraftInvoiceLineItem
-            {
-                Description = mech.Description.Trim(),
-                Quantity = 1m,
-                UnitAmount = mech.Cost ?? 0m,
-                AccountCode = string.IsNullOrWhiteSpace(labourAccountCode) ? null : labourAccountCode.Trim(),
-            });
-        }
-
-        foreach (var part in partsServices)
-        {
-            if (string.IsNullOrWhiteSpace(part.Description))
-                continue;
-
-            lineItems.Add(new XeroDraftInvoiceLineItem
-            {
-                Description = $"Parts: {part.Description.Trim()}",
-                Quantity = 1m,
-                UnitAmount = 0m,
-                AccountCode = string.IsNullOrWhiteSpace(partsAccountCode) ? null : partsAccountCode.Trim(),
-            });
-        }
-
-        return lineItems;
     }
 }
 
@@ -197,16 +140,13 @@ public sealed class JobXeroDraftInvoiceResult
 public sealed class JobXeroDraftInvoiceDetails
 {
     public long JobId { get; init; }
-    public string ContactName { get; init; } = "";
-    public string? Reference { get; init; }
     public string CustomerType { get; init; } = "";
-    public string XeroInvoiceId { get; init; } = "";
-    public string InvoiceNumber { get; init; } = "";
-    public string Status { get; init; } = "";
+    public string ContactName { get; init; } = "";
+    public string JobNote { get; init; } = "";
+    public CreateXeroInvoiceRequest RequestBody { get; init; } = new();
+    public object? XeroResponse { get; init; }
     public string Scope { get; init; } = "";
     public int AccessTokenExpiresIn { get; init; }
-    public int LineItemCount { get; init; }
     public string LatestRefreshToken { get; init; } = "";
     public bool RefreshTokenUpdated { get; init; }
-    public IReadOnlyList<XeroDraftInvoiceLineItem> LineItems { get; init; } = [];
 }

@@ -1,4 +1,4 @@
-import { Archive, Trash2, AlertCircle, Plus, Pencil } from "lucide-react";
+import { Archive, Trash2, AlertCircle, Plus, Pencil, FileText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, TagPill, Textarea } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
@@ -23,6 +23,8 @@ interface JobHeaderProps {
   nzFirstRegistration?: string | null;
   paintPanels?: number | null;
   hasPaintService?: boolean;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
   tagOptions?: TagOption[];
@@ -47,6 +49,8 @@ export function JobHeader({
   nzFirstRegistration,
   paintPanels,
   hasPaintService,
+  onCreateXeroInvoice,
+  isCreatingXeroInvoice,
   onDelete,
   isDeleting,
   tagOptions = [],
@@ -241,6 +245,16 @@ export function JobHeader({
         </div>
 
         <div className="flex items-center gap-3 ml-auto">
+          <Button
+            variant="primary"
+            leftIcon={<FileText className="w-4 h-4" />}
+            onClick={() => {
+              void onCreateXeroInvoice?.();
+            }}
+            disabled={isCreatingXeroInvoice}
+          >
+            {isCreatingXeroInvoice ? "Creating..." : "Create Invoice"}
+          </Button>
           <Button leftIcon={<Archive className="w-4 h-4" />}>{JOB_DETAIL_TEXT.buttons.archive}</Button>
           <Button
             leftIcon={<Trash2 className="w-4 h-4" />}

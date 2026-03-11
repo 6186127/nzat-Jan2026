@@ -77,6 +77,8 @@ type JobDetailContentProps = {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: TagOption[];
@@ -122,6 +124,8 @@ export function JobDetailContent({
   onRefreshPaintService,
   onRefreshVehicle,
   onSaveVehicle,
+  onCreateXeroInvoice,
+  isCreatingXeroInvoice,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -169,6 +173,8 @@ export function JobDetailContent({
           onRefreshPaintService={onRefreshPaintService}
           onRefreshVehicle={onRefreshVehicle}
           onSaveVehicle={onSaveVehicle}
+          onCreateXeroInvoice={onCreateXeroInvoice}
+          isCreatingXeroInvoice={isCreatingXeroInvoice}
           onDeleteJob={onDeleteJob}
           isDeletingJob={isDeletingJob}
           tagOptions={tagOptions}

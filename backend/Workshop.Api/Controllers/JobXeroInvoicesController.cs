@@ -23,7 +23,7 @@ public class JobXeroInvoicesController : ControllerBase
             return StatusCode(result.StatusCode, new
             {
                 error = result.Error,
-                invoice = result.Details,
+                details = result.Details,
             });
         }
 

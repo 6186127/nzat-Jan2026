@@ -54,3 +54,17 @@ export function updateVehicleInfo(
     body: JSON.stringify(payload),
   });
 }
+
+export function createJobXeroDraftInvoice(jobId: string) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/xero-draft-invoice`, {
+    method: "POST",
+  });
+}
+
+export function createXeroInvoice(payload: unknown) {
+  return requestJson<any>("/api/xero/invoices?summarizeErrors=true", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

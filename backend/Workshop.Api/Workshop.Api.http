@@ -4,3 +4,30 @@ GET {{Workshop.Api_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+POST {{Workshop.Api_HostAddress}}/api/xero/invoices?summarizeErrors=true
+Accept: application/json
+Content-Type: application/json
+Idempotency-Key: invoice-demo-20260311-001
+
+{
+  "type": "ACCREC",
+  "status": "DRAFT",
+  "lineAmountTypes": "Exclusive",
+  "date": "2026-03-11",
+  "dueDate": "2026-03-25",
+  "reference": "JOB-1001",
+  "contact": {
+    "name": "AUTO TECH REPAIRERS"
+  },
+  "lineItems": [
+    {
+      "description": "Labour - bumper repair",
+      "quantity": 2,
+      "unitAmount": 95,
+      "accountCode": "200"
+    }
+  ]
+}
+
+###

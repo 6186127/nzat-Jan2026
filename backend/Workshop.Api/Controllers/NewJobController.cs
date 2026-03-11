@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.DTOs;
 using Workshop.Api.Models;
-using Workshop.Api.Services;
 
 namespace Workshop.Api.Controllers;
 
@@ -12,12 +11,10 @@ namespace Workshop.Api.Controllers;
 public class NewJobController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly JobXeroDraftInvoiceService _jobXeroDraftInvoiceService;
 
-    public NewJobController(AppDbContext db, JobXeroDraftInvoiceService jobXeroDraftInvoiceService)
+    public NewJobController(AppDbContext db)
     {
         _db = db;
-        _jobXeroDraftInvoiceService = jobXeroDraftInvoiceService;
     }
 
     [HttpPost]
@@ -167,26 +164,12 @@ catch (Exception ex)
 
         await tx.CommitAsync(ct);
 
-        JobXeroDraftInvoiceDetails? xeroInvoice = null;
-        string? xeroInvoiceError = null;
-        var xeroResult = await _jobXeroDraftInvoiceService.CreateForJobAsync(job.Id, ct);
-        if (xeroResult.Ok)
-        {
-            xeroInvoice = xeroResult.Details;
-        }
-        else
-        {
-            xeroInvoiceError = xeroResult.Error;
-        }
-
         return Ok(new
         {
             jobId = job.Id,
             customerId = jobCustomerId,
             vehicleId = vehicle.Id,
             wofCreated,
-            xeroInvoice,
-            xeroInvoiceError,
         });
     }
 

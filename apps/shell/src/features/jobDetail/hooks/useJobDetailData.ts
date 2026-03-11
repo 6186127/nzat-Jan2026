@@ -18,6 +18,7 @@ import {
   updateJobTags,
   updateVehicleInfo,
   deleteJob as apiDeleteJob,
+  createXeroInvoice,
 } from "../api/jobDetailApi";
 import { notifyPaintBoardRefresh } from "@/utils/refreshSignals";
 import {
@@ -80,6 +81,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [creatingXeroInvoice, setCreatingXeroInvoice] = useState(false);
   const [hasWofRecord, setHasWofRecord] = useState(false);
 
   const refreshWofServer = useCallback(async () => {
@@ -575,6 +577,74 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     }
   }, [jobId, onDeleted, toast]);
 
+  const createJobXeroDraftInvoice = useCallback(async () => {
+    if (!jobId || !jobData) {
+      return { success: false, message: "缺少工单数据" };
+    }
+
+    const note = jobData.notes?.trim();
+    if (!note) {
+      const message = "Job note 为空，不能创建 Xero invoice";
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    const contactName =
+      jobData.customer.type?.toLowerCase() === "personal"
+        ? [jobData.vehicle.plate, jobData.vehicle.make, jobData.vehicle.model].filter(Boolean).join(" ").trim()
+        : jobData.customer.name?.trim();
+
+    if (!contactName) {
+      const message = "缺少 contact name，不能创建 Xero invoice";
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    const requestPayload = {
+      type: "ACCREC",
+      status: "DRAFT",
+      lineAmountTypes: "Exclusive",
+      date: new Date().toISOString().slice(0, 10),
+      reference: `JOB-${jobId}`,
+      contact: {
+        name: contactName,
+      },
+      lineItems: [
+        {
+          description: note,
+          lineAmount: 0,
+        },
+      ],
+    };
+
+    setCreatingXeroInvoice(true);
+    try {
+      const res = await createXeroInvoice(requestPayload);
+      const responsePayload = res.data ?? { error: res.error || "创建失败", status: res.status };
+      const preview = JSON.stringify(
+        {
+          request: requestPayload,
+          response: responsePayload,
+        },
+        null,
+        2
+      );
+
+      if (!res.ok) {
+        const message = res.error || "创建 Xero invoice 失败";
+        toast.error(message);
+        window.alert(preview);
+        return { success: false, message };
+      }
+
+      toast.success("Xero invoice 已创建");
+      window.alert(preview);
+      return { success: true, message: "Xero invoice 已创建" };
+    } finally {
+      setCreatingXeroInvoice(false);
+    }
+  }, [jobData, jobId, toast]);
+
   const saveTags = useCallback(
     async (tagIds: string[]) => {
       if (!jobId) return { success: false, message: "缺少工单 ID" };
@@ -760,6 +830,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     loadError,
     deleteError,
     deletingJob,
+    creatingXeroInvoice,
     hasWofRecord,
     wofRecords,
     wofCheckItems,
@@ -792,6 +863,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     deletePartsNote: deletePartsNoteRow,
     refreshPartsServices,
     deleteJob,
+    createJobXeroDraftInvoice,
     saveTags,
     saveJobNotes,
     createPaintService: createPaintServiceRow,

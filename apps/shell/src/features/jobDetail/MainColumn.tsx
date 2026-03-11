@@ -86,6 +86,8 @@ type MainColumnProps = {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -129,6 +131,8 @@ export function MainColumn({
   onRefreshPaintService,
   onRefreshVehicle,
   onSaveVehicle,
+  onCreateXeroInvoice,
+  isCreatingXeroInvoice,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -197,6 +201,8 @@ export function MainColumn({
           onSaveTags={onSaveTags}
           onSaveNotes={onSaveNotes}
           onCreatePaintService={onCreatePaintService}
+          onCreateXeroInvoice={onCreateXeroInvoice}
+          isCreatingXeroInvoice={isCreatingXeroInvoice}
         />
       </Card>
       <SummaryCard
