@@ -12,19 +12,25 @@ type PoDashboardProps = {
 
 export function PoDashboard({ model }: PoDashboardProps) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-      <div className="min-w-0">
-        <EmailTimeline events={model.timeline} />
+    <div className="grid gap-6 lg:grid-cols-12">
+      <div className="min-w-0 lg:col-span-3">
+        <div className="sticky top-6">
+          <EmailTimeline events={model.timeline} />
+        </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 lg:col-span-9">
         <PoRequestPanel
-          merchantEmail={model.invoice.merchantEmail}
+          merchantUserName={model.invoice.merchantUserName}
+          merchantEmails={model.invoice.merchantEmails}
+          selectedMerchantEmail={model.invoice.selectedMerchantEmail}
           correlationId={model.invoice.correlationId}
+          vehicleRego={model.invoice.vehicleRego}
+          vehicleModel={model.invoice.vehicleModel}
+          vehicleMake={model.invoice.vehicleMake}
           snapshotTotal={model.invoice.snapshotTotal}
+          items={model.items}
           emailStates={model.invoice.emailStates}
-          previewOpen={model.previewOpen}
-          onTogglePreview={() => model.setPreviewOpen(!model.previewOpen)}
           onSendRequest={model.sendPoRequest}
         />
         <ReminderPanel

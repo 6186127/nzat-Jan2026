@@ -74,6 +74,7 @@ export type WorkflowStep = {
 
 export type InvoiceDashboardState = {
   contact: string;
+  merchantUserName: string;
   issueDate: string;
   dueDate: string;
   invoiceNumber: string;
@@ -84,8 +85,12 @@ export type InvoiceDashboardState = {
   lastSyncTime: string;
   lastSyncDirection: SyncDirection;
   synced: boolean;
-  merchantEmail: string;
+  merchantEmails: string[];
+  selectedMerchantEmail: string;
   correlationId: string;
+  vehicleRego: string;
+  vehicleModel: string;
+  vehicleMake: string;
   snapshotTotal: number;
   emailStates: EmailState[];
   remindersSent: number;

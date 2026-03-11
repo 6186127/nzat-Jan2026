@@ -21,6 +21,7 @@ export const invoiceWorkflowSteps: WorkflowStep[] = [
 
 export const initialInvoiceState: InvoiceDashboardState = {
   contact: "Auto Parts Wholesale Ltd",
+  merchantUserName: "Sam",
   issueDate: "2026-03-05",
   dueDate: "2026-04-04",
   invoiceNumber: "INV-2026-0342",
@@ -31,8 +32,12 @@ export const initialInvoiceState: InvoiceDashboardState = {
   lastSyncTime: "2026-03-05 14:23:15",
   lastSyncDirection: "Xero -> System",
   synced: false,
-  merchantEmail: "supplier@autoparts.com",
+  merchantEmails: ["supplier@autoparts.com", "orders@autoparts.com", "ap@autoparts.com"],
+  selectedMerchantEmail: "supplier@autoparts.com",
   correlationId: "CORR-2024-0342-XYZ",
+  vehicleRego: "ABC123",
+  vehicleModel: "Corolla",
+  vehicleMake: "Toyota",
   snapshotTotal: 3845.5,
   emailStates: ["Email Sent", "Waiting for Reply", "Reminder Scheduled"],
   remindersSent: 1,

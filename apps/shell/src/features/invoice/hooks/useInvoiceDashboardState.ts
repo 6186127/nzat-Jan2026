@@ -55,7 +55,6 @@ export function useInvoiceDashboardState() {
   const [timeline, setTimeline] = useState(initialEmailTimeline);
   const [detections, setDetections] = useState(initialPoDetections);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [nextItemId, setNextItemId] = useState(initialInvoiceItems.length + 1);
   const [itemCatalogSyncState, setItemCatalogSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [itemCatalogFeedback, setItemCatalogFeedback] = useState<string | null>(null);
@@ -120,6 +119,7 @@ export function useInvoiceDashboardState() {
     const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
     setInvoice((prev) => ({
       ...prev,
+      snapshotTotal: totalAmount,
       synced: true,
       status: prev.status === "Draft" ? "Awaiting PO" : prev.status,
       lastSyncTime: now,
@@ -173,10 +173,11 @@ export function useInvoiceDashboardState() {
     }, 900);
   };
 
-  const sendPoRequest = () => {
+  const sendPoRequest = ({ to }: { to: string; subject: string; body: string }) => {
     const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
     setInvoice((prev) => ({
       ...prev,
+      selectedMerchantEmail: to,
       emailStates: ["Email Sent", "Waiting for Reply", "Reminder Scheduled"],
       currentWorkflowStep: Math.max(prev.currentWorkflowStep, 3),
       lastEmailSent: now,
@@ -187,7 +188,7 @@ export function useInvoiceDashboardState() {
         id: `evt-send-${Date.now()}`,
         type: "sent",
         timestamp: now,
-        description: `PO request email sent to ${invoice.merchantEmail}`,
+        description: `PO request email sent to ${to}`,
       },
       ...prev,
     ]);
@@ -275,7 +276,6 @@ export function useInvoiceDashboardState() {
     timeline,
     detections,
     selectedDetectionId,
-    previewOpen,
     itemCatalogSyncState,
     itemCatalogFeedback,
     itemCatalogLastUpdated,
@@ -286,7 +286,6 @@ export function useInvoiceDashboardState() {
     totalAmount,
     manualPoNumber,
     setSelectedDetectionId,
-    setPreviewOpen,
     setPendingFocusRowId,
     setManualPoNumber,
     updateItem,

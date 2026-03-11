@@ -421,7 +421,7 @@ export function NewJobPage() {
         throw new Error(data?.error || "工单保存失败，请稍后重试");
       }
 
-      console.log("++++++++++++++++++++job created", data);
+      // console.log("++++++++++++++++++++job created", data);
       setFormAlert({ variant: "success", message: "工单保存成功！" });
       toast.success("工单保存成功！");
       const createdId = data?.jobId ? String(data.jobId) : "";
