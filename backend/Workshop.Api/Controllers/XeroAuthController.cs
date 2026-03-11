@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -30,16 +31,17 @@ public class XeroAuthController : ControllerBase
     }
 
     [HttpGet("connect")]
-    public IActionResult Connect([FromQuery] bool redirect = false)
+    public IActionResult Connect([FromQuery] bool redirect = false, [FromQuery] string? scopes = null)
     {
         var validationError = ValidateConfiguration();
         if (validationError is not null)
             return BadRequest(new { error = validationError });
 
+        var resolvedScopes = ResolveScopes(scopes);
         var state = Guid.NewGuid().ToString("N");
         _cache.Set(StateCachePrefix + state, true, TimeSpan.FromMinutes(15));
 
-        var authUrl = BuildAuthorizeUrl(state);
+        var authUrl = BuildAuthorizeUrl(state, resolvedScopes);
         if (redirect)
             return Redirect(authUrl);
 
@@ -47,7 +49,8 @@ public class XeroAuthController : ControllerBase
         {
             authorizeUrl = authUrl,
             callbackUrl = _options.RedirectUri,
-            scopes = _options.Scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            scopes = SplitScopes(resolvedScopes),
+            scopesSource = string.IsNullOrWhiteSpace(scopes) ? "configuration" : "query",
         });
     }
 
@@ -91,9 +94,13 @@ public class XeroAuthController : ControllerBase
             });
         }
 
+        var hasOfflineAccess = SplitScopes(tokenResult.scope).Contains("offline_access", StringComparer.Ordinal);
+
         return Ok(new
         {
-            message = "Xero authorization completed. Save the refreshToken and target tenantId into backend configuration.",
+            message = hasOfflineAccess
+                ? "Xero authorization completed. Save the refreshToken and target tenantId into backend configuration."
+                : "Xero authorization completed. No refreshToken was requested because offline_access was not included.",
             refreshToken = tokenResult.refreshToken,
             accessTokenExpiresIn = tokenResult.expiresIn,
             scope = tokenResult.scope,
@@ -103,19 +110,20 @@ public class XeroAuthController : ControllerBase
                 Xero__ClientId = _options.ClientId,
                 Xero__ClientSecret = "<already configured>",
                 Xero__RedirectUri = _options.RedirectUri,
-                Xero__RefreshToken = tokenResult.refreshToken,
-                Xero__TenantId = connectionsResult.connections?.FirstOrDefault()?.tenantId,
+                Xero__RefreshToken = hasOfflineAccess ? tokenResult.refreshToken : "<add offline_access before persisting a refresh token>",
+                Xero__TenantId = connectionsResult.connections?.FirstOrDefault()?.TenantId,
             },
         });
     }
 
     [HttpGet("health")]
-    public IActionResult Health()
+    public IActionResult Health([FromQuery] string? scopes = null)
     {
         var missing = new List<string>();
         if (string.IsNullOrWhiteSpace(_options.ClientId)) missing.Add("Xero:ClientId");
         if (string.IsNullOrWhiteSpace(_options.ClientSecret)) missing.Add("Xero:ClientSecret");
         if (string.IsNullOrWhiteSpace(_options.RedirectUri)) missing.Add("Xero:RedirectUri");
+        var resolvedScopes = ResolveScopes(scopes);
 
         return Ok(new
         {
@@ -123,7 +131,31 @@ public class XeroAuthController : ControllerBase
             missing,
             suggestedLocalCallback = "http://localhost:5227/api/xero/callback",
             currentRedirectUri = _options.RedirectUri,
-            scopes = _options.Scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            scopes = SplitScopes(resolvedScopes),
+            scopesSource = string.IsNullOrWhiteSpace(scopes) ? "configuration" : "query",
+            recommendedScopeOrder = new
+            {
+                granularApps = new[]
+                {
+                    "accounting.invoices.read",
+                    "accounting.invoices",
+                    "accounting.payments",
+                    "offline_access",
+                },
+                legacyApps = new[]
+                {
+                    "accounting.transactions.read",
+                    "accounting.transactions",
+                    "offline_access",
+                },
+                officialDocs = "https://developer.xero.com/documentation/guides/oauth2/scopes/",
+                notes = new[]
+                {
+                    "Scopes are additive. Re-running consent adds new scopes to the existing grant.",
+                    "offline_access is required only when you need a refresh token.",
+                    "Apps created on or after 2 March 2026 use granular scopes.",
+                },
+            },
         });
     }
 
@@ -138,20 +170,37 @@ public class XeroAuthController : ControllerBase
         return null;
     }
 
-    private string BuildAuthorizeUrl(string state)
+    private string BuildAuthorizeUrl(string state, string scopes)
     {
         var query = new Dictionary<string, string?>
         {
             ["response_type"] = "code",
             ["client_id"] = _options.ClientId,
             ["redirect_uri"] = _options.RedirectUri,
-            ["scope"] = _options.Scopes,
+            ["scope"] = scopes,
             ["state"] = state,
         };
 
         var qs = string.Join("&", query.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value ?? "")}"));
         return $"https://login.xero.com/identity/connect/authorize?{qs}";
     }
+
+    private string ResolveScopes(string? scopesOverride)
+    {
+        var scopes = string.IsNullOrWhiteSpace(scopesOverride)
+            ? _options.Scopes
+            : scopesOverride;
+
+        var uniqueScopes = SplitScopes(scopes)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return string.Join(' ', uniqueScopes);
+    }
+
+    private static string[] SplitScopes(string? scopes) =>
+        (scopes ?? "")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private async Task<(bool ok, int statusCode, string? error, string? accessToken, string? refreshToken, int? expiresIn, string? scope)>
         ExchangeCodeForTokenAsync(string code, CancellationToken ct)
@@ -197,9 +246,16 @@ public class XeroAuthController : ControllerBase
 
     private sealed class TokenResponse
     {
+        [JsonPropertyName("access_token")]
         public string AccessToken { get; set; } = "";
+
+        [JsonPropertyName("refresh_token")]
         public string RefreshToken { get; set; } = "";
+
+        [JsonPropertyName("expires_in")]
         public int ExpiresIn { get; set; }
+
+        [JsonPropertyName("scope")]
         public string Scope { get; set; } = "";
     }
 
@@ -211,9 +267,5 @@ public class XeroAuthController : ControllerBase
         public string TenantType { get; set; } = "";
         public DateTime CreatedDateUtc { get; set; }
         public DateTime UpdatedDateUtc { get; set; }
-
-        public string tenantId => TenantId;
-        public string tenantName => TenantName;
-        public string tenantType => TenantType;
     }
 }
