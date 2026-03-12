@@ -1,4 +1,4 @@
-import { Check, FileImage, FileText, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { StatusBadge } from "./StatusBadge";
 import type { PoDetection } from "../types";
@@ -9,6 +9,7 @@ type Props = {
   onSelect: (id: string) => void;
   onConfirm: (id: string) => void;
   onReject: (id: string) => void;
+  embedded?: boolean;
 };
 
 export function PoDetectionPanel({
@@ -17,14 +18,13 @@ export function PoDetectionPanel({
   onSelect,
   onConfirm,
   onReject,
+  embedded = false,
 }: Props) {
-  const selected = detections.find((item) => item.id === selectedDetectionId) ?? null;
+  const content = (
+    <>
+      {embedded ? null : <div className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">PO Detection Panel</div>}
 
-  return (
-    <Card className="rounded-[18px] p-6">
-      <div className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">PO Detection Panel</div>
-
-      <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+      <div className={`${embedded ? "" : "mt-5 "}overflow-hidden rounded-2xl border border-slate-200`}>
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm font-semibold text-slate-700">
@@ -69,29 +69,10 @@ export function PoDetectionPanel({
         </table>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200 p-4">
-        <div className="text-xl font-semibold text-slate-900">Evidence Viewer</div>
-        <div className="mt-4 flex min-h-[220px] items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
-          {selected ? (
-            <div className="flex flex-col items-center gap-4 text-center">
-              {selected.previewType === "pdf" ? (
-                <FileText className="h-14 w-14 text-slate-400" />
-              ) : (
-                <FileImage className="h-14 w-14 text-slate-400" />
-              )}
-              <div>
-                <div className="text-lg font-semibold text-slate-900">{selected.previewLabel}</div>
-                <div className="mt-2 max-w-[560px] text-sm text-slate-500">{selected.evidencePreview}</div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center">
-              <FileText className="mx-auto h-14 w-14 text-slate-300" />
-              <div className="mt-3 text-base text-slate-500">Select a PO to preview attachment</div>
-            </div>
-          )}
-        </div>
-      </div>
-    </Card>
+    </>
   );
+
+  if (embedded) return content;
+
+  return <Card className="rounded-[18px] p-6">{content}</Card>;
 }
