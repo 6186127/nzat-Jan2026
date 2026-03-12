@@ -21,6 +21,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
+builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -85,6 +86,7 @@ builder.Services.AddScoped<PartsServicesService>();
 builder.Services.AddScoped<XeroTokenService>();
 builder.Services.AddScoped<XeroInvoiceService>();
 builder.Services.AddScoped<JobXeroDraftInvoiceService>();
+builder.Services.AddScoped<GmailTokenService>();
 
 // ========= Carjam Importer DI =========
 
