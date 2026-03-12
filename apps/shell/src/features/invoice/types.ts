@@ -72,6 +72,13 @@ export type WorkflowStep = {
   description: string;
 };
 
+export type MerchantEmailRecipient = {
+  email: string;
+  kind: "business" | "staff";
+  name: string;
+  title: string;
+};
+
 export type InvoiceDashboardState = {
   contact: string;
   merchantUserName: string;
@@ -86,6 +93,7 @@ export type InvoiceDashboardState = {
   lastSyncDirection: SyncDirection;
   synced: boolean;
   merchantEmails: string[];
+  merchantEmailRecipients: MerchantEmailRecipient[];
   selectedMerchantEmail: string;
   correlationId: string;
   vehicleRego: string;

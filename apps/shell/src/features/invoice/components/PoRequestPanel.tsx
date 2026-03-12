@@ -3,11 +3,10 @@ import { ChevronDown, Clock3, MailCheck, MessageSquareText, Paperclip, Send, Set
 import { Button, Card, Input, Select, Textarea } from "@/components/ui";
 import { PoDetectionPanel } from "./PoDetectionPanel";
 import { StatusBadge } from "./StatusBadge";
-import type { EmailState, EmailTimelineEvent, InvoiceItem, PoDetection } from "../types";
+import type { EmailState, EmailTimelineEvent, InvoiceItem, MerchantEmailRecipient, PoDetection } from "../types";
 
 type Props = {
-  merchantUserName: string;
-  merchantEmails: string[];
+  merchantEmailRecipients: MerchantEmailRecipient[];
   selectedMerchantEmail: string;
   correlationId: string;
   vehicleRego: string;
@@ -30,8 +29,7 @@ type Props = {
 };
 
 export function PoRequestPanel({
-  merchantUserName,
-  merchantEmails,
+  merchantEmailRecipients,
   selectedMerchantEmail,
   correlationId,
   vehicleRego,
@@ -52,6 +50,22 @@ export function PoRequestPanel({
   onManualPoNumberChange,
   onSyncManualPoToReference,
 }: Props) {
+  const recipientOptions = useMemo(() => {
+    const hasBusiness = merchantEmailRecipients.some((item) => item.kind === "business");
+    if (hasBusiness) return merchantEmailRecipients;
+
+    // Fallback for old data shape.
+    return [
+      ...merchantEmailRecipients,
+      {
+        email: selectedMerchantEmail,
+        kind: "business" as const,
+        name: "Team",
+        title: "",
+      },
+    ];
+  }, [merchantEmailRecipients, selectedMerchantEmail]);
+
   const vehicleLabel = useMemo(
     () => `${[vehicleRego, vehicleModel, vehicleMake].filter(Boolean).join(" ")} from NZAT`,
     [vehicleMake, vehicleModel, vehicleRego]
@@ -73,13 +87,19 @@ export function PoRequestPanel({
     [items]
   );
 
+  const [to, setTo] = useState(selectedMerchantEmail);
+  const selectedRecipient = useMemo(
+    () => recipientOptions.find((item) => item.email === to) ?? recipientOptions[0],
+    [recipientOptions, to]
+  );
+  const greetingName =
+    selectedRecipient?.kind === "staff" && selectedRecipient.name.trim() ? selectedRecipient.name.trim() : "team";
   const defaultBody = useMemo(
     () =>
-      `Hi ${merchantUserName},\n\nPlease find the server items below:\n${invoiceItemsText}\n\n Total: $${snapshotTotal.toFixed(2)}.`,
-    [invoiceItemsText, merchantUserName, snapshotTotal]
+      `Hi ${greetingName},\n\nPlease find the server items below:\n${invoiceItemsText}\n\n Total: $${snapshotTotal.toFixed(2)}.`,
+    [greetingName, invoiceItemsText, snapshotTotal]
   );
 
-  const [to, setTo] = useState(selectedMerchantEmail);
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);
   const [lastSentPayload, setLastSentPayload] = useState<{ to: string; subject: string; body: string } | null>(null);
@@ -115,6 +135,7 @@ export function PoRequestPanel({
     const payload = { to, subject, body };
     onSendRequest(payload);
     setLastSentPayload(payload);
+    setBody("");
   };
 
   const handleCancel = () => {
@@ -138,10 +159,15 @@ export function PoRequestPanel({
       {/* <div className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">Request Purchase Order</div> */}
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
-        {emailStates.map((state) => (
+        {emailStates.map((state, index) => (
           <div key={state} className="flex items-center gap-2">
-            <MailCheck className="h-4 w-4 text-slate-500" />
-            <StatusBadge kind="state" value={state} />
+            <div className="flex items-center gap-2">
+              <MailCheck className="h-4 w-4 text-slate-500" />
+              <StatusBadge kind="state" value={state} />
+            </div>
+            {index < emailStates.length - 1 ? (
+              <span className="px-1 text-xs font-semibold text-slate-400">------</span>
+            ) : null}
           </div>
         ))}
       </div>
@@ -194,9 +220,10 @@ export function PoRequestPanel({
               <div>
                 <div className="mb-1 font-semibold text-slate-900">To</div>
                 <Select value={to} onChange={(event) => setTo(event.target.value)}>
-                  {merchantEmails.map((email) => (
-                    <option key={email} value={email}>
-                      {email}
+                  {recipientOptions.map((recipient) => (
+                    <option key={`${recipient.email}-${recipient.kind}`} value={recipient.email}>
+                      {recipient.email}{" "}
+                      ({recipient.kind === "staff" ? `${recipient.name || "staff"} - ${recipient.title || "-"}` : "team"})
                     </option>
                   ))}
                 </Select>

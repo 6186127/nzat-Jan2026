@@ -33,6 +33,26 @@ export const initialInvoiceState: InvoiceDashboardState = {
   lastSyncDirection: "Xero -> System",
   synced: false,
   merchantEmails: ["supplier@autoparts.com", "orders@autoparts.com", "ap@autoparts.com"],
+  merchantEmailRecipients: [
+    {
+      email: "supplier@autoparts.com",
+      kind: "business",
+      name: "Team",
+      title: "",
+    },
+    {
+      email: "sam@autoparts.com",
+      kind: "staff",
+      name: "Sam",
+      title: "Parts Manager",
+    },
+    {
+      email: "linda@autoparts.com",
+      kind: "staff",
+      name: "Linda",
+      title: "Accounts",
+    },
+  ],
   selectedMerchantEmail: "supplier@autoparts.com",
   correlationId: "CORR-2024-0342-XYZ",
   vehicleRego: "ABC123",

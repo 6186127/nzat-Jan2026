@@ -10,8 +10,7 @@ export function PoDashboard({ model }: PoDashboardProps) {
     <div className="space-y-6">
       <div className="space-y-6">
         <PoRequestPanel
-          merchantUserName={model.invoice.merchantUserName}
-          merchantEmails={model.invoice.merchantEmails}
+          merchantEmailRecipients={model.invoice.merchantEmailRecipients}
           selectedMerchantEmail={model.invoice.selectedMerchantEmail}
           correlationId={model.invoice.correlationId}
           vehicleRego={model.invoice.vehicleRego}
