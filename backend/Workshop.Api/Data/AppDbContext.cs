@@ -8,6 +8,7 @@ public class AppDbContext : DbContext
 {
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerStaff> CustomerStaffMembers => Set<CustomerStaff>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<JobTag> JobTags => Set<JobTag>();
@@ -97,6 +98,20 @@ public class AppDbContext : DbContext
         c.Property(x => x.Address).HasColumnName("address");
         c.Property(x => x.BusinessCode).HasColumnName("business_code");
         c.Property(x => x.Notes).HasColumnName("notes");
+        c.HasMany(x => x.StaffMembers)
+            .WithOne(x => x.Customer)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        var cs = modelBuilder.Entity<CustomerStaff>();
+        cs.ToTable("customer_staff");
+        cs.HasKey(x => x.Id);
+        cs.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        cs.Property(x => x.CustomerId).HasColumnName("customer_id").IsRequired();
+        cs.Property(x => x.Name).HasColumnName("name").IsRequired();
+        cs.Property(x => x.Title).HasColumnName("title");
+        cs.Property(x => x.Email).HasColumnName("email");
+        cs.HasIndex(x => x.CustomerId).HasDatabaseName("ix_customer_staff_customer_id");
 
         var j = modelBuilder.Entity<Job>();
         j.ToTable("jobs");

@@ -20,23 +20,36 @@ public class CustomersController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var rows = await _db.Customers.AsNoTracking()
+        var customers = await _db.Customers.AsNoTracking()
             .OrderBy(x => x.Name)
-            .Select(x => new
-            {
-                id = x.Id.ToString(CultureInfo.InvariantCulture),
-                type = x.Type,
-                name = x.Name,
-                phone = x.Phone ?? "",
-                email = x.Email ?? "",
-                address = x.Address ?? "",
-                businessCode = x.BusinessCode ?? "",
-                notes = x.Notes ?? ""
-            })
             .ToListAsync(ct);
+
+        var customerIds = customers.Select(x => x.Id).ToArray();
+        var staffRows = await _db.CustomerStaffMembers.AsNoTracking()
+            .Where(x => customerIds.Contains(x.CustomerId))
+            .OrderBy(x => x.Id)
+            .ToListAsync(ct);
+
+        var staffByCustomerId = staffRows
+            .GroupBy(x => x.CustomerId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(ToStaffResponse).ToList()
+            );
+
+        var rows = customers.Select(x => ToCustomerResponse(
+            x,
+            staffByCustomerId.TryGetValue(x.Id, out var members) ? members : []
+        ));
 
         return Ok(rows);
     }
+
+    public record CustomerStaffUpsertRequest(
+        string? Name,
+        string? Title,
+        string? Email
+    );
 
     public record CustomerUpsertRequest(
         string Type,
@@ -45,7 +58,26 @@ public class CustomersController : ControllerBase
         string? Email,
         string? Address,
         string? BusinessCode,
-        string? Notes
+        string? Notes,
+        List<CustomerStaffUpsertRequest>? StaffMembers
+    );
+
+    public record CustomerStaffResponse(
+        string Name,
+        string Title,
+        string Email
+    );
+
+    public record CustomerResponse(
+        string Id,
+        string Type,
+        string Name,
+        string Phone,
+        string Email,
+        string Address,
+        string BusinessCode,
+        string Notes,
+        List<CustomerStaffResponse> StaffMembers
     );
 
     [HttpPost]
@@ -59,6 +91,15 @@ public class CustomersController : ControllerBase
         var normalizedType = NormalizeCustomerType(req.Type);
         if (!IsValidCustomerType(normalizedType))
             return BadRequest(new { error = "Customer type must be Personal or Business." });
+        List<CustomerStaff> staffMembers;
+        try
+        {
+            staffMembers = NormalizeStaffMembers(normalizedType, req.StaffMembers);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         var customer = new Customer
         {
@@ -68,23 +109,14 @@ public class CustomersController : ControllerBase
             Email = req.Email?.Trim(),
             Address = req.Address?.Trim(),
             BusinessCode = req.BusinessCode?.Trim(),
-            Notes = req.Notes?.Trim()
+            Notes = req.Notes?.Trim(),
+            StaffMembers = staffMembers
         };
 
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync(ct);
 
-        return Ok(new
-        {
-            id = customer.Id.ToString(CultureInfo.InvariantCulture),
-            type = customer.Type,
-            name = customer.Name,
-            phone = customer.Phone ?? "",
-            email = customer.Email ?? "",
-            address = customer.Address ?? "",
-            businessCode = customer.BusinessCode ?? "",
-            notes = customer.Notes ?? ""
-        });
+        return Ok(ToCustomerResponse(customer, customer.StaffMembers.Select(ToStaffResponse).ToList()));
     }
 
     [HttpPut("{id:long}")]
@@ -98,8 +130,19 @@ public class CustomersController : ControllerBase
         var normalizedType = NormalizeCustomerType(req.Type);
         if (!IsValidCustomerType(normalizedType))
             return BadRequest(new { error = "Customer type must be Personal or Business." });
+        List<CustomerStaff> staffMembers;
+        try
+        {
+            staffMembers = NormalizeStaffMembers(normalizedType, req.StaffMembers);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
-        var customer = await _db.Customers.FirstOrDefaultAsync(x => x.Id == id, ct);
+        var customer = await _db.Customers
+            .Include(x => x.StaffMembers)
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
         if (customer is null)
             return NotFound(new { error = "Customer not found." });
 
@@ -110,20 +153,12 @@ public class CustomersController : ControllerBase
         customer.Address = req.Address?.Trim();
         customer.BusinessCode = req.BusinessCode?.Trim();
         customer.Notes = req.Notes?.Trim();
+        _db.CustomerStaffMembers.RemoveRange(customer.StaffMembers);
+        customer.StaffMembers = staffMembers;
 
         await _db.SaveChangesAsync(ct);
 
-        return Ok(new
-        {
-            id = customer.Id.ToString(CultureInfo.InvariantCulture),
-            type = customer.Type,
-            name = customer.Name,
-            phone = customer.Phone ?? "",
-            email = customer.Email ?? "",
-            address = customer.Address ?? "",
-            businessCode = customer.BusinessCode ?? "",
-            notes = customer.Notes ?? ""
-        });
+        return Ok(ToCustomerResponse(customer, customer.StaffMembers.Select(ToStaffResponse).ToList()));
     }
 
     [HttpDelete("{id:long}")]
@@ -155,4 +190,59 @@ public class CustomersController : ControllerBase
     private static bool IsValidCustomerType(string type)
         => string.Equals(type, "Personal", StringComparison.Ordinal) ||
            string.Equals(type, "Business", StringComparison.Ordinal);
+
+    private static List<CustomerStaff> NormalizeStaffMembers(
+        string customerType,
+        List<CustomerStaffUpsertRequest>? rows
+    )
+    {
+        if (!string.Equals(customerType, "Business", StringComparison.Ordinal))
+            return [];
+        if (rows is null || rows.Count == 0)
+            return [];
+
+        var members = new List<CustomerStaff>();
+        foreach (var row in rows)
+        {
+            var name = row.Name?.Trim() ?? "";
+            var title = row.Title?.Trim() ?? "";
+            var email = row.Email?.Trim() ?? "";
+
+            // Skip fully blank rows so UI can keep an empty draft row safely.
+            if (string.IsNullOrWhiteSpace(name) &&
+                string.IsNullOrWhiteSpace(title) &&
+                string.IsNullOrWhiteSpace(email))
+                continue;
+
+            if (string.IsNullOrWhiteSpace(name))
+                throw new InvalidOperationException("Staff member name is required.");
+
+            members.Add(new CustomerStaff
+            {
+                Name = name,
+                Title = title,
+                Email = email
+            });
+        }
+
+        return members;
+    }
+
+    private static CustomerStaffResponse ToStaffResponse(CustomerStaff row) => new(
+        row.Name,
+        row.Title ?? "",
+        row.Email ?? ""
+    );
+
+    private static CustomerResponse ToCustomerResponse(Customer row, List<CustomerStaffResponse> staffMembers) => new(
+        row.Id.ToString(CultureInfo.InvariantCulture),
+        row.Type,
+        row.Name,
+        row.Phone ?? "",
+        row.Email ?? "",
+        row.Address ?? "",
+        row.BusinessCode ?? "",
+        row.Notes ?? "",
+        staffMembers
+    );
 }

@@ -10,4 +10,5 @@ public class Customer
     public string? Address { get; set; }
     public string? BusinessCode { get; set; }
     public string? Notes { get; set; }
+    public List<CustomerStaff> StaffMembers { get; set; } = new();
 }
