@@ -246,16 +246,6 @@ export function JobHeader({
         </div>
 
         <div className="flex items-center gap-3 ml-auto">
-          <Button
-            variant="primary"
-            leftIcon={<FileText className="w-4 h-4" />}
-            onClick={() => {
-              void onCreateXeroInvoice?.();
-            }}
-            disabled={isCreatingXeroInvoice}
-          >
-            {isCreatingXeroInvoice ? "Creating..." : "Create Invoice"}
-          </Button>
           <Button leftIcon={<Archive className="w-4 h-4" />}>{JOB_DETAIL_TEXT.buttons.archive}</Button>
           <Button
             leftIcon={<Trash2 className="w-4 h-4" />}

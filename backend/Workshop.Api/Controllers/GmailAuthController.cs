@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -565,8 +566,14 @@ public class GmailAuthController : ControllerBase
         Directory.CreateDirectory(directory);
 
         var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(fileName));
+        var shortenedBaseName = safeBaseName.Length > 40 ? safeBaseName[..40] : safeBaseName;
         var extension = ResolveFileExtension(fileName, mimeType);
-        var relativePath = Path.Combine("App_Data", "gmail-attachments", $"{messageId}_{attachmentId}_{safeBaseName}{extension}");
+        var messageHash = ComputeShortHash(messageId, 12);
+        var attachmentHash = ComputeShortHash(attachmentId, 12);
+        var relativePath = Path.Combine(
+            "App_Data",
+            "gmail-attachments",
+            $"{messageHash}_{attachmentHash}_{shortenedBaseName}{extension}");
         var fullPath = Path.Combine(_environment.ContentRootPath, relativePath);
 
         await System.IO.File.WriteAllBytesAsync(fullPath, bytes, ct);
@@ -937,6 +944,16 @@ public class GmailAuthController : ControllerBase
             "text/plain" => ".txt",
             _ => ".bin",
         };
+    }
+
+    private static string ComputeShortHash(string value, int length)
+    {
+        if (length <= 0)
+            return "";
+
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        var hex = Convert.ToHexString(bytes).ToLowerInvariant();
+        return hex.Length <= length ? hex : hex[..length];
     }
 
     private static string DecodeBase64Url(string value)
