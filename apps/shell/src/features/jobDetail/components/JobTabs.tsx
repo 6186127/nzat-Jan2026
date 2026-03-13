@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Tabs } from "@/components/ui";
 import type { JobDetailTabKey } from "@/types";
 import { jobDetailTabs } from "@/features/jobDetail";
@@ -5,7 +6,7 @@ import { jobDetailTabs } from "@/features/jobDetail";
 type JobTabsProps = {
   activeTab: JobDetailTabKey;
   onChange: (key: JobDetailTabKey) => void;
-  tabs?: { key: JobDetailTabKey; label: string }[];
+  tabs?: { key: JobDetailTabKey; label: ReactNode }[];
 };
 
 export function JobTabs({ activeTab, onChange, tabs = jobDetailTabs }: JobTabsProps) {

@@ -1,13 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui";
+import { requestJson } from "@/utils/api";
 import {
-  initialEmailTimeline,
   initialInvoiceItems,
   initialInvoiceState,
   initialItemCatalog,
   initialPoDetections,
 } from "../mockData";
-import type { EmailState, InvoiceItem, TaxRateOption } from "../types";
+import type { EmailState, EmailTimelineEvent, InvoiceItem, MerchantEmailRecipient, TaxRateOption } from "../types";
+import type { CustomerInfo, VehicleInfo } from "@/types";
 
 const TAX_RATE_PERCENTAGE: Record<TaxRateOption, number> = {
   "15% GST on Expenses": 15,
@@ -56,12 +57,46 @@ function mergeEmailStates(current: EmailState[], add: EmailState[], remove: Emai
   return EMAIL_STATE_ORDER.filter((state) => next.has(state));
 }
 
-export function useInvoiceDashboardState() {
+type UseInvoiceDashboardStateArgs = {
+  jobId?: string;
+  customer?: CustomerInfo | null;
+  vehicle?: VehicleInfo | null;
+};
+
+function buildCorrelationId(jobId?: string, vehicle?: VehicleInfo | null) {
+  const normalizedJobId = (jobId ?? "").trim();
+  if (normalizedJobId) {
+    const suffix = buildStableAlphaSuffix(normalizedJobId);
+    return `PO-${normalizedJobId}-${suffix}`;
+  }
+
+  const plate = (vehicle?.plate ?? "").trim().replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  return plate ? `PO-REGO-${plate}` : "PO-UNASSIGNED";
+}
+
+function buildStableAlphaSuffix(seed: string) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+
+  let suffix = "";
+  let value = hash || 1;
+  for (let index = 0; index < 4; index += 1) {
+    suffix += alphabet[value % alphabet.length];
+    value = Math.floor(value / alphabet.length) || (hash + index + 7);
+  }
+
+  return suffix;
+}
+
+export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoiceDashboardStateArgs = {}) {
   const toast = useToast();
   const [invoice, setInvoice] = useState(initialInvoiceState);
   const [items, setItems] = useState(initialInvoiceItems);
   const [itemCatalog, setItemCatalog] = useState(initialItemCatalog);
-  const [timeline, setTimeline] = useState(initialEmailTimeline);
+  const [timeline, setTimeline] = useState<EmailTimelineEvent[]>([]);
   const [detections, setDetections] = useState(initialPoDetections);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const [nextItemId, setNextItemId] = useState(initialInvoiceItems.length + 1);
@@ -71,7 +106,7 @@ export function useInvoiceDashboardState() {
   const [itemsDirty, setItemsDirty] = useState(!initialInvoiceState.synced);
   const [pendingFocusRowId, setPendingFocusRowId] = useState<string | null>(null);
   const [manualPoNumber, setManualPoNumber] = useState("");
-
+  const resolvedCorrelationId = useMemo(() => buildCorrelationId(jobId, vehicle), [jobId, vehicle]);
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + getBaseAmount(item), 0), [items]);
   const taxTotal = useMemo(() => items.reduce((sum, item) => sum + getTaxAmount(item), 0), [items]);
   const totalAmount = useMemo(() => subtotal + taxTotal, [subtotal, taxTotal]);
@@ -182,7 +217,32 @@ export function useInvoiceDashboardState() {
     }, 900);
   };
 
-  const sendPoRequest = ({ to }: { to: string; subject: string; body: string }) => {
+  const sendPoRequest = async ({ to, subject, body }: { to: string; subject: string; body: string }) => {
+    const latestThreadEvent = timeline.find((event) => ["sent", "reminder", "reply"].includes(event.type));
+    const result = await requestJson<{
+      id: string;
+      threadId: string;
+      message: string;
+      rfcMessageId: string;
+      referencesHeader: string;
+    }>("/api/gmail/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to,
+        subject,
+        body,
+        correlationId: invoice.correlationId,
+        threadId: latestThreadEvent?.threadId || null,
+        replyToRfcMessageId: latestThreadEvent?.rfcMessageId || null,
+        referencesHeader: latestThreadEvent?.referencesHeader || null,
+      }),
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error || "Failed to send PO request email");
+    }
+
     const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
     setInvoice((prev) => ({
       ...prev,
@@ -197,7 +257,14 @@ export function useInvoiceDashboardState() {
         id: `evt-send-${Date.now()}`,
         type: "sent",
         timestamp: now,
-        description: `PO request email sent to ${to}`,
+        description: `PO request email sent to ${to}${result.data?.threadId ? ` (thread ${result.data.threadId})` : ""}`,
+        to,
+        subject,
+        body,
+        threadId: result.data?.threadId || latestThreadEvent?.threadId,
+        rfcMessageId: result.data?.rfcMessageId || "",
+        referencesHeader: result.data?.referencesHeader || "",
+        attachments: [],
       },
       ...prev,
     ]);
@@ -283,6 +350,216 @@ export function useInvoiceDashboardState() {
     syncPoReference(manualPoNumber, "manual input");
   };
 
+  useEffect(() => {
+    setInvoice((prev) => ({
+      ...prev,
+      correlationId: resolvedCorrelationId,
+      selectedMerchantEmail: "",
+      merchantEmails: [],
+      merchantEmailRecipients: [],
+      emailStates: ["Draft"],
+      lastReplyReceived: "No reply yet",
+      lastEmailSent: "",
+      nextReminderIn: "NaNh NaNm",
+    }));
+    setTimeline([]);
+    setDetections(initialPoDetections);
+    setSelectedDetectionId(null);
+    setManualPoNumber("");
+  }, [resolvedCorrelationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshThreadEvents = async () => {
+      if (!invoice.selectedMerchantEmail || !invoice.correlationId) {
+        setTimeline((prev) => prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type)));
+        return;
+      }
+
+      const res = await requestJson<{
+        events: EmailTimelineEvent[];
+        unreadReplyCount: number;
+        hasReply: boolean;
+        hasPo: boolean;
+        detectedPoNumber: string;
+        lastReplyTimestamp: string;
+      }>(
+        `/api/gmail/thread?counterpartyEmail=${encodeURIComponent(invoice.selectedMerchantEmail)}&correlationId=${encodeURIComponent(invoice.correlationId)}`
+      );
+
+      if (!res.ok || !res.data || !Array.isArray(res.data.events) || cancelled) {
+        setTimeline((prev) => prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type)));
+        return;
+      }
+      const threadData = res.data;
+
+      setTimeline((prev) => {
+        const nonThreadEvents = prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type));
+        return [...threadData.events, ...nonThreadEvents];
+      });
+
+      setInvoice((prev) => ({
+        ...prev,
+        emailStates:
+          threadData.events.length === 0
+            ? ["Draft"]
+            : EMAIL_STATE_ORDER.filter((state) =>
+                [
+                  "Email Sent",
+                  ...(threadData.events.some((event) => event.type === "reminder") ? (["Reminder Scheduled"] as const) : []),
+                  ...(threadData.hasReply ? (["Get Reply"] as const) : []),
+                  ...(threadData.hasPo ? (["Get PO"] as const) : []),
+                ].includes(state)
+              ),
+        lastReplyReceived: threadData.lastReplyTimestamp || prev.lastReplyReceived,
+      }));
+
+      if (threadData.detectedPoNumber) {
+        setManualPoNumber(threadData.detectedPoNumber);
+      }
+    };
+
+    void refreshThreadEvents();
+    const timer = window.setInterval(() => {
+      void refreshThreadEvents();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [invoice.selectedMerchantEmail, invoice.correlationId]);
+
+  const unreadReplyCount = timeline.filter((event) => event.type === "reply" && event.unread).length;
+
+  const markPoThreadSeen = async () => {
+    if (!invoice.selectedMerchantEmail || !invoice.correlationId) return;
+
+    const res = await requestJson<{ updated: number }>("/api/gmail/thread/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        counterpartyEmail: invoice.selectedMerchantEmail,
+        correlationId: invoice.correlationId,
+      }),
+    });
+
+    if (!res.ok) return;
+
+    setTimeline((prev) =>
+      prev.map((event) => (event.type === "reply" ? { ...event, unread: false } : event))
+    );
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMerchantRecipients = async () => {
+      if (customer?.type?.toLowerCase() !== "business" || !customer.name.trim()) {
+        setInvoice((prev) => ({
+          ...prev,
+          contact: customer?.name?.trim() || prev.contact,
+          merchantUserName: "team",
+          merchantEmails: [],
+          merchantEmailRecipients: [],
+          selectedMerchantEmail: "",
+          vehicleRego: vehicle?.plate || prev.vehicleRego,
+          vehicleModel: vehicle?.model || prev.vehicleModel,
+          vehicleMake: vehicle?.make || prev.vehicleMake,
+        }));
+        return;
+      }
+
+      const res = await requestJson<Array<{
+        id: string;
+        type: string;
+        name: string;
+        email: string;
+        businessCode: string;
+        staffMembers?: Array<{ name: string; title: string; email: string }>;
+      }>>("/api/customers");
+
+      if (!res.ok || !Array.isArray(res.data) || cancelled) {
+        setInvoice((prev) => ({
+          ...prev,
+          contact: customer.name.trim(),
+          merchantUserName: "team",
+          merchantEmails: customer.email?.trim() ? [customer.email.trim()] : [],
+          merchantEmailRecipients: customer.email?.trim()
+            ? [{ email: customer.email.trim(), kind: "business", name: "Team", title: "" }]
+            : [],
+          selectedMerchantEmail: customer.email?.trim() || "",
+          vehicleRego: vehicle?.plate || prev.vehicleRego,
+          vehicleModel: vehicle?.model || prev.vehicleModel,
+          vehicleMake: vehicle?.make || prev.vehicleMake,
+        }));
+        return;
+      }
+
+      const normalizedBusinessCode = (customer.businessCode ?? "").trim().toLowerCase();
+      const normalizedName = customer.name.trim().toLowerCase();
+      const matched = res.data.find((row) => {
+        if ((row.type ?? "").toLowerCase() !== "business") return false;
+        const rowBusinessCode = (row.businessCode ?? "").trim().toLowerCase();
+        const rowName = (row.name ?? "").trim().toLowerCase();
+        return (normalizedBusinessCode && rowBusinessCode === normalizedBusinessCode) || rowName === normalizedName;
+      });
+
+      const recipients: MerchantEmailRecipient[] = [];
+      const seen = new Set<string>();
+      const pushRecipient = (recipient: MerchantEmailRecipient | null) => {
+        if (!recipient) return;
+        const key = recipient.email.trim().toLowerCase();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        recipients.push(recipient);
+      };
+
+      pushRecipient(
+        matched?.email?.trim()
+          ? { email: matched.email.trim(), kind: "business", name: "Team", title: "" }
+          : customer.email?.trim()
+            ? { email: customer.email.trim(), kind: "business", name: "Team", title: "" }
+            : null
+      );
+
+      for (const staff of matched?.staffMembers ?? []) {
+        if (!staff?.email?.trim()) continue;
+        pushRecipient({
+          email: staff.email.trim(),
+          kind: "staff",
+          name: staff.name?.trim() || "staff",
+          title: staff.title?.trim() || "",
+        });
+      }
+
+      if (cancelled) return;
+
+      setInvoice((prev) => ({
+        ...prev,
+        contact: matched?.name?.trim() || customer.name.trim(),
+        merchantUserName:
+          recipients.find((item) => item.kind === "staff")?.name ||
+          (recipients[0]?.kind === "business" ? "team" : prev.merchantUserName),
+        merchantEmails: recipients.map((item) => item.email),
+        merchantEmailRecipients: recipients,
+        selectedMerchantEmail:
+          recipients.some((item) => item.email === prev.selectedMerchantEmail)
+            ? prev.selectedMerchantEmail
+            : (recipients[0]?.email ?? ""),
+        vehicleRego: vehicle?.plate || prev.vehicleRego,
+        vehicleModel: vehicle?.model || prev.vehicleModel,
+        vehicleMake: vehicle?.make || prev.vehicleMake,
+      }));
+    };
+
+    void loadMerchantRecipients();
+    return () => {
+      cancelled = true;
+    };
+  }, [customer, vehicle]);
+
   return {
     invoice,
     items,
@@ -295,6 +572,7 @@ export function useInvoiceDashboardState() {
     itemCatalogLastUpdated,
     itemsDirty,
     pendingFocusRowId,
+    unreadReplyCount,
     subtotal,
     taxTotal,
     totalAmount,
@@ -314,6 +592,7 @@ export function useInvoiceDashboardState() {
     confirmPo,
     rejectPo,
     syncManualPoToInvoiceReference,
+    markPoThreadSeen,
   };
 }
 

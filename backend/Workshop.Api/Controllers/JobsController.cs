@@ -463,6 +463,7 @@ public class JobsController : ControllerBase
             return NotFound(new { error = "Job not found." });
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        var correlationId = BuildCorrelationId(job.Id);
 
         var partServiceIds = await _db.JobPartsServices.AsNoTracking()
             .Where(x => x.JobId == id)
@@ -479,13 +480,26 @@ public class JobsController : ControllerBase
         await _db.JobPaintServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.JobTags.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+        await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
+
+        var existingInactive = await _db.InactiveGmailCorrelations
+            .FirstOrDefaultAsync(x => x.CorrelationId == correlationId, ct);
+        if (existingInactive is null)
+        {
+            _db.InactiveGmailCorrelations.Add(new InactiveGmailCorrelation
+            {
+                CorrelationId = correlationId,
+                Reason = $"Job {id} deleted",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await _db.SaveChangesAsync(ct);
+        }
 
         var deletedJobs = await _db.Jobs.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
         if (deletedJobs == 0)
             return NotFound(new { error = "Job not found." });
 
         var vehicleDeleted = false;
-        var customerDeleted = false;
 
         if (job.VehicleId.HasValue)
         {
@@ -500,22 +514,30 @@ public class JobsController : ControllerBase
             }
         }
 
-        if (job.CustomerId.HasValue)
-        {
-            var otherJobs = await _db.Jobs.AsNoTracking()
-                .AnyAsync(x => x.CustomerId == job.CustomerId.Value, ct);
-            if (!otherJobs)
-            {
-                var deletedCustomers = await _db.Customers
-                    .Where(x => x.Id == job.CustomerId.Value)
-                    .ExecuteDeleteAsync(ct);
-                customerDeleted = deletedCustomers > 0;
-            }
-        }
-
         await tx.CommitAsync(ct);
 
-        return Ok(new { success = true, vehicleDeleted, customerDeleted });
+        return Ok(new { success = true, vehicleDeleted, customerDeleted = false, correlationDeactivated = correlationId });
+    }
+
+    private static string BuildCorrelationId(long jobId)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var seed = jobId.ToString(CultureInfo.InvariantCulture);
+        uint hash = 0;
+        foreach (var ch in seed)
+            hash = (hash * 31) + ch;
+
+        var suffixChars = new char[4];
+        var value = hash == 0 ? 1u : hash;
+        for (var index = 0; index < suffixChars.Length; index++)
+        {
+            suffixChars[index] = alphabet[(int)(value % (uint)alphabet.Length)];
+            value = value / (uint)alphabet.Length;
+            if (value == 0)
+                value = hash + (uint)index + 7;
+        }
+
+        return $"PO-{jobId.ToString(CultureInfo.InvariantCulture)}-{new string(suffixChars)}";
     }
 
     public record UpdateJobTagsRequest(long[]? TagIds, string[]? TagNames);

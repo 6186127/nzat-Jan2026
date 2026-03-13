@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
+
 type TabItem = {
   key: string;
-  label: string;
+  label: ReactNode;
 };
 
 type TabsProps = {

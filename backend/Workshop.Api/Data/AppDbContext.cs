@@ -9,6 +9,8 @@ public class AppDbContext : DbContext
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerStaff> CustomerStaffMembers => Set<CustomerStaff>();
+    public DbSet<GmailMessageLog> GmailMessageLogs => Set<GmailMessageLog>();
+    public DbSet<InactiveGmailCorrelation> InactiveGmailCorrelations => Set<InactiveGmailCorrelation>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<JobTag> JobTags => Set<JobTag>();
@@ -112,6 +114,43 @@ public class AppDbContext : DbContext
         cs.Property(x => x.Title).HasColumnName("title");
         cs.Property(x => x.Email).HasColumnName("email");
         cs.HasIndex(x => x.CustomerId).HasDatabaseName("ix_customer_staff_customer_id");
+
+        var gm = modelBuilder.Entity<GmailMessageLog>();
+        gm.ToTable("gmail_message_logs");
+        gm.HasKey(x => x.Id);
+        gm.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        gm.Property(x => x.GmailMessageId).HasColumnName("gmail_message_id").IsRequired();
+        gm.Property(x => x.GmailThreadId).HasColumnName("gmail_thread_id");
+        gm.Property(x => x.InternalDateMs).HasColumnName("internal_date_ms");
+        gm.Property(x => x.Direction).HasColumnName("direction").IsRequired();
+        gm.Property(x => x.CounterpartyEmail).HasColumnName("counterparty_email").IsRequired();
+        gm.Property(x => x.FromAddress).HasColumnName("from_address");
+        gm.Property(x => x.ToAddress).HasColumnName("to_address");
+        gm.Property(x => x.Subject).HasColumnName("subject");
+        gm.Property(x => x.Body).HasColumnName("body");
+        gm.Property(x => x.Snippet).HasColumnName("snippet");
+        gm.Property(x => x.CorrelationId).HasColumnName("correlation_id");
+        gm.Property(x => x.RfcMessageId).HasColumnName("rfc_message_id");
+        gm.Property(x => x.ReferencesHeader).HasColumnName("references_header");
+        gm.Property(x => x.HasAttachments).HasColumnName("has_attachments").HasDefaultValue(false);
+        gm.Property(x => x.AttachmentsJson).HasColumnName("attachments_json");
+        gm.Property(x => x.IsRead).HasColumnName("is_read").HasDefaultValue(false);
+        gm.Property(x => x.ReadAt).HasColumnName("read_at");
+        gm.Property(x => x.DetectedPoNumber).HasColumnName("detected_po_number");
+        gm.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        gm.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        gm.HasIndex(x => x.GmailMessageId).IsUnique().HasDatabaseName("ux_gmail_message_logs_message_id");
+        gm.HasIndex(x => x.GmailThreadId).HasDatabaseName("ix_gmail_message_logs_thread_id");
+        gm.HasIndex(x => x.CorrelationId).HasDatabaseName("ix_gmail_message_logs_correlation_id");
+
+        var igc = modelBuilder.Entity<InactiveGmailCorrelation>();
+        igc.ToTable("inactive_gmail_correlations");
+        igc.HasKey(x => x.Id);
+        igc.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        igc.Property(x => x.CorrelationId).HasColumnName("correlation_id").IsRequired();
+        igc.Property(x => x.Reason).HasColumnName("reason");
+        igc.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        igc.HasIndex(x => x.CorrelationId).IsUnique().HasDatabaseName("ux_inactive_gmail_correlations_correlation_id");
 
         var j = modelBuilder.Entity<Job>();
         j.ToTable("jobs");

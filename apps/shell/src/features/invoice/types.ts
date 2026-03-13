@@ -46,11 +46,30 @@ export type EmailTimelineEventType =
   | "confirmed"
   | "updated";
 
+export type EmailAttachment = {
+  fileName: string;
+  mimeType: string;
+  size?: number;
+  attachmentId?: string;
+  cachedRelativePath?: string;
+  cachedAtUtc?: string;
+};
+
 export type EmailTimelineEvent = {
   id: string;
   type: EmailTimelineEventType;
   timestamp: string;
   description: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  body?: string;
+  threadId?: string;
+  unread?: boolean;
+  detectedPoNumber?: string;
+  rfcMessageId?: string;
+  referencesHeader?: string;
+  attachments?: EmailAttachment[];
 };
 
 export type PoSource = "email" | "pdf" | "ocr";

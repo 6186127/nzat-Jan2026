@@ -1,0 +1,5 @@
+ALTER TABLE gmail_message_logs
+  ADD COLUMN IF NOT EXISTS rfc_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS references_header TEXT,
+  ADD COLUMN IF NOT EXISTS has_attachments BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS attachments_json TEXT;

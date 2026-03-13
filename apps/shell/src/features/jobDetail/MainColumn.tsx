@@ -10,7 +10,7 @@ import type {
   WofRecord,
   WofRecordUpdatePayload,
 } from "@/types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { JobHeader } from "@/features/jobDetail/components/JobHeader";
@@ -145,11 +145,15 @@ export function MainColumn({
   const hasPartsServices = partsServices.length > 0;
   const [partsTabVisibleForCreate, setPartsTabVisibleForCreate] = useState(false);
   const [partsCreateTrigger, setPartsCreateTrigger] = useState(0);
-  const invoiceDashboard = useInvoiceDashboardState();
+  const invoiceDashboard = useInvoiceDashboardState({
+    jobId: jobData.id,
+    customer: jobData.customer,
+    vehicle: jobData.vehicle,
+  });
   const needsPo = Boolean(jobData.needsPo);
 
   const tabs = useMemo(() => {
-    const base: { key: JobDetailTabKey; label: string }[] = [
+    const base: { key: JobDetailTabKey; label: ReactNode }[] = [
       { key: "WOF", label: JOB_DETAIL_TEXT.tabs.wof },
       { key: "Mechanical", label: JOB_DETAIL_TEXT.tabs.mechanical },
     ];
@@ -163,10 +167,22 @@ export function MainColumn({
       { key: "Invoice", label: JOB_DETAIL_TEXT.tabs.invoice }
     );
     if (needsPo) {
-      base.push({ key: "PO", label: JOB_DETAIL_TEXT.tabs.po });
+      base.push({
+        key: "PO",
+        label: (
+          <span className="inline-flex items-center gap-2">
+            <span>{JOB_DETAIL_TEXT.tabs.po}</span>
+            {invoiceDashboard.unreadReplyCount > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#dc2626] px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {invoiceDashboard.unreadReplyCount}
+              </span>
+            ) : null}
+          </span>
+        ),
+      });
     }
     return base;
-  }, [hasPartsServices, needsPo, partsTabVisibleForCreate]);
+  }, [hasPartsServices, needsPo, partsTabVisibleForCreate, invoiceDashboard.unreadReplyCount]);
 
   useEffect(() => {
     if (activeTab === "Parts" && !hasPartsServices && !partsTabVisibleForCreate) {
@@ -179,6 +195,12 @@ export function MainColumn({
       onTabChange("Invoice");
     }
   }, [activeTab, needsPo, onTabChange]);
+
+  useEffect(() => {
+    if (activeTab === "PO" && invoiceDashboard.unreadReplyCount > 0) {
+      invoiceDashboard.markPoThreadSeen();
+    }
+  }, [activeTab, invoiceDashboard.unreadReplyCount]);
 
   useEffect(() => {
     if (partsTabVisibleForCreate && activeTab !== "Parts" && !hasPartsServices) {
