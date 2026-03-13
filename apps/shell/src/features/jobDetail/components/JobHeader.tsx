@@ -1,4 +1,4 @@
-import { Archive, Trash2, AlertCircle, Plus, Pencil, FileText } from "lucide-react";
+import { Archive, Trash2, AlertCircle, Plus, Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, TagPill, Textarea } from "@/components/ui";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
@@ -45,14 +45,10 @@ export function JobHeader({
   vehicleModel,
   customerName,
   customerCode,
-  customerPhone,
-  needsPo = false,
   vin,
   nzFirstRegistration,
   paintPanels,
   hasPaintService,
-  onCreateXeroInvoice,
-  isCreatingXeroInvoice,
   onDelete,
   isDeleting,
   tagOptions = [],
@@ -160,23 +156,6 @@ export function JobHeader({
       await onCreatePaintService("not_started");
     }
     handlePrint("paint");
-  };
-
-  const handlePoEmail = () => {
-    if (!needsPo) return;
-    const subject = `PO申请 - ${vehiclePlate}`;
-    const body = [
-      `工单号：${jobId}`,
-      `车牌：${vehiclePlate}`,
-      `车型：${vehicleModel || ""}`,
-      `客户：${customerCode || customerName}`,
-      `电话：${customerPhone || ""}`,
-      `备注：`,
-      noteDraft || notes || "",
-      "",
-      "（模板内容待定，可在此处调整）",
-    ].join("\n");
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -305,10 +284,6 @@ export function JobHeader({
         </div>
 
         <div className="flex flex-col items-center gap-2 ml-40">
-         {needsPo ? ( <Button variant="primary" onClick={handlePoEmail} disabled={!needsPo}>
-            PO邮件
-          </Button>): null}
-        
           <Button variant="primary" onClick={handlePaintClick}>
             喷漆打印
           </Button>
