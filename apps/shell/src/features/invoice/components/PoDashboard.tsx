@@ -27,7 +27,6 @@ export function PoDashboard({ model }: PoDashboardProps) {
           onSendRequest={model.sendPoRequest}
           onSelectDetection={model.setSelectedDetectionId}
           onConfirmDetection={model.confirmPo}
-          onRejectDetection={model.rejectPo}
           onManualPoNumberChange={model.setManualPoNumber}
           onSyncManualPoToReference={model.syncManualPoToInvoiceReference}
         />

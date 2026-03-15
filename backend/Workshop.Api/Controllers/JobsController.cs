@@ -139,6 +139,8 @@ public class JobsController : ControllerBase
             status = MapDetailStatus(row.Job.Status),
             isUrgent = row.Job.IsUrgent,
             needsPo = row.Job.NeedsPo,
+            poNumber = row.Job.PoNumber,
+            invoiceReference = row.Job.InvoiceReference,
             tags = tagNames.ToArray(),
             notes = row.Job.Notes,
             createdAt = FormatDateTime(row.Job.CreatedAt),
@@ -185,6 +187,82 @@ public class JobsController : ControllerBase
         };
 
         return Ok(new { job, hasWofRecord });
+    }
+
+    [HttpGet("po-unread-summary")]
+    public async Task<IActionResult> GetPoUnreadSummary(CancellationToken ct)
+    {
+        var inactiveCorrelations = await _db.InactiveGmailCorrelations.AsNoTracking()
+            .Select(x => x.CorrelationId)
+            .ToListAsync(ct);
+
+        var unreadReplies = await _db.GmailMessageLogs.AsNoTracking()
+            .Where(x => x.Direction == "reply" && !x.IsRead)
+            .Where(x => !string.IsNullOrWhiteSpace(x.CorrelationId))
+            .Select(x => new
+            {
+                x.CorrelationId,
+                x.InternalDateMs,
+            })
+            .ToListAsync(ct);
+
+        var grouped = unreadReplies
+            .Where(x => !string.IsNullOrWhiteSpace(x.CorrelationId))
+            .Where(x => !inactiveCorrelations.Contains(x.CorrelationId!))
+            .Select(x => new
+            {
+                CorrelationId = x.CorrelationId!,
+                JobId = TryExtractJobIdFromCorrelationId(x.CorrelationId),
+                x.InternalDateMs,
+            })
+            .Where(x => x.JobId.HasValue)
+            .GroupBy(x => new { x.JobId, x.CorrelationId })
+            .Select(group => new
+            {
+                JobId = group.Key.JobId!.Value,
+                group.Key.CorrelationId,
+                UnreadReplyCount = group.Count(),
+                LatestReplyMs = group.Max(x => x.InternalDateMs ?? 0),
+            })
+            .OrderByDescending(x => x.LatestReplyMs)
+            .ToList();
+
+        if (grouped.Count == 0)
+        {
+            return Ok(new
+            {
+                totalUnreadReplies = 0,
+                affectedJobs = 0,
+                items = Array.Empty<object>(),
+            });
+        }
+
+        var jobIds = grouped.Select(x => x.JobId).Distinct().ToArray();
+        var activeJobs = await _db.Jobs.AsNoTracking()
+            .Where(x => jobIds.Contains(x.Id))
+            .Where(x => x.NeedsPo)
+            .Where(x => !EF.Functions.ILike(x.Status, "archived"))
+            .Select(x => new { x.Id })
+            .ToListAsync(ct);
+        var activeJobIds = activeJobs.Select(x => x.Id).ToHashSet();
+
+        var items = grouped
+            .Where(x => activeJobIds.Contains(x.JobId))
+            .Select(x => new
+            {
+                jobId = x.JobId.ToString(CultureInfo.InvariantCulture),
+                correlationId = x.CorrelationId,
+                unreadReplyCount = x.UnreadReplyCount,
+                latestReplyAt = NormalizeInternalDate(x.LatestReplyMs),
+            })
+            .ToList();
+
+        return Ok(new
+        {
+            totalUnreadReplies = items.Sum(x => x.unreadReplyCount),
+            affectedJobs = items.Count,
+            items,
+        });
     }
 
     public record CreatePaintServiceRequest(string? Status, int? Panels);
@@ -440,6 +518,7 @@ public class JobsController : ControllerBase
     }
 
     public record UpdateJobNotesRequest(string? Notes);
+    public record UpdateJobPoSelectionRequest(string? PoNumber, string? InvoiceReference);
 
     [HttpPut("{id:long}/notes")]
     public async Task<IActionResult> UpdateNotes(long id, [FromBody] UpdateJobNotesRequest req, CancellationToken ct)
@@ -453,6 +532,27 @@ public class JobsController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         return Ok(new { success = true, notes = job.Notes });
+    }
+
+    [HttpPut("{id:long}/po-selection")]
+    public async Task<IActionResult> UpdatePoSelection(long id, [FromBody] UpdateJobPoSelectionRequest req, CancellationToken ct)
+    {
+        var job = await _db.Jobs.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job is null)
+            return NotFound(new { error = "Job not found." });
+
+        job.PoNumber = string.IsNullOrWhiteSpace(req?.PoNumber) ? null : req.PoNumber.Trim();
+        job.InvoiceReference = string.IsNullOrWhiteSpace(req?.InvoiceReference) ? null : req.InvoiceReference.Trim();
+        job.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            success = true,
+            poNumber = job.PoNumber,
+            invoiceReference = job.InvoiceReference,
+        });
     }
 
     [HttpDelete("{id:long}")]
@@ -538,6 +638,35 @@ public class JobsController : ControllerBase
         }
 
         return $"PO-{jobId.ToString(CultureInfo.InvariantCulture)}-{new string(suffixChars)}";
+    }
+
+    private static long? TryExtractJobIdFromCorrelationId(string? correlationId)
+    {
+        if (string.IsNullOrWhiteSpace(correlationId))
+            return null;
+
+        var parts = correlationId.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length < 3 || !string.Equals(parts[0], "PO", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return long.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var jobId)
+            ? jobId
+            : null;
+    }
+
+    private static string NormalizeInternalDate(long? value)
+    {
+        if (!value.HasValue || value.Value <= 0)
+            return "";
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(value.Value).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     public record UpdateJobTagsRequest(long[]? TagIds, string[]? TagNames);

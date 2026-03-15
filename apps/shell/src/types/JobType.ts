@@ -10,6 +10,8 @@ export type JobRow = {
   id: string;
   vehicleStatus: JobStatus;
   urgent: boolean;
+  needsPo?: boolean;
+  poUnreadReplyCount?: number;
   selectedTags: string[];
   plate: string;
   vehicleModel: string;

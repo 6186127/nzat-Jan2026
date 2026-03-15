@@ -1,4 +1,4 @@
-import { Check, Link2, X } from "lucide-react";
+import { Check, Link2 } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
 import { StatusBadge } from "./StatusBadge";
 import type { PoDetection } from "../types";
@@ -8,7 +8,6 @@ type Props = {
   selectedDetectionId: string | null;
   onSelect: (id: string) => void;
   onConfirm: (id: string) => void;
-  onReject: (id: string) => void;
   manualPoNumber: string;
   currentInvoiceReference: string;
   onManualPoNumberChange: (value: string) => void;
@@ -21,13 +20,16 @@ export function PoDetectionPanel({
   selectedDetectionId,
   onSelect,
   onConfirm,
-  onReject,
   manualPoNumber,
   currentInvoiceReference,
   onManualPoNumberChange,
   onSyncManualPoToReference,
   embedded = false,
 }: Props) {
+  const normalizedManualPo = manualPoNumber.trim();
+  const canSyncManualPo =
+    normalizedManualPo.length > 0 && !currentInvoiceReference.toLowerCase().includes(normalizedManualPo.toLowerCase());
+
   const content = (
     <>
       {embedded ? null : <div className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">PO Detection Panel</div>}
@@ -44,35 +46,53 @@ export function PoDetectionPanel({
             </tr>
           </thead>
           <tbody>
-            {detections.map((detection) => (
+            {detections.map((detection) => {
+              const isConfirmed = detection.status === "confirmed";
+              return (
               <tr
                 key={detection.id}
-                className={`border-b border-slate-100 last:border-b-0 ${selectedDetectionId === detection.id ? "bg-slate-50" : ""}`}
+                className={`border-b border-slate-100 last:border-b-0 ${
+                  isConfirmed
+                    ? "bg-slate-100"
+                    : selectedDetectionId === detection.id
+                      ? "bg-slate-50"
+                      : ""
+                }`}
               >
-                <td className="px-4 py-4 text-sm font-semibold text-slate-900">{detection.poNumber}</td>
+                <td className={`px-4 py-4 text-sm font-semibold ${isConfirmed ? "text-slate-500" : "text-slate-900"}`}>{detection.poNumber}</td>
                 <td className="px-4 py-4">
                   <StatusBadge kind="source" value={detection.source} />
                 </td>
-                <td className={`px-4 py-4 text-sm font-semibold ${detection.confidence >= 90 ? "text-emerald-600" : "text-amber-600"}`}>
+                <td className={`px-4 py-4 text-sm font-semibold ${
+                  isConfirmed ? "text-slate-500" : detection.confidence >= 90 ? "text-emerald-600" : "text-amber-600"
+                }`}>
                   {detection.confidence}%
                 </td>
                 <td className="px-4 py-4">
-                  <button type="button" className="text-left text-sm text-slate-600 hover:text-slate-900" onClick={() => onSelect(detection.id)}>
+                  <button
+                    type="button"
+                    className={`text-left text-sm ${isConfirmed ? "text-slate-500" : "text-slate-600 hover:text-slate-900"}`}
+                    onClick={() => onSelect(detection.id)}
+                    disabled={isConfirmed}
+                  >
                     {detection.evidencePreview}
                   </button>
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex justify-end gap-2">
-                    <Button variant="primary" className="h-9 px-4" leftIcon={<Check className="h-4 w-4" />} onClick={() => onConfirm(detection.id)}>
-                      Confirm
-                    </Button>
-                    <Button className="h-9 px-4" leftIcon={<X className="h-4 w-4" />} onClick={() => onReject(detection.id)}>
-                      Reject
+                    <Button
+                      variant={isConfirmed ? "ghost" : "primary"}
+                      className={isConfirmed ? "h-9 px-4 bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-200" : "h-9 px-4"}
+                      leftIcon={<Check className="h-4 w-4" />}
+                      onClick={() => onConfirm(detection.id)}
+                      disabled={isConfirmed}
+                    >
+                      {isConfirmed ? "Confirmed" : "Confirm"}
                     </Button>
                   </div>
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>
@@ -88,12 +108,13 @@ export function PoDetectionPanel({
             />
           </div>
           <Button
-            variant="primary"
-            className="h-11 px-5"
+            variant={canSyncManualPo ? "primary" : "ghost"}
+            className={canSyncManualPo ? "h-11 px-5" : "h-11 px-5 bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-200"}
             leftIcon={<Link2 className="h-4 w-4" />}
             onClick={onSyncManualPoToReference}
+            disabled={!canSyncManualPo}
           >
-            Sync to Invoice Ref
+            {canSyncManualPo ? "Sync to Invoice Ref" : "Synced to Invoice Ref"}
           </Button>
         </div>
         <div className="mt-3 text-sm text-slate-500">Current invoice reference: {currentInvoiceReference}</div>

@@ -262,13 +262,18 @@ export function JobsTable({
                 <div className="truncate">{r.customerCode || r.customerName || "—"}</div>
 
                 <div className="text-left font-medium text-[rgba(0,0,0,0.70)]">
-                  <div className="h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
+                  <div className="flex items-center gap-2 h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
                     <Link
                       to={`/jobs/${r.id}`}
                       className="block text-[rgba(37,99,235,1)] font-semibold underline"
                     >
                       {r.plate}
                     </Link>
+                    {(r.poUnreadReplyCount ?? 0) > 0 ? (
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                        PO {r.poUnreadReplyCount}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 

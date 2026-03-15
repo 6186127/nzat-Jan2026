@@ -72,7 +72,7 @@ export type EmailTimelineEvent = {
   attachments?: EmailAttachment[];
 };
 
-export type PoSource = "email" | "pdf" | "ocr";
+export type PoSource = "email" | "pdf" | "image" | "ocr";
 
 export type PoDetection = {
   id: string;
@@ -81,7 +81,7 @@ export type PoDetection = {
   confidence: number;
   evidencePreview: string;
   previewLabel: string;
-  previewType: "pdf" | "image";
+  previewType: "pdf" | "image" | "text";
   status: "pending" | "confirmed" | "rejected";
 };
 

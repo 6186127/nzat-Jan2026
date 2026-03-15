@@ -11,6 +11,7 @@ import {
   searchParamsToFilters,
   getPageFromSearchParams,
   DEFAULT_JOBS_FILTERS,
+  usePoUnreadSummary,
 } from "@/features/jobs";
 import { useJobSheetPrinter } from "@/features/printing/useJobSheetPrinter";
 import type { TagOption } from "@/components/MultiTagSelect";
@@ -32,6 +33,7 @@ export function JobsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const toast = useToast();
+  const poUnreadSummary = usePoUnreadSummary();
 
   const buildCreatedAtWithDate = (prevValue: string, date: string) => {
     const parsed = parseTimestamp(prevValue);
@@ -135,7 +137,7 @@ export function JobsPage() {
             const tags = tagMap.get(String(row.id)) ?? [];
             const mergedTags = row.urgent ? Array.from(new Set(["Urgent", ...tags])) : tags;
             const hasUrgent = mergedTags.some((tag) => String(tag).toLowerCase() === "urgent");
-            return { ...row, urgent: hasUrgent, selectedTags: mergedTags };
+            return { ...row, urgent: hasUrgent, selectedTags: mergedTags, poUnreadReplyCount: 0 };
           });
 
           setAllRows(rowsWithTags);
@@ -189,6 +191,19 @@ export function JobsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const unreadByJobId = new Map(
+      poUnreadSummary.items.map((item) => [item.jobId, Number(item.unreadReplyCount) || 0])
+    );
+
+    setAllRows((prev) =>
+      prev.map((item) => ({
+        ...item,
+        poUnreadReplyCount: unreadByJobId.get(item.id) ?? 0,
+      }))
+    );
+  }, [poUnreadSummary.items, setAllRows]);
 
   const handleToggleUrgent = useCallback(
     async (id: string) => {
@@ -352,7 +367,14 @@ export function JobsPage() {
 
   return (
     <div className="space-y-4 text-[14px]">
-      <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Jobs</h1>
+        {poUnreadSummary.totalUnreadReplies > 0 ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            待处理 PO 回复 {poUnreadSummary.totalUnreadReplies} 封，涉及 {poUnreadSummary.affectedJobs} 个工单
+          </div>
+        ) : null}
+      </div>
 
       {loadError ? (
         <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} />

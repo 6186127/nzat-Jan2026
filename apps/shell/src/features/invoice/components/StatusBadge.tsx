@@ -13,6 +13,7 @@ const STYLES: Record<string, string> = {
   Authorised: "bg-violet-100 text-violet-800 border border-violet-200",
   email: "bg-blue-100 text-blue-700 border border-blue-200",
   pdf: "bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200",
+  image: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   ocr: "bg-orange-100 text-orange-700 border border-orange-200",
   "Email Sent": "bg-emerald-100 text-emerald-800 border border-emerald-200",
   "Get Reply": "bg-sky-100 text-sky-800 border border-sky-200",

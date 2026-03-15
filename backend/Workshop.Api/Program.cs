@@ -22,6 +22,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
 builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
+builder.Services.Configure<GmailSyncOptions>(builder.Configuration.GetSection(GmailSyncOptions.SectionName));
+builder.Services.Configure<ImageOcrOptions>(builder.Configuration.GetSection(ImageOcrOptions.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -87,6 +89,9 @@ builder.Services.AddScoped<XeroTokenService>();
 builder.Services.AddScoped<XeroInvoiceService>();
 builder.Services.AddScoped<JobXeroDraftInvoiceService>();
 builder.Services.AddScoped<GmailTokenService>();
+builder.Services.AddScoped<GmailThreadSyncService>();
+builder.Services.AddSingleton<AppleVisionImageOcrService>();
+builder.Services.AddHostedService<GmailBackgroundSyncService>();
 
 // ========= Carjam Importer DI =========
 

@@ -170,6 +170,8 @@ export type JobDetailData = {
   tags: string[];
   notes?: string;
   needsPo?: boolean;
+  poNumber?: string;
+  invoiceReference?: string;
   createdAt?: string;
   vehicle: VehicleInfo;
   customer: CustomerInfo;

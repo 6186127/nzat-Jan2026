@@ -24,7 +24,6 @@ type Props = {
   onSendRequest: (payload: { to: string; subject: string; body: string }) => Promise<void>;
   onSelectDetection: (id: string) => void;
   onConfirmDetection: (id: string) => void;
-  onRejectDetection: (id: string) => void;
   onManualPoNumberChange: (value: string) => void;
   onSyncManualPoToReference: () => void;
 };
@@ -47,7 +46,6 @@ export function PoRequestPanel({
   onSendRequest,
   onSelectDetection,
   onConfirmDetection,
-  onRejectDetection,
   onManualPoNumberChange,
   onSyncManualPoToReference,
 }: Props) {
@@ -554,7 +552,6 @@ export function PoRequestPanel({
               selectedDetectionId={selectedDetectionId}
               onSelect={onSelectDetection}
               onConfirm={onConfirmDetection}
-              onReject={onRejectDetection}
               manualPoNumber={manualPoNumber}
               currentInvoiceReference={currentInvoiceReference}
               onManualPoNumberChange={onManualPoNumberChange}

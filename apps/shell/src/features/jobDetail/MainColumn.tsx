@@ -149,6 +149,8 @@ export function MainColumn({
     jobId: jobData.id,
     customer: jobData.customer,
     vehicle: jobData.vehicle,
+    persistedPoNumber: jobData.poNumber,
+    persistedInvoiceReference: jobData.invoiceReference,
   });
   const needsPo = Boolean(jobData.needsPo);
 

@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui";
 import { requestJson } from "@/utils/api";
-import {
-  initialInvoiceItems,
-  initialInvoiceState,
-  initialItemCatalog,
-  initialPoDetections,
-} from "../mockData";
-import type { EmailState, EmailTimelineEvent, InvoiceItem, MerchantEmailRecipient, TaxRateOption } from "../types";
+import { updateJobPoSelection } from "@/features/jobDetail/api/jobDetailApi";
+import type {
+  EmailState,
+  EmailTimelineEvent,
+  InvoiceDashboardState,
+  InvoiceItem,
+  MerchantEmailRecipient,
+  PoDetection,
+  TaxRateOption,
+  XeroItemDefinition,
+} from "../types";
 import type { CustomerInfo, VehicleInfo } from "@/types";
 
 const TAX_RATE_PERCENTAGE: Record<TaxRateOption, number> = {
@@ -48,7 +52,54 @@ function buildReference(currentReference: string, poNumber: string) {
   return `${trimmedPo} ${currentReference.slice(slashIndex)}`;
 }
 
+function extractPoFromReference(reference: string) {
+  const trimmed = reference.trim();
+  if (!trimmed) return "";
+  const slashIndex = trimmed.indexOf("/");
+  return (slashIndex === -1 ? trimmed : trimmed.slice(0, slashIndex)).trim();
+}
+
 const EMAIL_STATE_ORDER: EmailState[] = ["Draft", "Email Sent", "Get Reply", "Reminder Scheduled", "Get PO"];
+
+const initialInvoiceState: InvoiceDashboardState = {
+  contact: "",
+  merchantUserName: "team",
+  issueDate: "",
+  dueDate: "",
+  invoiceNumber: "",
+  reference: "",
+  amountsAre: "Tax Exclusive",
+  xeroInvoiceId: "",
+  status: "Awaiting PO",
+  lastSyncTime: "",
+  lastSyncDirection: "Xero -> System",
+  synced: false,
+  merchantEmails: [],
+  merchantEmailRecipients: [],
+  selectedMerchantEmail: "",
+  correlationId: "",
+  vehicleRego: "",
+  vehicleModel: "",
+  vehicleMake: "",
+  snapshotTotal: 0,
+  emailStates: ["Draft"],
+  remindersSent: 0,
+  reminderLimit: 3,
+  lastEmailSent: "",
+  lastReplyReceived: "No reply yet",
+  nextReminderIn: "NaNh NaNm",
+  currentWorkflowStep: 1,
+};
+
+const initialItemCatalog: XeroItemDefinition[] = [
+  { code: "LAB-001", name: "Engine Oil Change - Premium Synthetic", unitPrice: 89.99, account: "200 - Sales", taxRate: "15% GST on Income" },
+  { code: "PRT-145", name: "Brake Pad Replacement - Front Axle", unitPrice: 245, account: "200 - Sales", taxRate: "15% GST on Income" },
+  { code: "LAB-210", name: "Tire Rotation & Balancing Service", unitPrice: 35, account: "200 - Sales", taxRate: "15% GST on Income" },
+  { code: "PRT-330", name: "Air Filter Replacement", unitPrice: 45, account: "200 - Sales", taxRate: "15% GST on Income" },
+  { code: "PRT-510", name: "Cabin Filter Replacement", unitPrice: 58, account: "200 - Sales", taxRate: "15% GST on Income" },
+];
+
+const initialInvoiceItems: InvoiceItem[] = [];
 
 function mergeEmailStates(current: EmailState[], add: EmailState[], remove: EmailState[] = []): EmailState[] {
   const next = new Set(current);
@@ -57,10 +108,19 @@ function mergeEmailStates(current: EmailState[], add: EmailState[], remove: Emai
   return EMAIL_STATE_ORDER.filter((state) => next.has(state));
 }
 
+function applyDetectionSelection(detections: PoDetection[], selectedId: string | null) {
+  return detections.map<PoDetection>((item) => ({
+    ...item,
+    status: (selectedId && item.id === selectedId ? "confirmed" : "pending") as PoDetection["status"],
+  }));
+}
+
 type UseInvoiceDashboardStateArgs = {
   jobId?: string;
   customer?: CustomerInfo | null;
   vehicle?: VehicleInfo | null;
+  persistedPoNumber?: string | null;
+  persistedInvoiceReference?: string | null;
 };
 
 function buildCorrelationId(jobId?: string, vehicle?: VehicleInfo | null) {
@@ -91,13 +151,19 @@ function buildStableAlphaSuffix(seed: string) {
   return suffix;
 }
 
-export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoiceDashboardStateArgs = {}) {
+export function useInvoiceDashboardState({
+  jobId,
+  customer,
+  vehicle,
+  persistedPoNumber,
+  persistedInvoiceReference,
+}: UseInvoiceDashboardStateArgs = {}) {
   const toast = useToast();
   const [invoice, setInvoice] = useState(initialInvoiceState);
   const [items, setItems] = useState(initialInvoiceItems);
   const [itemCatalog, setItemCatalog] = useState(initialItemCatalog);
   const [timeline, setTimeline] = useState<EmailTimelineEvent[]>([]);
-  const [detections, setDetections] = useState(initialPoDetections);
+  const [detections, setDetections] = useState<PoDetection[]>([]);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const [nextItemId, setNextItemId] = useState(initialInvoiceItems.length + 1);
   const [itemCatalogSyncState, setItemCatalogSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
@@ -106,6 +172,12 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
   const [itemsDirty, setItemsDirty] = useState(!initialInvoiceState.synced);
   const [pendingFocusRowId, setPendingFocusRowId] = useState<string | null>(null);
   const [manualPoNumber, setManualPoNumber] = useState("");
+  const [poPanelLoading, setPoPanelLoading] = useState(true);
+  const [poPanelInitialized, setPoPanelInitialized] = useState(false);
+  const [poPanelRefreshing, setPoPanelRefreshing] = useState(false);
+  const [merchantRecipientsLoading, setMerchantRecipientsLoading] = useState(true);
+  const [savedPoNumber, setSavedPoNumber] = useState(persistedPoNumber?.trim() || "");
+  const [savedInvoiceReference, setSavedInvoiceReference] = useState(persistedInvoiceReference?.trim() || "");
   const resolvedCorrelationId = useMemo(() => buildCorrelationId(jobId, vehicle), [jobId, vehicle]);
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + getBaseAmount(item), 0), [items]);
   const taxTotal = useMemo(() => items.reduce((sum, item) => sum + getTaxAmount(item), 0), [items]);
@@ -296,44 +368,71 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
     toast.info("Reminder settings coming next");
   };
 
-  const syncPoReference = (poNumber: string, sourceLabel: string) => {
+  const persistPoSelection = async (poNumber: string, invoiceReference: string) => {
+    if (!jobId) return true;
+
+    const res = await updateJobPoSelection(jobId, {
+      poNumber,
+      invoiceReference,
+    });
+
+    if (!res.ok) {
+      toast.error(res.error || "Failed to save PO selection");
+      return false;
+    }
+
+    setSavedPoNumber((res.data?.poNumber as string | undefined)?.trim() || poNumber);
+    setSavedInvoiceReference((res.data?.invoiceReference as string | undefined)?.trim() || invoiceReference);
+
+    return true;
+  };
+
+  const syncPoReference = async (poNumber: string, sourceLabel: string) => {
     const nextPo = poNumber.trim();
     if (!nextPo) {
       toast.error("Please enter a PO number");
-      return;
+      return false;
     }
+    const nextReference = buildReference(invoice.reference, nextPo);
+    const persistedPo = extractPoFromReference(nextReference) || nextPo;
     const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
+    const persisted = await persistPoSelection(persistedPo, nextReference);
+    if (!persisted) {
+      return false;
+    }
     setInvoice((prev) => ({
       ...prev,
-      reference: buildReference(prev.reference, nextPo),
+      reference: nextReference,
       status: "PO Received",
       currentWorkflowStep: Math.max(prev.currentWorkflowStep, 7),
       lastSyncTime: now,
       lastSyncDirection: "System -> Xero",
     }));
-    setManualPoNumber(nextPo);
+    setManualPoNumber(persistedPo);
     setTimeline((prev) => [
       {
         id: `evt-ref-${Date.now()}`,
         type: "updated",
         timestamp: now,
-        description: `${nextPo} synced to invoice reference from ${sourceLabel}`,
+        description: `${persistedPo} synced to invoice reference from ${sourceLabel}`,
       },
       ...prev,
     ]);
     toast.success("Invoice reference updated");
+    return true;
   };
 
-  const confirmPo = (id: string) => {
+  const confirmPo = async (id: string) => {
     const po = detections.find((item) => item.id === id);
     if (!po) return;
-    setDetections((prev) => prev.map((item) => (item.id === id ? { ...item, status: "confirmed" } : item)));
+    const synced = await syncPoReference(po.poNumber, "PO Detection");
+    if (!synced) return;
+    setDetections((prev) => applyDetectionSelection(prev, id));
     setSelectedDetectionId(id);
     setInvoice((prev) => ({
       ...prev,
       emailStates: mergeEmailStates(prev.emailStates, ["Get Reply", "Get PO"], ["Draft"]),
     }));
-    syncPoReference(po.poNumber, "PO Detection");
   };
 
   const rejectPo = (id: string) => {
@@ -346,14 +445,18 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
     toast.info(`${po.poNumber} rejected`);
   };
 
-  const syncManualPoToInvoiceReference = () => {
-    syncPoReference(manualPoNumber, "manual input");
+  const syncManualPoToInvoiceReference = async () => {
+    const synced = await syncPoReference(manualPoNumber, "manual input");
+    if (!synced) return;
+    setSelectedDetectionId(null);
+    setDetections((prev) => applyDetectionSelection(prev, null));
   };
 
   useEffect(() => {
     setInvoice((prev) => ({
       ...prev,
       correlationId: resolvedCorrelationId,
+      reference: savedInvoiceReference,
       selectedMerchantEmail: "",
       merchantEmails: [],
       merchantEmailRecipients: [],
@@ -363,20 +466,43 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
       nextReminderIn: "NaNh NaNm",
     }));
     setTimeline([]);
-    setDetections(initialPoDetections);
+    setDetections([]);
     setSelectedDetectionId(null);
-    setManualPoNumber("");
-  }, [resolvedCorrelationId]);
+    setManualPoNumber(savedPoNumber || extractPoFromReference(savedInvoiceReference));
+    setPoPanelLoading(true);
+    setPoPanelInitialized(false);
+    setPoPanelRefreshing(false);
+    setMerchantRecipientsLoading(true);
+  }, [resolvedCorrelationId, savedPoNumber, savedInvoiceReference]);
+
+  useEffect(() => {
+    setSavedPoNumber(persistedPoNumber?.trim() || "");
+    setSavedInvoiceReference(persistedInvoiceReference?.trim() || "");
+  }, [persistedPoNumber, persistedInvoiceReference]);
 
   useEffect(() => {
     let cancelled = false;
 
     const refreshThreadEvents = async () => {
-      if (!invoice.selectedMerchantEmail || !invoice.correlationId) {
-        setTimeline((prev) => prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type)));
+      if (!poPanelInitialized && merchantRecipientsLoading) {
+        setPoPanelLoading(true);
         return;
       }
 
+      if (!invoice.selectedMerchantEmail || !invoice.correlationId) {
+        setTimeline((prev) => prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type)));
+        setDetections([]);
+        setPoPanelLoading(false);
+        setPoPanelInitialized(true);
+        setPoPanelRefreshing(false);
+        return;
+      }
+
+      if (!poPanelInitialized) {
+        setPoPanelLoading(true);
+      } else {
+        setPoPanelRefreshing(true);
+      }
       const res = await requestJson<{
         events: EmailTimelineEvent[];
         unreadReplyCount: number;
@@ -390,14 +516,38 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
 
       if (!res.ok || !res.data || !Array.isArray(res.data.events) || cancelled) {
         setTimeline((prev) => prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type)));
+        setDetections([]);
+        setPoPanelLoading(false);
+        setPoPanelInitialized(true);
+        setPoPanelRefreshing(false);
         return;
       }
       const threadData = res.data;
+
+      const detectionRes = await requestJson<PoDetection[]>(
+        `/api/gmail/po-detections?counterpartyEmail=${encodeURIComponent(invoice.selectedMerchantEmail)}&correlationId=${encodeURIComponent(invoice.correlationId)}`
+      );
+      const nextDetections =
+        detectionRes.ok && Array.isArray(detectionRes.data)
+          ? detectionRes.data.map((item) => ({
+              ...item,
+              status: item.status ?? "pending",
+            }))
+          : [];
+      const hasDetectedPo = Boolean(threadData.hasPo || nextDetections.length > 0);
+      const resolvedSelectedDetectionId =
+        selectedDetectionId && nextDetections.some((item) => item.id === selectedDetectionId)
+          ? selectedDetectionId
+          : savedPoNumber
+            ? nextDetections.find((item) => item.poNumber.trim().toUpperCase() === savedPoNumber.toUpperCase())?.id ?? null
+          : null;
 
       setTimeline((prev) => {
         const nonThreadEvents = prev.filter((event) => !["sent", "reminder", "reply"].includes(event.type));
         return [...threadData.events, ...nonThreadEvents];
       });
+      setSelectedDetectionId(resolvedSelectedDetectionId);
+      setDetections(applyDetectionSelection(nextDetections, resolvedSelectedDetectionId));
 
       setInvoice((prev) => ({
         ...prev,
@@ -409,14 +559,24 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
                   "Email Sent",
                   ...(threadData.events.some((event) => event.type === "reminder") ? (["Reminder Scheduled"] as const) : []),
                   ...(threadData.hasReply ? (["Get Reply"] as const) : []),
-                  ...(threadData.hasPo ? (["Get PO"] as const) : []),
+                  ...(hasDetectedPo ? (["Get PO"] as const) : []),
                 ].includes(state)
               ),
         lastReplyReceived: threadData.lastReplyTimestamp || prev.lastReplyReceived,
       }));
 
-      if (threadData.detectedPoNumber) {
+      if (savedPoNumber) {
+        setManualPoNumber(savedPoNumber);
+      } else if (threadData.detectedPoNumber) {
         setManualPoNumber(threadData.detectedPoNumber);
+      } else if (nextDetections.length > 0) {
+        setManualPoNumber((prev) => prev || nextDetections[0].poNumber);
+      }
+
+      if (!cancelled) {
+        setPoPanelLoading(false);
+        setPoPanelInitialized(true);
+        setPoPanelRefreshing(false);
       }
     };
 
@@ -429,7 +589,14 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [invoice.selectedMerchantEmail, invoice.correlationId]);
+  }, [
+    invoice.selectedMerchantEmail,
+    invoice.correlationId,
+    selectedDetectionId,
+    poPanelInitialized,
+    merchantRecipientsLoading,
+    savedPoNumber,
+  ]);
 
   const unreadReplyCount = timeline.filter((event) => event.type === "reply" && event.unread).length;
 
@@ -456,6 +623,8 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
     let cancelled = false;
 
     const loadMerchantRecipients = async () => {
+      setMerchantRecipientsLoading(true);
+
       if (customer?.type?.toLowerCase() !== "business" || !customer.name.trim()) {
         setInvoice((prev) => ({
           ...prev,
@@ -468,6 +637,7 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
           vehicleModel: vehicle?.model || prev.vehicleModel,
           vehicleMake: vehicle?.make || prev.vehicleMake,
         }));
+        if (!cancelled) setMerchantRecipientsLoading(false);
         return;
       }
 
@@ -494,6 +664,7 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
           vehicleModel: vehicle?.model || prev.vehicleModel,
           vehicleMake: vehicle?.make || prev.vehicleMake,
         }));
+        if (!cancelled) setMerchantRecipientsLoading(false);
         return;
       }
 
@@ -552,6 +723,7 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
         vehicleModel: vehicle?.model || prev.vehicleModel,
         vehicleMake: vehicle?.make || prev.vehicleMake,
       }));
+      setMerchantRecipientsLoading(false);
     };
 
     void loadMerchantRecipients();
@@ -572,6 +744,8 @@ export function useInvoiceDashboardState({ jobId, customer, vehicle }: UseInvoic
     itemCatalogLastUpdated,
     itemsDirty,
     pendingFocusRowId,
+    poPanelLoading,
+    poPanelRefreshing,
     unreadReplyCount,
     subtotal,
     taxTotal,

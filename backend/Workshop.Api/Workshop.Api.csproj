@@ -26,6 +26,7 @@
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
 
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 
   <ItemGroup>

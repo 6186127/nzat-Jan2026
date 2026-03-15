@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
+using UglyToad.PdfPig;
 using Workshop.Api.Data;
 using Workshop.Api.Options;
 using Workshop.Api.Services;
@@ -28,6 +29,8 @@ public class GmailAuthController : ControllerBase
     private readonly IWebHostEnvironment _environment;
     private readonly GmailOptions _options;
     private readonly GmailTokenService _gmailTokenService;
+    private readonly GmailThreadSyncService _gmailThreadSyncService;
+    private readonly AppleVisionImageOcrService _imageOcrService;
 
     public GmailAuthController(
         IHttpClientFactory httpClientFactory,
@@ -35,7 +38,9 @@ public class GmailAuthController : ControllerBase
         AppDbContext db,
         IWebHostEnvironment environment,
         IOptions<GmailOptions> options,
-        GmailTokenService gmailTokenService)
+        GmailTokenService gmailTokenService,
+        GmailThreadSyncService gmailThreadSyncService,
+        AppleVisionImageOcrService imageOcrService)
     {
         _httpClientFactory = httpClientFactory;
         _cache = cache;
@@ -43,6 +48,8 @@ public class GmailAuthController : ControllerBase
         _environment = environment;
         _options = options.Value;
         _gmailTokenService = gmailTokenService;
+        _gmailThreadSyncService = gmailThreadSyncService;
+        _imageOcrService = imageOcrService;
     }
 
     [HttpGet("connect")]
@@ -257,147 +264,43 @@ public class GmailAuthController : ControllerBase
         [FromQuery] string? counterpartyEmail,
         [FromQuery] string? correlationId,
         [FromQuery] int limit = 20,
+        [FromQuery] bool refresh = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(counterpartyEmail) && string.IsNullOrWhiteSpace(correlationId))
             return BadRequest(new { error = "counterpartyEmail or correlationId is required." });
 
-        var tokenResult = await _gmailTokenService.RefreshAccessTokenAsync(ct);
-        if (!tokenResult.Ok)
-            return StatusCode(tokenResult.StatusCode, new { error = tokenResult.Error });
-
-        var normalizedCorrelationId = correlationId?.Trim();
-        if (!string.IsNullOrWhiteSpace(normalizedCorrelationId))
-        {
-            var isInactive = await _db.InactiveGmailCorrelations.AsNoTracking()
-                .AnyAsync(x => x.CorrelationId == normalizedCorrelationId, ct);
-            if (isInactive)
-            {
-                return Ok(new GmailThreadResponse(
-                    [],
-                    0,
-                    false,
-                    false,
-                    "",
-                    "",
-                    "Correlation is inactive. Gmail sync skipped."
-                ));
-            }
-        }
-
-        var normalizedCounterpartyEmail = counterpartyEmail?.Trim() ?? "";
-        var counterpartyEmails = SplitEmailAddresses(normalizedCounterpartyEmail);
-        var queryTerms = new List<string>();
-        if (counterpartyEmails.Length > 0)
-        {
-            queryTerms.Add(counterpartyEmails.Length == 1
-                ? counterpartyEmails[0]
-                : $"({string.Join(" OR ", counterpartyEmails)})");
-        }
-        if (!string.IsNullOrWhiteSpace(normalizedCorrelationId))
-            queryTerms.Add($"\"{normalizedCorrelationId}\"");
-        var gmailQuery = string.Join(" ", queryTerms);
-
-        var client = _httpClientFactory.CreateClient();
         string? syncWarning = null;
-        List<GmailMessageRef> messageRefs = [];
-
-        var listUrl =
-            $"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={Uri.EscapeDataString(gmailQuery)}&maxResults={Math.Clamp(limit, 1, 50)}";
-        using (var listRequest = new HttpRequestMessage(HttpMethod.Get, listUrl))
+        var snapshot = await _gmailThreadSyncService.GetThreadSnapshotAsync(counterpartyEmail, correlationId, limit, ct);
+        if (_gmailThreadSyncService.ShouldRefresh(snapshot, refresh))
         {
-            listRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
-
-            using var listResponse = await client.SendAsync(listRequest, ct);
-            var listPayload = await listResponse.Content.ReadAsStringAsync(ct);
-            if (listResponse.IsSuccessStatusCode)
-            {
-                var listResult = JsonSerializer.Deserialize<GmailMessageListResponse>(listPayload, JsonOptions);
-                messageRefs = listResult?.Messages ?? [];
-            }
-            else
-            {
-                syncWarning = "Gmail thread sync unavailable. Re-consent with gmail.readonly or gmail.modify to read replies.";
-            }
+            var syncResult = await _gmailThreadSyncService.SyncThreadAsync(
+                snapshot.CounterpartyEmail,
+                snapshot.CorrelationId,
+                snapshot.Limit,
+                ct);
+            syncWarning = syncResult.Warning;
+            snapshot = await _gmailThreadSyncService.GetThreadSnapshotAsync(
+                snapshot.CounterpartyEmail,
+                snapshot.CorrelationId,
+                snapshot.Limit,
+                ct);
         }
 
-        foreach (var messageRef in messageRefs)
+        if (snapshot.IsInactive && snapshot.Logs.Count == 0)
         {
-            if (string.IsNullOrWhiteSpace(messageRef.Id))
-                continue;
-
-            using var messageRequest = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"https://gmail.googleapis.com/gmail/v1/users/me/messages/{Uri.EscapeDataString(messageRef.Id)}?format=full");
-            messageRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
-
-            using var messageResponse = await client.SendAsync(messageRequest, ct);
-            var messagePayload = await messageResponse.Content.ReadAsStringAsync(ct);
-            if (!messageResponse.IsSuccessStatusCode)
-                continue;
-
-            var message = JsonSerializer.Deserialize<GmailMessageResponse>(messagePayload, JsonOptions);
-            if (message is null)
-                continue;
-
-            var from = GetHeader(message.Payload, "From");
-            var to = GetHeader(message.Payload, "To");
-            var subject = DecodeMimeWords(GetHeader(message.Payload, "Subject"));
-            var body = ExtractBody(message.Payload);
-            var snippet = message.Snippet ?? "";
-            var rfcMessageId = GetHeader(message.Payload, "Message-Id");
-            var referencesHeader = GetHeader(message.Payload, "References");
-            var attachments = ExtractAttachments(message.Payload);
-            var matchesCounterparty = counterpartyEmails.Length == 0 ||
-                counterpartyEmails.Any(email =>
-                    from.Contains(email, StringComparison.OrdinalIgnoreCase) ||
-                    to.Contains(email, StringComparison.OrdinalIgnoreCase));
-            var matchesCorrelation = string.IsNullOrWhiteSpace(normalizedCorrelationId) ||
-                subject.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
-                body.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
-                snippet.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase);
-
-            if (!matchesCounterparty || !matchesCorrelation)
-                continue;
-
-            var direction = counterpartyEmails.Any(email => from.Contains(email, StringComparison.OrdinalIgnoreCase))
-                ? "reply"
-                : "sent";
-            var normalizedBody = string.IsNullOrWhiteSpace(body) ? snippet : body;
-
-            await UpsertMessageLogAsync(
-                gmailMessageId: message.Id ?? "",
-                gmailThreadId: message.ThreadId,
-                internalDateMs: message.InternalDate,
-                direction: direction,
-                counterpartyEmail: normalizedCounterpartyEmail,
-                fromAddress: from,
-                toAddress: to,
-                subject: subject,
-                body: normalizedBody,
-                snippet: snippet,
-                correlationId: normalizedCorrelationId,
-                rfcMessageId: rfcMessageId,
-                referencesHeader: referencesHeader,
-                attachments: attachments,
-                ct: ct);
+            return Ok(new GmailThreadResponse(
+                [],
+                0,
+                false,
+                false,
+                "",
+                "",
+                syncWarning ?? "Correlation is inactive. Gmail sync skipped."
+            ));
         }
 
-        var logsQuery = _db.GmailMessageLogs.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(normalizedCorrelationId))
-        {
-            logsQuery = logsQuery.Where(x => x.CorrelationId == normalizedCorrelationId);
-        }
-        else if (!string.IsNullOrWhiteSpace(normalizedCounterpartyEmail))
-        {
-            logsQuery = logsQuery.Where(x => x.CounterpartyEmail == normalizedCounterpartyEmail);
-        }
-
-        var logs = await logsQuery
-            .OrderByDescending(x => x.InternalDateMs ?? 0)
-            .ThenByDescending(x => x.Id)
-            .Take(Math.Clamp(limit, 1, 50))
-            .ToListAsync(ct);
+        var logs = snapshot.Logs;
 
         var events = logs.Select(log => new GmailThreadEventResponse(
             log.GmailMessageId,
@@ -435,6 +338,36 @@ public class GmailAuthController : ControllerBase
                 : "",
             syncWarning ?? ""
         ));
+    }
+
+    [HttpGet("po-detections")]
+    public async Task<IActionResult> GetPoDetections(
+        [FromQuery] string? counterpartyEmail,
+        [FromQuery] string? correlationId,
+        [FromQuery] int limit = 20,
+        [FromQuery] bool refresh = false,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(counterpartyEmail) && string.IsNullOrWhiteSpace(correlationId))
+            return BadRequest(new { error = "counterpartyEmail or correlationId is required." });
+
+        var snapshot = await _gmailThreadSyncService.GetThreadSnapshotAsync(counterpartyEmail, correlationId, limit, ct);
+        if (_gmailThreadSyncService.ShouldRefresh(snapshot, refresh))
+        {
+            await _gmailThreadSyncService.SyncThreadAsync(
+                snapshot.CounterpartyEmail,
+                snapshot.CorrelationId,
+                snapshot.Limit,
+                ct);
+            snapshot = await _gmailThreadSyncService.GetThreadSnapshotAsync(
+                snapshot.CounterpartyEmail,
+                snapshot.CorrelationId,
+                snapshot.Limit,
+                ct);
+        }
+
+        var detections = await BuildPoDetectionsAsync(snapshot.Logs, ct);
+        return Ok(detections);
     }
 
     [HttpPost("thread/read")]
@@ -598,6 +531,328 @@ public class GmailAuthController : ControllerBase
         return fullPath;
     }
 
+    private async Task CacheAttachmentOcrTextAsync(
+        GmailMessageLog? log,
+        string attachmentId,
+        string ocrText,
+        CancellationToken ct)
+    {
+        if (log is null || string.IsNullOrWhiteSpace(attachmentId) || string.IsNullOrWhiteSpace(ocrText))
+            return;
+
+        var attachments = DeserializeAttachments(log.AttachmentsJson);
+        if (attachments.Count == 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        var updated = false;
+        var nextAttachments = attachments
+            .Select(item =>
+            {
+                if (!string.Equals(item.AttachmentId, attachmentId, StringComparison.Ordinal))
+                    return item;
+
+                updated = !string.Equals(item.OcrText, ocrText, StringComparison.Ordinal) || !item.OcrExtractedAtUtc.HasValue;
+                return item with
+                {
+                    OcrText = ocrText,
+                    OcrExtractedAtUtc = now,
+                };
+            })
+            .ToList();
+
+        if (!updated)
+            return;
+
+        log.AttachmentsJson = JsonSerializer.Serialize(nextAttachments, JsonOptions);
+        log.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task<List<PoDetectionResponse>> BuildPoDetectionsAsync(
+        List<GmailMessageLog> logs,
+        CancellationToken ct)
+    {
+        var detections = new List<PoDetectionResponse>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var log in logs
+                     .OrderByDescending(x => x.InternalDateMs ?? 0)
+                     .ThenByDescending(x => x.Id))
+        {
+            AddTextDetections(
+                detections,
+                seen,
+                log.GmailMessageId,
+                log.GmailThreadId,
+                log.Subject,
+                "email",
+                94,
+                "Matched in email subject",
+                "Email subject",
+                excludedValue: log.CorrelationId);
+
+            AddTextDetections(
+                detections,
+                seen,
+                log.GmailMessageId,
+                log.GmailThreadId,
+                log.Body,
+                "email",
+                90,
+                "Matched in email body",
+                "Email body",
+                excludedValue: log.CorrelationId);
+
+            AddTextDetections(
+                detections,
+                seen,
+                log.GmailMessageId,
+                log.GmailThreadId,
+                log.Snippet,
+                "email",
+                82,
+                "Matched in Gmail snippet",
+                "Email snippet",
+                excludedValue: log.CorrelationId);
+
+            var attachments = DeserializeAttachments(log.AttachmentsJson);
+            foreach (var attachment in attachments)
+            {
+                var attachmentSource = attachment.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                    ? "image"
+                    : string.Equals(attachment.MimeType, "application/pdf", StringComparison.OrdinalIgnoreCase)
+                        ? "pdf"
+                        : "email";
+
+                AddTextDetections(
+                    detections,
+                    seen,
+                    log.GmailMessageId,
+                    log.GmailThreadId,
+                    attachment.FileName,
+                    attachmentSource,
+                    attachmentSource == "image" ? 58 : 68,
+                    $"Matched in attachment file name: {attachment.FileName}",
+                    attachment.FileName,
+                    attachment.FileName,
+                    attachmentSource == "pdf" ? "pdf" : attachmentSource == "image" ? "image" : "text",
+                    excludedValue: log.CorrelationId);
+
+                if (attachmentSource == "image" &&
+                    !string.IsNullOrWhiteSpace(attachment.AttachmentId) &&
+                    !string.IsNullOrWhiteSpace(log.GmailMessageId))
+                {
+                    var ocrText = attachment.OcrText;
+                    if (string.IsNullOrWhiteSpace(ocrText))
+                    {
+                        var imagePath = await EnsureAttachmentCachedAsync(
+                            log.GmailMessageId,
+                            attachment.AttachmentId,
+                            attachment.FileName,
+                            attachment.MimeType,
+                            ct);
+                        if (!string.IsNullOrWhiteSpace(imagePath) && System.IO.File.Exists(imagePath))
+                        {
+                            ocrText = await _imageOcrService.ExtractTextAsync(imagePath, ct);
+                            if (!string.IsNullOrWhiteSpace(ocrText))
+                                await CacheAttachmentOcrTextAsync(log, attachment.AttachmentId, ocrText, ct);
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(ocrText))
+                    {
+                        AddTextDetections(
+                            detections,
+                            seen,
+                            log.GmailMessageId,
+                            log.GmailThreadId,
+                            ocrText,
+                            "image",
+                                84,
+                                $"Matched by image OCR: {attachment.FileName}",
+                                attachment.FileName,
+                                attachment.FileName,
+                                "image",
+                                excludedValue: log.CorrelationId);
+                    }
+                }
+
+                if (!string.Equals(attachment.MimeType, "application/pdf", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(attachment.AttachmentId) ||
+                    string.IsNullOrWhiteSpace(log.GmailMessageId))
+                    continue;
+
+                var cachedPath = await EnsureAttachmentCachedAsync(
+                    log.GmailMessageId,
+                    attachment.AttachmentId,
+                    attachment.FileName,
+                    attachment.MimeType,
+                    ct);
+                if (string.IsNullOrWhiteSpace(cachedPath) || !System.IO.File.Exists(cachedPath))
+                    continue;
+
+                var pdfText = TryExtractPdfText(cachedPath);
+                if (string.IsNullOrWhiteSpace(pdfText))
+                    continue;
+
+                AddTextDetections(
+                    detections,
+                    seen,
+                    log.GmailMessageId,
+                    log.GmailThreadId,
+                    pdfText,
+                    "pdf",
+                    88,
+                    $"Matched in PDF attachment: {attachment.FileName}",
+                    attachment.FileName,
+                    attachment.FileName,
+                    "pdf",
+                    excludedValue: log.CorrelationId);
+            }
+        }
+
+        return detections
+            .OrderByDescending(x => x.Confidence)
+            .ThenByDescending(x => x.TimestampSort)
+            .Select(x => x with { TimestampSort = 0 })
+            .ToList();
+    }
+
+    private static void AddTextDetections(
+        List<PoDetectionResponse> detections,
+        HashSet<string> seen,
+        string? gmailMessageId,
+        string? gmailThreadId,
+        string? text,
+        string source,
+        int confidence,
+        string evidenceLabel,
+        string previewLabel,
+        string? attachmentFileName = null,
+        string previewType = "text",
+        string? excludedValue = null)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        foreach (var match in ExtractPoMatches(text))
+        {
+            if (IsExcludedPoMatch(match.NormalizedPoNumber, excludedValue))
+                continue;
+
+            var key = match.NormalizedPoNumber;
+            if (!seen.Add(key))
+                continue;
+
+            detections.Add(new PoDetectionResponse(
+                Id: $"po-{SanitizeDetectionKey(match.NormalizedPoNumber)}",
+                PoNumber: match.PoNumber,
+                Source: source,
+                Confidence: confidence,
+                EvidencePreview: $"{evidenceLabel}: {BuildEvidencePreview(text, match.StartIndex, match.MatchLength)}",
+                PreviewLabel: previewLabel,
+                PreviewType: previewType,
+                Status: "pending",
+                GmailMessageId: gmailMessageId ?? "",
+                GmailThreadId: gmailThreadId ?? "",
+                AttachmentFileName: attachmentFileName ?? "",
+                TimestampSort: detections.Count + 1));
+        }
+    }
+
+    private static List<PoMatch> ExtractPoMatches(string text)
+    {
+        var results = new List<PoMatch>();
+        if (string.IsNullOrWhiteSpace(text))
+            return results;
+
+        var patterns = new[]
+        {
+            @"\bP(?:\.|\s*)?O(?:\.|\s*)?#?\s*[:\-]?\s*(?=[A-Z0-9\-\/]*\d)[A-Z0-9][A-Z0-9\-\/]{1,30}\b",
+            @"\bPurchase\s+Order\s*[:#-]?\s*(?=[A-Z0-9\-\/]*\d)[A-Z0-9][A-Z0-9\-\/]{1,30}\b",
+        };
+
+        foreach (var pattern in patterns)
+        {
+            foreach (System.Text.RegularExpressions.Match regexMatch in System.Text.RegularExpressions.Regex.Matches(
+                         text,
+                         pattern,
+                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                if (!regexMatch.Success)
+                    continue;
+
+                var raw = NormalizePoDisplay(regexMatch.Value);
+                var normalized = NormalizePoKey(raw);
+                if (string.IsNullOrWhiteSpace(raw) || string.IsNullOrWhiteSpace(normalized))
+                    continue;
+
+                results.Add(new PoMatch(raw, normalized, regexMatch.Index, regexMatch.Length));
+            }
+        }
+
+        return results
+            .GroupBy(x => new { x.NormalizedPoNumber, x.StartIndex })
+            .Select(group => group.First())
+            .ToList();
+    }
+
+    private static string NormalizePoDisplay(string value)
+    {
+        var trimmed = value.Trim();
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s+", " ");
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^(Purchase\s+Order)\s*", "PO ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^P\s*\.?\s*O\s*\.?\s*", "PO ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^PO\s*#\s*", "PO ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        trimmed = System.Text.RegularExpressions.Regex.Replace(trimmed, @"^PO\s*:\s*", "PO ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return trimmed.Trim();
+    }
+
+    private static string NormalizePoKey(string value) =>
+        System.Text.RegularExpressions.Regex.Replace(value, @"[^A-Z0-9]+", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            .ToUpperInvariant();
+
+    private static string BuildEvidencePreview(string text, int startIndex, int matchLength)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var safeStart = Math.Max(0, startIndex - 36);
+        var safeLength = Math.Min(text.Length - safeStart, Math.Max(matchLength + 72, 96));
+        var excerpt = text.Substring(safeStart, safeLength).Replace('\r', ' ').Replace('\n', ' ').Trim();
+        excerpt = System.Text.RegularExpressions.Regex.Replace(excerpt, @"\s+", " ");
+        return excerpt.Length > 180 ? excerpt[..180] + "..." : excerpt;
+    }
+
+    private static string? TryExtractPdfText(string path)
+    {
+        try
+        {
+            using var document = PdfDocument.Open(path);
+            var builder = new StringBuilder();
+            foreach (var page in document.GetPages().Take(3))
+            {
+                if (builder.Length > 0)
+                    builder.AppendLine();
+                builder.Append(page.Text);
+            }
+
+            var text = builder.ToString().Trim();
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string SanitizeDetectionKey(string value)
+    {
+        var safe = System.Text.RegularExpressions.Regex.Replace(value, @"[^A-Z0-9]+", "-", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return safe.Trim('-').ToLowerInvariant();
+    }
+
     public sealed record GmailSendRequest(
         string To,
         string Subject,
@@ -607,6 +862,19 @@ public class GmailAuthController : ControllerBase
         string? ReplyToRfcMessageId,
         string? ReferencesHeader);
     public sealed record GmailThreadReadRequest(string CounterpartyEmail, string? CorrelationId);
+    public sealed record PoDetectionResponse(
+        string Id,
+        string PoNumber,
+        string Source,
+        int Confidence,
+        string EvidencePreview,
+        string PreviewLabel,
+        string PreviewType,
+        string Status,
+        string GmailMessageId,
+        string GmailThreadId,
+        string AttachmentFileName,
+        long TimestampSort);
 
     private async Task UpsertMessageLogAsync(
         string gmailMessageId,
@@ -652,8 +920,10 @@ public class GmailAuthController : ControllerBase
         existing.RfcMessageId = NullIfBlank(rfcMessageId);
         existing.ReferencesHeader = NullIfBlank(referencesHeader);
         existing.HasAttachments = attachments.Count > 0;
-        existing.AttachmentsJson = attachments.Count > 0 ? JsonSerializer.Serialize(attachments, JsonOptions) : null;
-        existing.DetectedPoNumber = ExtractPoNumber(subject, body, snippet);
+        existing.AttachmentsJson = attachments.Count > 0
+            ? JsonSerializer.Serialize(MergeAttachmentMetadata(existing.AttachmentsJson, attachments), JsonOptions)
+            : null;
+        existing.DetectedPoNumber = ExtractPoNumber(correlationId, subject, body, snippet);
         if (existing.Id == 0)
         {
             existing.IsRead = !string.Equals(direction, "reply", StringComparison.OrdinalIgnoreCase);
@@ -666,6 +936,37 @@ public class GmailAuthController : ControllerBase
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static List<GmailAttachmentDescriptor> MergeAttachmentMetadata(
+        string? existingAttachmentsJson,
+        List<GmailAttachmentDescriptor> incomingAttachments)
+    {
+        if (incomingAttachments.Count == 0)
+            return incomingAttachments;
+
+        var existingByKey = DeserializeAttachments(existingAttachmentsJson)
+            .GroupBy(BuildAttachmentMergeKey)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return incomingAttachments
+            .Select(item =>
+            {
+                if (!existingByKey.TryGetValue(BuildAttachmentMergeKey(item), out var existing))
+                    return item;
+
+                return item with
+                {
+                    CachedRelativePath = item.CachedRelativePath ?? existing.CachedRelativePath,
+                    CachedAtUtc = item.CachedAtUtc ?? existing.CachedAtUtc,
+                    OcrText = item.OcrText ?? existing.OcrText,
+                    OcrExtractedAtUtc = item.OcrExtractedAtUtc ?? existing.OcrExtractedAtUtc,
+                };
+            })
+            .ToList();
+    }
+
+    private static string BuildAttachmentMergeKey(GmailAttachmentDescriptor attachment) =>
+        $"{attachment.AttachmentId ?? ""}|{attachment.FileName}|{attachment.MimeType}";
 
     private string? ValidateConfiguration()
     {
@@ -1006,20 +1307,29 @@ public class GmailAuthController : ControllerBase
         }
     }
 
-    private static string? ExtractPoNumber(params string?[] values)
+    private static string? ExtractPoNumber(string? excludedValue, params string?[] values)
     {
-        var pattern = @"\bPO[-\s]?(?:[A-Z]{0,4}[-\s]?)?\d{2,}[A-Z0-9-]*\b";
         foreach (var value in values)
         {
             if (string.IsNullOrWhiteSpace(value)) continue;
-            var match = System.Text.RegularExpressions.Regex.Match(
-                value,
-                pattern,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (match.Success)
-                return match.Value.Trim();
+
+            foreach (var match in ExtractPoMatches(value))
+            {
+                if (IsExcludedPoMatch(match.NormalizedPoNumber, excludedValue))
+                    continue;
+
+                return match.PoNumber.Trim();
+            }
         }
         return null;
+    }
+
+    private static bool IsExcludedPoMatch(string normalizedPoNumber, string? excludedValue)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPoNumber) || string.IsNullOrWhiteSpace(excludedValue))
+            return false;
+
+        return string.Equals(normalizedPoNumber, NormalizePoKey(excludedValue), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string DecodeMimeWords(string value)
@@ -1203,7 +1513,15 @@ public class GmailAuthController : ControllerBase
         int? Size,
         string? AttachmentId,
         string? CachedRelativePath = null,
-        DateTime? CachedAtUtc = null);
+        DateTime? CachedAtUtc = null,
+        string? OcrText = null,
+        DateTime? OcrExtractedAtUtc = null);
+
+    private sealed record PoMatch(
+        string PoNumber,
+        string NormalizedPoNumber,
+        int StartIndex,
+        int MatchLength);
 
     private sealed record GmailMessageDetailContext(
         string? RfcMessageId,

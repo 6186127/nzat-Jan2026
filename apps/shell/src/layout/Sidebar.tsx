@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { fetchPaintBoard } from "@/features/paint/api/paintApi";
 import { countOverdue, type PaintBoardJob } from "@/features/paint/paintBoard.utils";
 import { subscribeWorklogCostAlert } from "@/utils/refreshSignals";
+import { usePoUnreadSummary } from "@/features/jobs";
 import { Plus } from "lucide-react";
 
 const linkBase =
@@ -15,6 +16,7 @@ const linkIdle =
 export function Sidebar() {
   const [paintOverdueCount, setPaintOverdueCount] = useState(0);
   const [worklogAlertCount, setWorklogAlertCount] = useState(0);
+  const poUnreadSummary = usePoUnreadSummary();
 
   useEffect(() => {
     let cancelled = false;
@@ -68,7 +70,14 @@ export function Sidebar() {
               `${linkBase} ${isActive ? linkActive : linkIdle}`
             }
           >
-            Jobs
+            <span className="flex items-center justify-between gap-2">
+              <span>Jobs</span>
+              {poUnreadSummary.totalUnreadReplies > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {poUnreadSummary.totalUnreadReplies}
+                </span>
+              ) : null}
+            </span>
           </NavLink>
 
           <NavLink

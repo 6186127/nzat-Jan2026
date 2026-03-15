@@ -6,6 +6,8 @@ public class Job
     public string Status { get; set; } = "";
     public bool IsUrgent { get; set; }
     public bool NeedsPo { get; set; }
+    public string? PoNumber { get; set; }
+    public string? InvoiceReference { get; set; }
     public long? VehicleId { get; set; }
     public long? CustomerId { get; set; }
     public string? Notes { get; set; }

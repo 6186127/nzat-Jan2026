@@ -2,7 +2,19 @@ import { useInvoiceDashboardState, type InvoiceDashboardModel } from "../hooks/u
 import { InvoiceItemsTable } from "./InvoiceItemsTable";
 import { InvoiceSummaryCard } from "./InvoiceSummaryCard";
 import { WorkflowSidebar } from "./WorkflowSidebar";
-import { invoiceWorkflowSteps } from "../mockData";
+import type { WorkflowStep } from "../types";
+
+const invoiceWorkflowSteps: WorkflowStep[] = [
+  { id: 1, title: "Draft Created", description: "Invoice draft initialized" },
+  { id: 2, title: "Synced", description: "Synced with Xero" },
+  { id: 3, title: "PO Requested", description: "Email sent to supplier" },
+  { id: 4, title: "Waiting Reply", description: "Awaiting supplier response" },
+  { id: 5, title: "PO Extracted", description: "PO number detected" },
+  { id: 6, title: "PO Confirmed", description: "PO verified and approved" },
+  { id: 7, title: "Reference Updated", description: "Updated in Xero" },
+  { id: 8, title: "Authorised", description: "Invoice approved" },
+  { id: 9, title: "Awaiting Payment", description: "Pending payment" },
+];
 
 type InvoiceDashboardProps = {
   model?: InvoiceDashboardModel;

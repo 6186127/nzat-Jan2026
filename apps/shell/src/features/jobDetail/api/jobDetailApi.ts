@@ -44,6 +44,14 @@ export function updateJobNotes(jobId: string, notes: string) {
   });
 }
 
+export function updateJobPoSelection(jobId: string, payload: { poNumber?: string; invoiceReference?: string }) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/po-selection`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function updateVehicleInfo(
   jobId: string,
   payload: { year?: number | null; make?: string | null; fuelType?: string | null; vin?: string | null; nzFirstRegistration?: string | null }

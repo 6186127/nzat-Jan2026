@@ -159,6 +159,8 @@ public class AppDbContext : DbContext
         j.Property(x => x.Status).HasColumnName("status").IsRequired();
         j.Property(x => x.IsUrgent).HasColumnName("is_urgent");
         j.Property(x => x.NeedsPo).HasColumnName("needs_po");
+        j.Property(x => x.PoNumber).HasColumnName("po_number");
+        j.Property(x => x.InvoiceReference).HasColumnName("invoice_reference");
         j.Property(x => x.VehicleId).HasColumnName("vehicle_id");
         j.Property(x => x.CustomerId).HasColumnName("customer_id");
         j.Property(x => x.Notes).HasColumnName("notes");
