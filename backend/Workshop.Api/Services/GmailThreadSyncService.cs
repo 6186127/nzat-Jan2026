@@ -123,6 +123,14 @@ public sealed class GmailThreadSyncService
         }
 
         var counterpartyEmails = SplitEmailAddresses(normalizedCounterpartyEmail);
+        var knownThreadIds = string.IsNullOrWhiteSpace(normalizedCorrelationId)
+            ? []
+            : await _db.GmailMessageLogs.AsNoTracking()
+                .Where(x => x.CorrelationId == normalizedCorrelationId)
+                .Where(x => !string.IsNullOrWhiteSpace(x.GmailThreadId))
+                .Select(x => x.GmailThreadId!)
+                .Distinct()
+                .ToListAsync(ct);
         var queryTerms = new List<string>();
         if (counterpartyEmails.Length > 0)
         {
@@ -135,6 +143,45 @@ public sealed class GmailThreadSyncService
 
         var gmailQuery = string.Join(" ", queryTerms);
         var client = _httpClientFactory.CreateClient();
+        var synced = 0;
+
+        if (knownThreadIds.Count > 0)
+        {
+            foreach (var threadId in knownThreadIds)
+            {
+                using var threadRequest = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"https://gmail.googleapis.com/gmail/v1/users/me/threads/{Uri.EscapeDataString(threadId)}?format=full");
+                threadRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
+
+                using var threadResponse = await client.SendAsync(threadRequest, ct);
+                var threadPayload = await threadResponse.Content.ReadAsStringAsync(ct);
+                if (!threadResponse.IsSuccessStatusCode)
+                    continue;
+
+                var threadResult = JsonSerializer.Deserialize<GmailThreadResponse>(threadPayload, JsonOptions);
+                foreach (var message in threadResult?.Messages ?? [])
+                {
+                    if (message is null || string.IsNullOrWhiteSpace(message.Id))
+                        continue;
+
+                    if (await TryUpsertMatchedMessageAsync(
+                            message,
+                            counterpartyEmails,
+                            normalizedCounterpartyEmail,
+                            normalizedCorrelationId,
+                            requireCorrelationMatch: false,
+                            ct))
+                    {
+                        synced++;
+                    }
+                }
+            }
+
+            await _jobPoStateService.SyncStateByCorrelationAsync(normalizedCorrelationId, ct);
+            return GmailThreadSyncResult.Success(synced);
+        }
+
         var messageRefs = new List<GmailMessageRef>();
 
         using (var listRequest = new HttpRequestMessage(
@@ -161,7 +208,6 @@ public sealed class GmailThreadSyncService
             messageRefs = listResult?.Messages ?? [];
         }
 
-        var synced = 0;
         foreach (var messageRef in messageRefs)
         {
             if (string.IsNullOrWhiteSpace(messageRef.Id))
@@ -181,53 +227,73 @@ public sealed class GmailThreadSyncService
             if (message is null)
                 continue;
 
-            var from = GetHeader(message.Payload, "From");
-            var to = GetHeader(message.Payload, "To");
-            var subject = DecodeMimeWords(GetHeader(message.Payload, "Subject"));
-            var body = ExtractBody(message.Payload);
-            var snippet = message.Snippet ?? "";
-            var rfcMessageId = GetHeader(message.Payload, "Message-Id");
-            var referencesHeader = GetHeader(message.Payload, "References");
-            var attachments = ExtractAttachments(message.Payload);
-            var matchesCounterparty = counterpartyEmails.Length == 0 ||
-                counterpartyEmails.Any(email =>
-                    from.Contains(email, StringComparison.OrdinalIgnoreCase) ||
-                    to.Contains(email, StringComparison.OrdinalIgnoreCase));
-            var matchesCorrelation = string.IsNullOrWhiteSpace(normalizedCorrelationId) ||
-                subject.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
-                body.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
-                snippet.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase);
-
-            if (!matchesCounterparty || !matchesCorrelation)
-                continue;
-
-            var direction = counterpartyEmails.Any(email => from.Contains(email, StringComparison.OrdinalIgnoreCase))
-                ? "reply"
-                : "sent";
-            var normalizedBody = string.IsNullOrWhiteSpace(body) ? snippet : body;
-
-            await UpsertMessageLogAsync(
-                message.Id ?? "",
-                message.ThreadId,
-                message.InternalDate,
-                direction,
-                normalizedCounterpartyEmail,
-                from,
-                to,
-                subject,
-                normalizedBody,
-                snippet,
-                normalizedCorrelationId,
-                rfcMessageId,
-                referencesHeader,
-                attachments,
-                ct);
-            synced++;
+            if (await TryUpsertMatchedMessageAsync(
+                    message,
+                    counterpartyEmails,
+                    normalizedCounterpartyEmail,
+                    normalizedCorrelationId,
+                    requireCorrelationMatch: true,
+                    ct))
+            {
+                synced++;
+            }
         }
 
         await _jobPoStateService.SyncStateByCorrelationAsync(normalizedCorrelationId, ct);
 
         return GmailThreadSyncResult.Success(synced);
+    }
+
+    private async Task<bool> TryUpsertMatchedMessageAsync(
+        GmailMessageResponse message,
+        string[] counterpartyEmails,
+        string normalizedCounterpartyEmail,
+        string? normalizedCorrelationId,
+        bool requireCorrelationMatch,
+        CancellationToken ct)
+    {
+        var from = GetHeader(message.Payload, "From");
+        var to = GetHeader(message.Payload, "To");
+        var subject = DecodeMimeWords(GetHeader(message.Payload, "Subject"));
+        var body = ExtractBody(message.Payload);
+        var snippet = message.Snippet ?? "";
+        var rfcMessageId = GetHeader(message.Payload, "Message-Id");
+        var referencesHeader = GetHeader(message.Payload, "References");
+        var attachments = ExtractAttachments(message.Payload);
+        var matchesCounterparty = counterpartyEmails.Length == 0 ||
+            counterpartyEmails.Any(email =>
+                from.Contains(email, StringComparison.OrdinalIgnoreCase) ||
+                to.Contains(email, StringComparison.OrdinalIgnoreCase));
+        var matchesCorrelation = string.IsNullOrWhiteSpace(normalizedCorrelationId) ||
+            subject.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
+            body.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase) ||
+            snippet.Contains(normalizedCorrelationId, StringComparison.OrdinalIgnoreCase);
+
+        if (!matchesCounterparty || (requireCorrelationMatch && !matchesCorrelation))
+            return false;
+
+        var direction = counterpartyEmails.Any(email => from.Contains(email, StringComparison.OrdinalIgnoreCase))
+            ? "reply"
+            : "sent";
+        var normalizedBody = string.IsNullOrWhiteSpace(body) ? snippet : body;
+
+        await UpsertMessageLogAsync(
+            message.Id ?? "",
+            message.ThreadId,
+            message.InternalDate,
+            direction,
+            normalizedCounterpartyEmail,
+            from,
+            to,
+            subject,
+            normalizedBody,
+            snippet,
+            normalizedCorrelationId,
+            rfcMessageId,
+            referencesHeader,
+            attachments,
+            ct);
+        return true;
     }
 
     public async Task<List<GmailThreadSyncTarget>> GetActiveSyncTargetsAsync(CancellationToken ct)
@@ -654,6 +720,12 @@ public sealed class GmailThreadSyncService
 
         [JsonPropertyName("payload")]
         public GmailMessagePart? Payload { get; set; }
+    }
+
+    private sealed class GmailThreadResponse
+    {
+        [JsonPropertyName("messages")]
+        public List<GmailMessageResponse>? Messages { get; set; }
     }
 
     private sealed class GmailMessagePart
