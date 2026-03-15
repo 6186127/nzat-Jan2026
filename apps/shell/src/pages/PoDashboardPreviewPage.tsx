@@ -90,11 +90,11 @@ export function PoDashboardPreviewPage() {
   const summaryCards: SummaryCard[] = useMemo(
     () => [
       { label: "Needs PO", value: summary?.needsPo ?? 0, note: "所有仍在跟进的工单" },
-      { label: "Draft", value: summary?.draft ?? 0, note: "未发出 request" },
+      { label: "Draft", value: summary?.draft ?? 0, note: "未发出 request 邮件" },
       { label: "Awaiting Reply", value: summary?.awaitingReply ?? 0, note: "已发邮件，等待商户回复" },
-      { label: "Escalation Required", value: summary?.escalationRequired ?? 0, note: "催发 2 次后仍未回复，需 admin 处理" },
-      { label: "Pending Confirmation", value: summary?.pendingConfirmation ?? 0, note: "需要查收邮件确定 PO" },
-      { label: "PO Confirmed", value: summary?.poConfirmed ?? 0, note: "人工确认并落库" },
+      { label: "Escalation Required", value: summary?.escalationRequired ?? 0, note: "催发 2 次后仍未回复" },
+      { label: "Pending Confirmation", value: summary?.pendingConfirmation ?? 0, note: "收到回复" },
+      { label: "PO Confirmed", value: summary?.poConfirmed ?? 0, note: "PO 已确认" },
     ],
     [summary]
   );
@@ -183,11 +183,9 @@ export function PoDashboardPreviewPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ds-muted)]">Preview</div>
+
           <h1 className="text-3xl font-semibold tracking-[-0.04em] text-[var(--ds-text)]">PO Operations Dashboard</h1>
-          <p className="mt-2 max-w-3xl text-sm text-[var(--ds-muted)]">
-            KPI 卡可直接筛选列表。点击某个 job 后，直接跳到 Job Detail 的 PO tab 处理。
-          </p>
+         
         </div>
       </div>
 

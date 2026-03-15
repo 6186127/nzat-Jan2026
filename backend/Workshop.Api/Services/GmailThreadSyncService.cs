@@ -301,7 +301,12 @@ public sealed class GmailThreadSyncService
 
         existing.GmailThreadId = NullIfBlank(gmailThreadId);
         existing.InternalDateMs = internalDateMs;
-        existing.Direction = direction.Trim();
+        var normalizedDirection = direction.Trim();
+        existing.Direction =
+            string.Equals(existing.Direction, "reminder", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(normalizedDirection, "sent", StringComparison.OrdinalIgnoreCase)
+                ? "reminder"
+                : normalizedDirection;
         existing.CounterpartyEmail = counterpartyEmail.Trim();
         existing.FromAddress = NullIfBlank(fromAddress);
         existing.ToAddress = NullIfBlank(toAddress);

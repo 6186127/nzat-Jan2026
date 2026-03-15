@@ -70,14 +70,7 @@ export function Sidebar() {
               `${linkBase} ${isActive ? linkActive : linkIdle}`
             }
           >
-            <span className="flex items-center justify-between gap-2">
-              <span>Jobs</span>
-              {poUnreadSummary.totalUnreadReplies > 0 ? (
-                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                  {poUnreadSummary.totalUnreadReplies}
-                </span>
-              ) : null}
-            </span>
+            Jobs
           </NavLink>
 
           <NavLink
@@ -136,7 +129,14 @@ export function Sidebar() {
               `${linkBase} ${isActive ? linkActive : linkIdle}`
             }
           >
-            PO Ops Preview
+            <span className="flex items-center justify-between gap-2">
+              <span>PO Ops Preview</span>
+              {poUnreadSummary.totalUnreadReplies > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {poUnreadSummary.totalUnreadReplies}
+                </span>
+              ) : null}
+            </span>
           </NavLink>
         </div>
 

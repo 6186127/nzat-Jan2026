@@ -24,6 +24,7 @@ export function PoDashboard({ model }: PoDashboardProps) {
           selectedDetectionId={model.selectedDetectionId}
           manualPoNumber={model.manualPoNumber}
           currentInvoiceReference={model.invoice.reference}
+          hasConfirmedPo={model.invoice.status === "PO Received"}
           onSendRequest={model.sendPoRequest}
           onSelectDetection={model.setSelectedDetectionId}
           onConfirmDetection={model.confirmPo}

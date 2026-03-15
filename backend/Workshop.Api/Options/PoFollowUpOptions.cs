@@ -6,6 +6,7 @@ public sealed class PoFollowUpOptions
 
     public bool Enabled { get; set; } = true;
     public int PollIntervalSeconds { get; set; } = 60;
+    public int? IntervalMinutesOverride { get; set; }
     public int WorkingHoursPerFollowUp { get; set; } = 5;
     public int WorkingDayStartHour { get; set; } = 9;
     public int WorkingDayEndHour { get; set; } = 17;

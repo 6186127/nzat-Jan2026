@@ -33,24 +33,48 @@ public sealed class GmailFollowUpSenderService
         if (string.IsNullOrWhiteSpace(state.CounterpartyEmail))
             return false;
 
-        var threadContext = await _db.GmailMessageLogs.AsNoTracking()
+        var threadLogs = await _db.GmailMessageLogs.AsNoTracking()
             .Where(x => x.CorrelationId == state.CorrelationId)
-            .OrderByDescending(x => x.InternalDateMs ?? 0)
-            .ThenByDescending(x => x.Id)
             .Select(x => new
             {
                 x.GmailThreadId,
                 x.RfcMessageId,
                 x.ReferencesHeader,
                 x.Subject,
+                x.InternalDateMs,
+                x.UpdatedAt,
+                x.CreatedAt,
+                x.Id,
             })
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        var threadContext = threadLogs
+            .OrderByDescending(x => GetEventOccurredAtUtc(x.InternalDateMs, x.UpdatedAt, x.CreatedAt))
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefault();
+
+        var rootSubjectCandidates = await _db.GmailMessageLogs.AsNoTracking()
+            .Where(x => x.CorrelationId == state.CorrelationId)
+            .Where(x => !string.IsNullOrWhiteSpace(x.Subject))
+            .Select(x => new
+            {
+                x.Subject,
+                x.InternalDateMs,
+                x.UpdatedAt,
+                x.CreatedAt,
+                x.Id,
+            })
+            .ToListAsync(ct);
+        var rootSubject = rootSubjectCandidates
+            .OrderBy(x => GetEventOccurredAtUtc(x.InternalDateMs, x.UpdatedAt, x.CreatedAt))
+            .ThenBy(x => x.Id)
+            .Select(x => x.Subject)
+            .FirstOrDefault();
 
         var tokenResult = await _gmailTokenService.RefreshAccessTokenAsync(ct);
         if (!tokenResult.Ok)
             return false;
 
-        var subject = EnsureReplySubject(threadContext?.Subject);
+        var subject = EnsureReplySubject(rootSubject ?? threadContext?.Subject);
         var body = "Hi,\n\nFollowing up on our PO request. Could you please confirm the PO number for this job when available?\n\nThanks.";
         var rawMessage = BuildRawMessage(
             state.CounterpartyEmail,
@@ -155,7 +179,7 @@ public sealed class GmailFollowUpSenderService
         var headers = new List<string>
         {
             $"To: {to}",
-            $"Subject: {subject}",
+            $"Subject: {EncodeMimeHeader(subject)}",
             "Content-Type: text/plain; charset=utf-8",
             "MIME-Version: 1.0",
         };
@@ -189,6 +213,28 @@ public sealed class GmailFollowUpSenderService
             .ToArray();
 
         return normalized.Length == 0 ? null : string.Join(" ", normalized);
+    }
+
+    private static string EncodeMimeHeader(string value)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+        return $"=?UTF-8?B?{base64}?=";
+    }
+
+    private static DateTime GetEventOccurredAtUtc(long? internalDateMs, DateTime updatedAt, DateTime createdAt)
+    {
+        if (internalDateMs.HasValue && internalDateMs.Value > 0)
+        {
+            try
+            {
+                return DateTimeOffset.FromUnixTimeMilliseconds(internalDateMs.Value).UtcDateTime;
+            }
+            catch
+            {
+            }
+        }
+
+        return updatedAt != default ? updatedAt : createdAt;
     }
 
     private async Task<GmailMessageDetailContext?> LoadMessageDetailsAsync(

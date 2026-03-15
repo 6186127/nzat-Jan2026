@@ -14,6 +14,9 @@ public sealed class BusinessHoursService
 
     public DateTime CalculateNextFollowUpDueAtUtc(DateTime fromUtc)
     {
+        if (_options.IntervalMinutesOverride.HasValue && _options.IntervalMinutesOverride.Value > 0)
+            return DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc).AddMinutes(_options.IntervalMinutesOverride.Value);
+
         var zone = ResolveTimeZone();
         var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc), zone);
         var remainingHours = Math.Max(1, _options.WorkingHoursPerFollowUp);

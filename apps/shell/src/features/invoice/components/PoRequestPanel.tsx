@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Clock3, MailCheck, MessageSquareText, Paperclip, Send, Settings2, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown, Clock3, FileSearch, MailCheck, MessageSquareText, Paperclip, Send, Settings2, X } from "lucide-react";
 import { Button, Card, Input, Select, Textarea } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
 import { PoDetectionPanel } from "./PoDetectionPanel";
@@ -21,6 +21,7 @@ type Props = {
   selectedDetectionId: string | null;
   manualPoNumber: string;
   currentInvoiceReference: string;
+  hasConfirmedPo: boolean;
   onSendRequest: (payload: { to: string; subject: string; body: string }) => Promise<void>;
   onSelectDetection: (id: string) => void;
   onConfirmDetection: (id: string) => void;
@@ -37,18 +38,30 @@ export function PoRequestPanel({
   vehicleMake,
   snapshotTotal,
   items,
-  emailStates,
   timelineEvents,
   detections,
   selectedDetectionId,
   manualPoNumber,
   currentInvoiceReference,
+  hasConfirmedPo,
   onSendRequest,
   onSelectDetection,
   onConfirmDetection,
   onManualPoNumberChange,
   onSyncManualPoToReference,
 }: Props) {
+  const stateMeta: Record<string, ReactNode> = {
+    Draft: <MailCheck className="h-4 w-4 text-slate-500" />,
+    Sent: <Send className="h-4 w-4 text-emerald-600" />,
+    "Follow Up 1": <Clock3 className="h-4 w-4 text-amber-600" />,
+    "Follow Up 2": <Clock3 className="h-4 w-4 text-amber-600" />,
+    "Follow Up 3": <Clock3 className="h-4 w-4 text-amber-600" />,
+    "Get Reply": <MailCheck className="h-4 w-4 text-sky-600" />,
+    "Get PO": <FileSearch className="h-4 w-4 text-violet-600" />,
+    "Escalation Required": <Clock3 className="h-4 w-4 text-rose-600" />,
+    "PO Confirmed": <MailCheck className="h-4 w-4 text-emerald-700" />,
+  };
+
   const recipientOptions = useMemo(() => {
     const hasBusiness = merchantEmailRecipients.some((item) => item.kind === "business");
     if (hasBusiness) return merchantEmailRecipients;
@@ -106,7 +119,7 @@ export function PoRequestPanel({
       : "team";
   const defaultBody = useMemo(
     () =>
-      `Hi ${greetingName},\n\nPlease find the server items below:\n${invoiceItemsText}\n\n Total: $${snapshotTotal.toFixed(2)}.`,
+      `Hi ${greetingName},\n\nPlease find the server items below:\n${invoiceItemsText}\n\nTotal: $${snapshotTotal.toFixed(2)}.\n\nKind regards,\n\nEric Zhao\nAUTO TECH REPAIR & SERVICES\n\n486 Ellerslie Panmure Highway\nMount Wellington, Auckland 1060\n\nM: 021 029 88666\nT: 09 213 1988`,
     [greetingName, invoiceItemsText, snapshotTotal]
   );
 
@@ -123,44 +136,105 @@ export function PoRequestPanel({
     () => timelineEvents.filter((event) => ["sent", "reminder", "reply"].includes(event.type)),
     [timelineEvents]
   );
-  const stateSequence = useMemo(() => {
-    if (threadEvents.length === 0) return emailStates.length > 0 ? emailStates : ["Draft"];
+  const stateRounds = useMemo(() => {
+    type FlowStep = { key: string; label: string };
+    const rounds: FlowStep[][] = [];
+
+    if (threadEvents.length === 0) {
+      if (hasConfirmedPo) {
+        rounds.push([{ key: "confirmed-only", label: "PO Confirmed" }]);
+      }
+      return rounds;
+    }
 
     const orderedEvents = [...threadEvents].reverse();
-    const nextStates: string[] = [];
-    let poStateAdded = false;
+    let currentRound: FlowStep[] = [];
+    let followUpCount = 0;
+
+    const flushCurrentRound = (closeWithEscalation: boolean) => {
+      if (currentRound.length === 0) return;
+      if (closeWithEscalation && followUpCount >= 2) {
+        currentRound = [
+          ...currentRound,
+          {
+            key: `round-${rounds.length + 1}-escalation`,
+            label: "Escalation Required",
+          },
+        ];
+      }
+      rounds.push(currentRound);
+      currentRound = [];
+      followUpCount = 0;
+    };
 
     for (const event of orderedEvents) {
       if (event.type === "sent") {
-        nextStates.push("Email Sent");
+        flushCurrentRound(false);
+        currentRound = [{ key: `${event.id}-sent`, label: "Sent" }];
         continue;
       }
 
       if (event.type === "reminder") {
-        nextStates.push("Reminder Scheduled");
+        if (currentRound.length === 0) {
+          currentRound = [{ key: `${event.id}-sent-fallback`, label: "Sent" }];
+        }
+        followUpCount += 1;
+        currentRound = [
+          ...currentRound,
+          {
+            key: `${event.id}-followup-${followUpCount}`,
+            label: `Follow Up ${followUpCount}`,
+          },
+        ];
         continue;
       }
 
-      nextStates.push("Get Reply");
-      if (!poStateAdded && event.detectedPoNumber) {
-        nextStates.push("Get PO");
-        poStateAdded = true;
+      if (currentRound.length === 0) {
+        currentRound = [{ key: `${event.id}-reply-start`, label: "Get Reply" }];
+      } else {
+        currentRound = [...currentRound, { key: `${event.id}-reply`, label: "Get Reply" }];
+      }
+
+      if (event.detectedPoNumber) {
+        currentRound = [...currentRound, { key: `${event.id}-po`, label: "Get PO" }];
+      }
+
+      flushCurrentRound(false);
+    }
+
+    flushCurrentRound(true);
+
+    if (hasConfirmedPo) {
+      if (rounds.length === 0) {
+        rounds.push([{ key: "confirmed-only", label: "PO Confirmed" }]);
+      } else {
+        const lastRoundIndex = rounds.length - 1;
+        rounds[lastRoundIndex] = [
+          ...rounds[lastRoundIndex],
+          { key: "po-confirmed", label: "PO Confirmed" },
+        ];
       }
     }
 
-    return nextStates.length > 0 ? nextStates : ["Draft"];
-  }, [emailStates, threadEvents]);
+    return rounds;
+  }, [threadEvents, hasConfirmedPo]);
   const supplierReplyCount = threadEvents.filter((event) => event.type === "reply").length;
   const lastThreadTimestamp = threadEvents[0]?.timestamp ?? "暂无记录";
   const latestThreadEvent = threadEvents[0];
+  const isDraftRound = threadEvents.length === 0;
 
   useEffect(() => {
     setTo(selectedMerchantEmail);
   }, [selectedMerchantEmail]);
 
   useEffect(() => {
-    setSubject(defaultSubject);
-  }, [defaultSubject]);
+    if (isDraftRound) {
+      setSubject(defaultSubject);
+      return;
+    }
+
+    setSubject(ensureReplySubject(latestThreadEvent?.subject));
+  }, [defaultSubject, isDraftRound, latestThreadEvent?.subject]);
 
   useEffect(() => {
     setBody(defaultBody);
@@ -271,19 +345,36 @@ export function PoRequestPanel({
       <Card className="rounded-[18px] p-6">
       {/* <div className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">Request Purchase Order</div> */}
 
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        {stateSequence.map((state, index) => (
-          <div key={`${state}-${index}`} className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              <MailCheck className="h-4 w-4 text-slate-500" />
-              <StatusBadge kind="state" value={state} />
-            </div>
-            {index < stateSequence.length - 1 ? (
-              <span className="px-1 text-xs font-semibold text-slate-400">------</span>
-            ) : null}
+      <div className="mt-6 space-y-3">
+        {stateRounds.length === 0 ? (
+          <div className="flex items-center gap-2">
+            {stateMeta.Draft ?? <MailCheck className="h-4 w-4 text-slate-500" />}
+            <StatusBadge kind="state" value="Draft" />
           </div>
-        ))}
+        ) : (
+          stateRounds.map((round, roundIndex) => (
+            <div key={`round-${roundIndex + 1}`} className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+                Round {roundIndex + 1}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {round.map((item, index) => (
+                  <div key={item.key} className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      {stateMeta[item.label] ?? <MailCheck className="h-4 w-4 text-slate-500" />}
+                      <StatusBadge kind="state" value={item.label} />
+                    </div>
+                    {index < round.length - 1 ? (
+                      <span className="px-1 text-xs font-semibold text-slate-400">------</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
       </div>
+      <div className="mt-2 text-xs text-slate-500">每次新的 Sent 会开启新一轮催发流程，直到 Get Reply 或 Escalation Required。</div>
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
         <div className="flex flex-wrap border-b border-slate-200 bg-white">
@@ -375,7 +466,16 @@ export function PoRequestPanel({
               </div>
               <div>
                 <div className="mb-1 font-semibold text-slate-900">Subject</div>
-                <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
+                <Input
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                  disabled={!isDraftRound}
+                />
+                {!isDraftRound ? (
+                  <div className="mt-1 text-xs text-slate-500">
+                    只有首次 Draft 邮件可以修改主题；后续 round 只能在线程中回复，主题保持当前邮件线程。
+                  </div>
+                ) : null}
               </div>
               <div>
                 <div className="mb-1 font-semibold text-slate-900">Body</div>
@@ -447,7 +547,7 @@ export function PoRequestPanel({
                                     ? "bg-amber-100 text-amber-700"
                                     : "bg-blue-100 text-blue-700"
                               }`}
-                              title={event.type === "reply" ? "商户回复" : event.type === "reminder" ? "自动提醒" : "系统发出"}
+                              title={event.type === "reply" ? "商户回复" : event.type === "reminder" ? "催发邮件" : "系统发出"}
                             >
                               {event.type === "reply" ? (
                                 <MailCheck className="h-3.5 w-3.5" />
@@ -456,7 +556,7 @@ export function PoRequestPanel({
                               ) : (
                                 <Send className="h-3.5 w-3.5" />
                               )}
-                              <span>{event.type === "reply" ? "回复" : event.type === "reminder" ? "提醒" : "发出"}</span>
+                              <span>{event.type === "reply" ? "回复" : event.type === "reminder" ? "催发" : "发出"}</span>
                             </span>
                             <span className="truncate text-xl font-semibold text-slate-800">
                               {event.type === "reply" ? event.from || selectedMerchantEmail : event.to || selectedMerchantEmail}
