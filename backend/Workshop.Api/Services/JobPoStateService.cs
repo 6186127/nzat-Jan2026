@@ -2,6 +2,8 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Options;
+using Microsoft.Extensions.Options;
 
 namespace Workshop.Api.Services;
 
@@ -10,10 +12,14 @@ public sealed class JobPoStateService
     private const string EscalationReason = "No supplier reply after 2 follow-ups.";
 
     private readonly AppDbContext _db;
+    private readonly BusinessHoursService _businessHoursService;
+    private readonly PoFollowUpOptions _options;
 
-    public JobPoStateService(AppDbContext db)
+    public JobPoStateService(AppDbContext db, BusinessHoursService businessHoursService, IOptions<PoFollowUpOptions> options)
     {
         _db = db;
+        _businessHoursService = businessHoursService;
+        _options = options.Value;
     }
 
     public async Task EnsureStatesForNeedsPoJobsAsync(CancellationToken ct)
@@ -121,7 +127,7 @@ public sealed class JobPoStateService
         }
         else if (sentLogs.Count > 0)
         {
-            if (state.FollowUpCount >= 2)
+            if (state.FollowUpCount >= Math.Max(1, _options.MaxFollowUps))
             {
                 state.Status = JobPoStateStatus.EscalationRequired;
                 state.RequiresAdminAttention = true;
@@ -130,6 +136,9 @@ public sealed class JobPoStateService
             else
             {
                 state.Status = JobPoStateStatus.AwaitingReply;
+                var anchorTime = state.LastFollowUpSentAt ?? state.LastRequestSentAt;
+                if (anchorTime.HasValue)
+                    state.NextFollowUpDueAt = _businessHoursService.CalculateNextFollowUpDueAtUtc(anchorTime.Value);
             }
         }
         else

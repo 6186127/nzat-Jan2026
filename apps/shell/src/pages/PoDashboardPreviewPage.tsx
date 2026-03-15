@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card } from "@/components/ui";
-import { Mail, Search, X } from "lucide-react";
+import { Button, Card, useToast } from "@/components/ui";
+import { AlertTriangle, Mail, Search, X } from "lucide-react";
+import { requestJson } from "@/utils/api";
 
 type SummaryFilter = "Needs PO" | "Draft" | "Awaiting Reply" | "Escalation Required" | "Pending Confirmation" | "PO Confirmed";
 
@@ -27,80 +28,31 @@ type PoJob = {
   nextFollowUp?: string;
 };
 
-const summaryCards: SummaryCard[] = [
-  { label: "Needs PO", value: 46, note: "所有仍在跟进的工单" },
-  { label: "Draft", value: 8, note: "未发出 request" },
-  { label: "Awaiting Reply", value: 17, note: "已发邮件，等待商户回复" },
-  { label: "Escalation Required", value: 9, note: "催发 2 次后仍未回复，需 admin 处理" },
-  { label: "Pending Confirmation", value: 7, note: "已检测到候选 PO" },
-  { label: "PO Confirmed", value: 14, note: "人工确认并落库" },
-];
+type DashboardSummaryResponse = {
+  summary: {
+    needsPo: number;
+    draft: number;
+    awaitingReply: number;
+    escalationRequired: number;
+    pendingConfirmation: number;
+    poConfirmed: number;
+  };
+  generatedAt: string;
+};
 
-const jobs: PoJob[] = [
-  {
-    id: "226",
-    plate: "QZT482",
-    customer: "Fleetline Logistics",
-    supplier: "parts@ultra.co.nz",
-    status: "Escalation Required",
-    detectedPo: "98431-UL",
-    unreadReplies: 2,
-    followUpCount: 2,
-    firstSent: "2026-03-13 09:00",
-    lastSent: "2026-03-14 10:00",
-    lastReply: "2026-03-14 14:18",
-    nextFollowUp: "Now",
-  },
-  {
-    id: "241",
-    plate: "JHA771",
-    customer: "North City Rentals",
-    supplier: "service@metroparts.co.nz",
-    status: "Awaiting Reply",
-    unreadReplies: 0,
-    followUpCount: 1,
-    firstSent: "2026-03-14 06:30",
-    lastSent: "2026-03-14 11:30",
-    nextFollowUp: "Mon 09:00",
-  },
-  {
-    id: "255",
-    plate: "PWE903",
-    customer: "Apex Panel Care",
-    supplier: "orders@apexparts.co.nz",
-    status: "PO Confirmed",
-    confirmedPo: "PO-884102",
-    unreadReplies: 0,
-    followUpCount: 0,
-    firstSent: "2026-03-13 09:05",
-    lastSent: "2026-03-13 09:05",
-    lastReply: "2026-03-13 11:42",
-  },
-  {
-    id: "263",
-    plate: "LKC115",
-    customer: "A1 Insurance Repairs",
-    supplier: "team@impactsupply.co.nz",
-    status: "Draft",
-    unreadReplies: 0,
-    followUpCount: 0,
-    firstSent: "-",
-    lastSent: "-",
-  },
-  {
-    id: "274",
-    plate: "TMM908",
-    customer: "Atlas Claims",
-    supplier: "ops@alliedparts.co.nz",
-    status: "Pending Confirmation",
-    detectedPo: "PO-11728",
-    unreadReplies: 1,
-    followUpCount: 1,
-    firstSent: "2026-03-14 08:20",
-    lastSent: "2026-03-14 08:20",
-    lastReply: "2026-03-14 12:02",
-  },
-];
+type JobsQueueResponse = {
+  items: PoJob[];
+  total: number;
+};
+
+type SendFollowUpResponse = {
+  success: boolean;
+  jobId: number;
+  status: string;
+  followUpCount: number;
+  lastFollowUpSentAt: string | null;
+  nextFollowUpDueAt: string | null;
+};
 
 function kpiCardClasses(isActive: boolean) {
   return isActive
@@ -125,28 +77,107 @@ function statusClasses(status: PoJob["status"]) {
 
 export function PoDashboardPreviewPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [selectedFilter, setSelectedFilter] = useState<SummaryFilter>("Needs PO");
   const [searchText, setSearchText] = useState("");
   const [confirmingJob, setConfirmingJob] = useState<PoJob | null>(null);
+  const [summary, setSummary] = useState<DashboardSummaryResponse["summary"] | null>(null);
+  const [jobs, setJobs] = useState<PoJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sendingFollowUp, setSendingFollowUp] = useState(false);
 
-  const filteredJobs = useMemo(() => {
-    const normalizedSearch = searchText.trim().toLowerCase();
+  const summaryCards: SummaryCard[] = useMemo(
+    () => [
+      { label: "Needs PO", value: summary?.needsPo ?? 0, note: "所有仍在跟进的工单" },
+      { label: "Draft", value: summary?.draft ?? 0, note: "未发出 request" },
+      { label: "Awaiting Reply", value: summary?.awaitingReply ?? 0, note: "已发邮件，等待商户回复" },
+      { label: "Escalation Required", value: summary?.escalationRequired ?? 0, note: "催发 2 次后仍未回复，需 admin 处理" },
+      { label: "Pending Confirmation", value: summary?.pendingConfirmation ?? 0, note: "需要查收邮件确定 PO" },
+      { label: "PO Confirmed", value: summary?.poConfirmed ?? 0, note: "人工确认并落库" },
+    ],
+    [summary]
+  );
 
-    return jobs.filter((job) => {
-      const matchesSummary = selectedFilter === "Needs PO" ? true : job.status === selectedFilter;
-      const matchesSearch =
-        !normalizedSearch ||
-        job.id.toLowerCase().includes(normalizedSearch) ||
-        job.plate.toLowerCase().includes(normalizedSearch) ||
-        job.customer.toLowerCase().includes(normalizedSearch) ||
-        job.supplier.toLowerCase().includes(normalizedSearch) ||
-        (job.confirmedPo || job.detectedPo || "").toLowerCase().includes(normalizedSearch);
+  const loadSummary = async () => {
+    const res = await requestJson<DashboardSummaryResponse>("/api/po/dashboard");
+    if (!res.ok || !res.data) {
+      setLoadError(res.error || "Failed to load PO dashboard summary");
+      setSummary(null);
+      return;
+    }
 
-      return matchesSummary && matchesSearch;
-    });
+    setSummary(res.data.summary);
+  };
+
+  const loadJobs = async () => {
+    setLoading(true);
+    setLoadError(null);
+    const statusParam = selectedFilter === "Needs PO" ? "" : selectedFilter.replace(/\s+/g, "");
+    const query = new URLSearchParams();
+    if (statusParam) query.set("status", statusParam);
+    if (searchText.trim()) query.set("search", searchText.trim());
+
+    const res = await requestJson<JobsQueueResponse>(`/api/po/jobs${query.toString() ? `?${query.toString()}` : ""}`);
+    if (!res.ok || !res.data) {
+      setLoadError(res.error || "Failed to load PO jobs queue");
+      setJobs([]);
+      setLoading(false);
+      return;
+    }
+
+    setJobs(Array.isArray(res.data.items) ? res.data.items : []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await loadSummary();
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await loadJobs();
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [searchText, selectedFilter]);
 
+  const filteredJobs = useMemo(() => {
+    return jobs;
+  }, [jobs]);
+
   const canSendFollowUp = (job: PoJob) => job.status === "Awaiting Reply";
+
+  const handleConfirmSendFollowUp = async () => {
+    if (!confirmingJob || sendingFollowUp) return;
+
+    setSendingFollowUp(true);
+    const res = await requestJson<SendFollowUpResponse>(`/api/po/jobs/${encodeURIComponent(confirmingJob.id)}/send-follow-up`, {
+      method: "POST",
+    });
+
+    if (!res.ok) {
+      toast.error(res.error || "Failed to send follow-up");
+      setSendingFollowUp(false);
+      return;
+    }
+
+    toast.success("Follow-up email sent");
+    setConfirmingJob(null);
+    await loadSummary();
+    await loadJobs();
+    setSendingFollowUp(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -169,7 +200,14 @@ export function PoDashboardPreviewPage() {
             className={`rounded-[12px] border p-4 text-left shadow-sm transition ${kpiCardClasses(selectedFilter === card.label)}`}
           >
             <div className="text-xs font-semibold uppercase tracking-[0.14em]">{card.label}</div>
-            <div className="mt-3 text-3xl font-semibold tracking-[-0.04em]">{card.value}</div>
+            <div className="mt-3 flex items-center gap-2 text-3xl font-semibold tracking-[-0.04em]">
+              {card.label === "Escalation Required" ? (
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-yellow-300">
+                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                </span>
+              ) : null}
+              <span>{card.value}</span>
+            </div>
             <div className={`mt-2 text-xs ${selectedFilter === card.label ? "text-white/85" : "text-[var(--ds-muted)]"}`}>{card.note}</div>
           </button>
         ))}
@@ -198,6 +236,8 @@ export function PoDashboardPreviewPage() {
         </div>
 
         <div className="overflow-x-auto">
+          {loadError ? <div className="px-5 py-4 text-sm text-red-600">{loadError}</div> : null}
+          {loading ? <div className="px-5 py-4 text-sm text-[var(--ds-muted)]">Loading PO queue...</div> : null}
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ds-muted)]">
@@ -270,6 +310,13 @@ export function PoDashboardPreviewPage() {
                   </td>
                 </tr>
               ))}
+              {!loading && !loadError && filteredJobs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-10 text-center text-sm text-[var(--ds-muted)]">
+                    No PO jobs matched the current filter.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -309,8 +356,14 @@ export function PoDashboardPreviewPage() {
               <Button className="h-10 px-4" onClick={() => setConfirmingJob(null)}>
                 取消
               </Button>
-              <Button variant="primary" className="h-10 px-4" leftIcon={<Mail className="h-4 w-4" />} onClick={() => setConfirmingJob(null)}>
-                确认发送
+              <Button
+                variant="primary"
+                className="h-10 px-4"
+                leftIcon={<Mail className="h-4 w-4" />}
+                onClick={handleConfirmSendFollowUp}
+                disabled={sendingFollowUp}
+              >
+                {sendingFollowUp ? "发送中..." : "确认发送"}
               </Button>
             </div>
           </Card>
