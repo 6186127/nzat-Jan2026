@@ -18,7 +18,7 @@ import {
   updateJobTags,
   updateVehicleInfo,
   deleteJob as apiDeleteJob,
-  createXeroInvoice,
+  createJobXeroDraftInvoice as apiCreateJobXeroDraftInvoice,
 } from "../api/jobDetailApi";
 import { notifyPaintBoardRefresh } from "@/utils/refreshSignals";
 import {
@@ -582,63 +582,26 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       return { success: false, message: "缺少工单数据" };
     }
 
-    const note = jobData.notes?.trim();
-    if (!note) {
-      const message = "Job note 为空，不能创建 Xero invoice";
-      toast.error(message);
-      return { success: false, message };
-    }
-
-    const contactName =
-      jobData.customer.type?.toLowerCase() === "personal"
-        ? [jobData.vehicle.plate, jobData.vehicle.make, jobData.vehicle.model].filter(Boolean).join(" ").trim()
-        : jobData.customer.name?.trim();
-
-    if (!contactName) {
-      const message = "缺少 contact name，不能创建 Xero invoice";
-      toast.error(message);
-      return { success: false, message };
-    }
-
-    const requestPayload = {
-      type: "ACCREC",
-      status: "DRAFT",
-      lineAmountTypes: "Exclusive",
-      date: new Date().toISOString().slice(0, 10),
-      reference: `auto Create from JOB-${jobId}`,
-      contact: {
-        name: contactName,
-      },
-      lineItems: [
-        {
-          description: note,
-          lineAmount: 0,
-        },
-      ],
-    };
-
     setCreatingXeroInvoice(true);
     try {
-      const res = await createXeroInvoice(requestPayload);
-      const responsePayload = res.data ?? { error: res.error || "创建失败", status: res.status };
-      const preview = JSON.stringify(
-        {
-          request: requestPayload,
-          response: responsePayload,
-        },
-        null,
-        2
-      );
-
+      const res = await apiCreateJobXeroDraftInvoice(jobId);
       if (!res.ok) {
         const message = res.error || "创建 Xero invoice 失败";
         toast.error(message);
-        window.alert(preview);
         return { success: false, message };
       }
 
-      toast.success("Xero invoice 已创建");
-      window.alert(preview);
+      const jobRes = await fetchJob(jobId);
+      if (jobRes.ok) {
+        const data = jobRes.data as any;
+        const job = data?.job ?? data;
+        setJobData(job ?? null);
+        if (typeof data?.hasWofRecord === "boolean") {
+          setHasWofRecord(data.hasWofRecord);
+        }
+      }
+
+      toast.success(res.data?.alreadyExists ? "Xero invoice 已存在" : "Xero invoice 已创建");
       return { success: true, message: "Xero invoice 已创建" };
     } finally {
       setCreatingXeroInvoice(false);

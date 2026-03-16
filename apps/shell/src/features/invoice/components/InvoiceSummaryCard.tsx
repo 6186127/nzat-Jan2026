@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCcw } from "lucide-react";
+import { ExternalLink, Plus, RefreshCcw } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { StatusBadge } from "./StatusBadge";
 import type { InvoiceDashboardState } from "../types";
@@ -12,6 +12,9 @@ type Props = {
   canSync: boolean;
   onSync: () => void;
   onOpenXero: () => void;
+  hasInvoice?: boolean;
+  onCreateInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingInvoice?: boolean;
   children?: React.ReactNode;
 };
 
@@ -24,7 +27,16 @@ function SummaryField({ label, value, className = "" }: { label: string; value: 
   );
 }
 
-export function InvoiceSummaryCard({ invoice, canSync, onSync, onOpenXero, children }: Props) {
+export function InvoiceSummaryCard({
+  invoice,
+  canSync,
+  onSync,
+  onOpenXero,
+  hasInvoice = true,
+  onCreateInvoice,
+  isCreatingInvoice = false,
+  children,
+}: Props) {
   return (
     <Card className="rounded-[18px] p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--ds-border)] pb-5">
@@ -35,13 +47,24 @@ export function InvoiceSummaryCard({ invoice, canSync, onSync, onOpenXero, child
             <StatusBadge kind="invoice" value={invoice.status} />
           </div>
         </div>
-        <Button
-          leftIcon={<ExternalLink className="h-4 w-4" />}
-          className="h-11 border-[var(--ds-primary)] bg-white px-5 text-[var(--ds-primary)] hover:bg-red-50"
-          onClick={onOpenXero}
-        >
-          Open in Xero
-        </Button>
+        {hasInvoice ? (
+          <Button
+            leftIcon={<ExternalLink className="h-4 w-4" />}
+            className="h-11 border-[var(--ds-primary)] bg-white px-5 text-[var(--ds-primary)] hover:bg-red-50"
+            onClick={onOpenXero}
+          >
+            Open in Xero
+          </Button>
+        ) : (
+          <Button
+            leftIcon={<Plus className="h-4 w-4" />}
+            className="h-11 px-5"
+            onClick={() => void onCreateInvoice?.()}
+            disabled={!onCreateInvoice || isCreatingInvoice}
+          >
+            {isCreatingInvoice ? "Creating..." : "New Invoice"}
+          </Button>
+        )}
       </div>
 
       <div className="mt-6 grid gap-5 md:grid-cols-3 xl:grid-cols-4">
@@ -54,22 +77,30 @@ export function InvoiceSummaryCard({ invoice, canSync, onSync, onOpenXero, child
         <SummaryField label="Sync Direction" value={invoice.lastSyncDirection} className="text-[var(--ds-primary)]" />
       </div>
 
-      {children}
+      {hasInvoice ? (
+        children
+      ) : (
+        <div className="mt-6 rounded-[14px] border border-dashed border-[var(--ds-border)] px-5 py-8 text-sm text-[var(--ds-muted)]">
+          This job does not have a linked Xero draft invoice yet. Create one to load the saved draft from the database.
+        </div>
+      )}
 
-      <div className="mt-6 flex justify-end gap-3 border-t border-[var(--ds-border)] pt-5">
-        <Button
-          variant={canSync ? "primary" : "ghost"}
-          leftIcon={<RefreshCcw className="h-4 w-4" />}
-          className={[
-            "h-11 px-5",
-            !canSync ? "border-[var(--ds-border)] bg-[rgba(0,0,0,0.04)] text-[var(--ds-muted)] hover:bg-[rgba(0,0,0,0.04)]" : "",
-          ].join(" ")}
-          onClick={onSync}
-          disabled={!canSync}
-        >
-          Sync with Xero
-        </Button>
-      </div>
+      {hasInvoice ? (
+        <div className="mt-6 flex justify-end gap-3 border-t border-[var(--ds-border)] pt-5">
+          <Button
+            variant={canSync ? "primary" : "ghost"}
+            leftIcon={<RefreshCcw className="h-4 w-4" />}
+            className={[
+              "h-11 px-5",
+              !canSync ? "border-[var(--ds-border)] bg-[rgba(0,0,0,0.04)] text-[var(--ds-muted)] hover:bg-[rgba(0,0,0,0.04)]" : "",
+            ].join(" ")}
+            onClick={onSync}
+            disabled={!canSync}
+          >
+            Sync with Xero
+          </Button>
+        </div>
+      ) : null}
     </Card>
   );
 }

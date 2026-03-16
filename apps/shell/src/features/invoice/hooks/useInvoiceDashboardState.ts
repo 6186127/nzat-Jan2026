@@ -12,7 +12,7 @@ import type {
   TaxRateOption,
   XeroItemDefinition,
 } from "../types";
-import type { CustomerInfo, VehicleInfo } from "@/types";
+import type { CustomerInfo, JobInvoiceData, VehicleInfo } from "@/types";
 
 const TAX_RATE_PERCENTAGE: Record<TaxRateOption, number> = {
   "15% GST on Expenses": 15,
@@ -22,6 +22,11 @@ const TAX_RATE_PERCENTAGE: Record<TaxRateOption, number> = {
   "Zero Rated": 0,
   "Zero Rated - Exp": 0,
 };
+
+function normalizeTaxRate(value?: string | null): TaxRateOption {
+  const normalized = value?.trim() as TaxRateOption | undefined;
+  return normalized && normalized in TAX_RATE_PERCENTAGE ? normalized : "No GST";
+}
 
 function createNewItem(nextId: number): InvoiceItem {
   return {
@@ -37,11 +42,17 @@ function createNewItem(nextId: number): InvoiceItem {
 }
 
 function getBaseAmount(item: InvoiceItem) {
-  return item.quantity * item.unitPrice * (1 - item.discount / 100);
+  return getLineAmount(item) - getTaxAmount(item);
 }
 
 function getTaxAmount(item: InvoiceItem) {
-  return getBaseAmount(item) * (TAX_RATE_PERCENTAGE[item.taxRate] / 100);
+  const rate = TAX_RATE_PERCENTAGE[item.taxRate];
+  if (rate <= 0) return 0;
+  return getLineAmount(item) * (rate / (100 + rate));
+}
+
+function getLineAmount(item: InvoiceItem) {
+  return item.quantity * item.unitPrice * (1 - item.discount / 100);
 }
 
 function buildReference(currentReference: string, poNumber: string) {
@@ -57,6 +68,14 @@ function extractPoFromReference(reference: string) {
   if (!trimmed) return "";
   const slashIndex = trimmed.indexOf("/");
   return (slashIndex === -1 ? trimmed : trimmed.slice(0, slashIndex)).trim();
+}
+
+function getLegacyPoFromReference(reference: string) {
+  const extracted = extractPoFromReference(reference);
+  if (!extracted) return "";
+
+  // Only treat old references that explicitly look like the previous PO-prefixed format as confirmed PO data.
+  return /[\\/]/.test(reference) ? extracted : "";
 }
 
 const EMAIL_STATE_ORDER: EmailState[] = ["Draft", "Email Sent", "Get Reply", "Reminder Scheduled", "Get PO"];
@@ -91,15 +110,7 @@ const initialInvoiceState: InvoiceDashboardState = {
   currentWorkflowStep: 1,
 };
 
-const initialItemCatalog: XeroItemDefinition[] = [
-  { code: "LAB-001", name: "Engine Oil Change - Premium Synthetic", unitPrice: 89.99, account: "200 - Sales", taxRate: "15% GST on Income" },
-  { code: "PRT-145", name: "Brake Pad Replacement - Front Axle", unitPrice: 245, account: "200 - Sales", taxRate: "15% GST on Income" },
-  { code: "LAB-210", name: "Tire Rotation & Balancing Service", unitPrice: 35, account: "200 - Sales", taxRate: "15% GST on Income" },
-  { code: "PRT-330", name: "Air Filter Replacement", unitPrice: 45, account: "200 - Sales", taxRate: "15% GST on Income" },
-  { code: "PRT-510", name: "Cabin Filter Replacement", unitPrice: 58, account: "200 - Sales", taxRate: "15% GST on Income" },
-];
-
-const initialInvoiceItems: InvoiceItem[] = [];
+const initialItemCatalog: XeroItemDefinition[] = [];
 
 function mergeEmailStates(current: EmailState[], add: EmailState[], remove: EmailState[] = []): EmailState[] {
   const next = new Set(current);
@@ -121,7 +132,57 @@ type UseInvoiceDashboardStateArgs = {
   vehicle?: VehicleInfo | null;
   persistedPoNumber?: string | null;
   persistedInvoiceReference?: string | null;
+  persistedInvoice?: JobInvoiceData | null;
 };
+
+function mapExternalStatus(status?: string | null): InvoiceDashboardState["status"] {
+  const normalized = status?.trim().toUpperCase();
+  switch (normalized) {
+    case "AUTHORISED":
+      return "Authorised";
+    case "PAID":
+      return "Awaiting Payment";
+    case "DRAFT":
+      return "Draft";
+    default:
+      return "Awaiting PO";
+  }
+}
+
+function parsePersistedItems(invoice?: JobInvoiceData | null): InvoiceItem[] {
+  const raw = invoice?.requestPayloadJson?.trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      lineItems?: Array<{
+        itemCode?: string;
+        description?: string;
+        quantity?: number;
+        unitAmount?: number;
+        accountCode?: string;
+        taxType?: string;
+      }>;
+    };
+
+    return Array.isArray(parsed.lineItems)
+      ? parsed.lineItems
+          .filter((item) => typeof item?.description === "string" && item.description.trim())
+          .map((item, index) => ({
+            id: `line-${index + 1}`,
+            itemCode: item.itemCode?.trim() || "",
+            description: item.description!.trim(),
+            quantity: typeof item.quantity === "number" ? item.quantity : 1,
+            unitPrice: typeof item.unitAmount === "number" ? item.unitAmount : 0,
+            discount: 0,
+            account: item.accountCode?.trim() || "",
+            taxRate: "15% GST on Income",
+          }))
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function buildCorrelationId(jobId?: string, vehicle?: VehicleInfo | null) {
   const normalizedJobId = (jobId ?? "").trim();
@@ -157,19 +218,20 @@ export function useInvoiceDashboardState({
   vehicle,
   persistedPoNumber,
   persistedInvoiceReference,
+  persistedInvoice,
 }: UseInvoiceDashboardStateArgs = {}) {
   const toast = useToast();
   const [invoice, setInvoice] = useState(initialInvoiceState);
-  const [items, setItems] = useState(initialInvoiceItems);
+  const [items, setItems] = useState<InvoiceItem[]>(() => parsePersistedItems(persistedInvoice));
   const [itemCatalog, setItemCatalog] = useState(initialItemCatalog);
   const [timeline, setTimeline] = useState<EmailTimelineEvent[]>([]);
   const [detections, setDetections] = useState<PoDetection[]>([]);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
-  const [nextItemId, setNextItemId] = useState(initialInvoiceItems.length + 1);
+  const [nextItemId, setNextItemId] = useState(parsePersistedItems(persistedInvoice).length + 1);
   const [itemCatalogSyncState, setItemCatalogSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [itemCatalogFeedback, setItemCatalogFeedback] = useState<string | null>(null);
   const [itemCatalogLastUpdated, setItemCatalogLastUpdated] = useState<string | null>(null);
-  const [itemsDirty, setItemsDirty] = useState(!initialInvoiceState.synced);
+  const [itemsDirty, setItemsDirty] = useState(!persistedInvoice);
   const [pendingFocusRowId, setPendingFocusRowId] = useState<string | null>(null);
   const [manualPoNumber, setManualPoNumber] = useState("");
   const [poPanelLoading, setPoPanelLoading] = useState(true);
@@ -256,38 +318,104 @@ export function useInvoiceDashboardState({
   };
 
   const openInXero = () => {
-    window.open("https://go.xero.com", "_blank", "noopener,noreferrer");
+    const invoiceId = invoice.xeroInvoiceId.trim();
+    const url = invoiceId
+      ? `https://go.xero.com/AccountsReceivable/View.aspx?invoiceID=${encodeURIComponent(invoiceId)}`
+      : "https://go.xero.com";
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const refreshItemCatalog = () => {
     if (itemCatalogSyncState === "syncing") return;
     const startedAt = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
     setItemCatalogSyncState("syncing");
-    setItemCatalogFeedback("Syncing item list from Xero. Existing invoice rows stay untouched until you choose an item.");
-    toast.info("Refreshing Xero item list...");
+    setItemCatalogFeedback("Syncing item list from inventory_items. Existing invoice rows stay untouched until you choose an item.");
+    toast.info("Refreshing inventory item list...");
 
-    window.setTimeout(() => {
-      setItemCatalog((prev) => {
-        const existing = new Set(prev.map((item) => item.code));
-        return existing.has("LAB-320")
-          ? prev
-          : [
-              ...prev,
-              {
-                code: "LAB-320",
-                name: "Battery Health Check",
-                unitPrice: 72,
-                account: "200 - Sales",
-                taxRate: "15% GST on Income",
-              },
-            ];
-      });
+    void requestJson<Array<{
+      code: string;
+      name: string;
+      description: string;
+      unitPrice: number;
+      account: string;
+      taxRate: string;
+      status: string;
+    }>>("/api/inventory-items/import", {
+      method: "POST",
+    }).then((importRes) => {
+      if (!importRes.ok) {
+        throw new Error(importRes.error || "Failed to update inventory items");
+      }
+
+      return requestJson<Array<{
+        code: string;
+        name: string;
+        description: string;
+        unitPrice: number;
+        account: string;
+        taxRate: string;
+        status: string;
+      }>>("/api/inventory-items?limit=200");
+    }).then((res) => {
+      if (!res.ok || !Array.isArray(res.data)) {
+        throw new Error(res.error || "Failed to load inventory items");
+      }
+
+      setItemCatalog(
+        res.data.map((item) => ({
+          code: item.code,
+          name: item.description?.trim() || item.name,
+          unitPrice: Number(item.unitPrice || 0),
+          account: item.account?.trim() || "",
+          taxRate: normalizeTaxRate(item.taxRate),
+        }))
+      );
       setItemCatalogSyncState("success");
       setItemCatalogLastUpdated(startedAt);
-      setItemCatalogFeedback("Xero item list updated. New item definitions are ready for manual selection in the Item column.");
-      toast.success("Xero item list updated");
-    }, 900);
+      setItemCatalogFeedback("Inventory item list updated from database.");
+      toast.success("Inventory item list updated");
+    }).catch((error: unknown) => {
+      setItemCatalogSyncState("error");
+      setItemCatalogFeedback(error instanceof Error ? error.message : "Failed to update inventory items");
+      toast.error(error instanceof Error ? error.message : "Failed to update inventory items");
+    });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInitialItemCatalog = async () => {
+      const res = await requestJson<Array<{
+        code: string;
+        name: string;
+        description: string;
+        unitPrice: number;
+        account: string;
+        taxRate: string;
+        status: string;
+      }>>("/api/inventory-items?limit=200");
+
+      if (!res.ok || !Array.isArray(res.data) || cancelled) {
+        return;
+      }
+
+      setItemCatalog(
+        res.data.map((item) => ({
+          code: item.code,
+          name: item.description?.trim() || item.name,
+          unitPrice: Number(item.unitPrice || 0),
+          account: item.account?.trim() || "",
+          taxRate: normalizeTaxRate(item.taxRate),
+        }))
+      );
+      setItemCatalogLastUpdated(new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-"));
+    };
+
+    void loadInitialItemCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sendPoRequest = async ({ to, subject, body }: { to: string; subject: string; body: string }) => {
     const latestThreadEvent = timeline.find((event) => ["sent", "reminder", "reply"].includes(event.type));
@@ -456,7 +584,14 @@ export function useInvoiceDashboardState({
     setInvoice((prev) => ({
       ...prev,
       correlationId: resolvedCorrelationId,
-      reference: savedInvoiceReference,
+      reference: persistedInvoice?.reference?.trim() || savedInvoiceReference,
+      issueDate: persistedInvoice?.invoiceDate || "",
+      invoiceNumber: persistedInvoice?.externalInvoiceNumber || "",
+      xeroInvoiceId: persistedInvoice?.externalInvoiceId || "",
+      status: persistedInvoice ? mapExternalStatus(persistedInvoice.externalStatus) : savedPoNumber ? "PO Received" : prev.status,
+      synced: Boolean(persistedInvoice),
+      lastSyncTime: persistedInvoice?.updatedAt || "",
+      lastSyncDirection: persistedInvoice ? "Xero -> System" : prev.lastSyncDirection,
       selectedMerchantEmail: "",
       merchantEmails: [],
       merchantEmailRecipients: [],
@@ -465,15 +600,19 @@ export function useInvoiceDashboardState({
       lastEmailSent: "",
       nextReminderIn: "NaNh NaNm",
     }));
+    const persistedItems = parsePersistedItems(persistedInvoice);
+    setItems(persistedItems);
+    setNextItemId(persistedItems.length + 1);
+    setItemsDirty(!persistedInvoice);
     setTimeline([]);
     setDetections([]);
     setSelectedDetectionId(null);
-    setManualPoNumber(savedPoNumber || extractPoFromReference(savedInvoiceReference));
+    setManualPoNumber(savedPoNumber || (!persistedInvoice ? getLegacyPoFromReference(savedInvoiceReference) : ""));
     setPoPanelLoading(true);
     setPoPanelInitialized(false);
     setPoPanelRefreshing(false);
     setMerchantRecipientsLoading(true);
-  }, [resolvedCorrelationId]);
+  }, [persistedInvoice, resolvedCorrelationId, savedInvoiceReference, savedPoNumber]);
 
   useEffect(() => {
     setSavedPoNumber(persistedPoNumber?.trim() || "");
@@ -483,7 +622,7 @@ export function useInvoiceDashboardState({
   useEffect(() => {
     setInvoice((prev) => {
       const nextReference = savedInvoiceReference || prev.reference;
-      const hasSavedSelection = Boolean(savedPoNumber || extractPoFromReference(nextReference));
+      const hasSavedSelection = Boolean(savedPoNumber);
 
       return {
         ...prev,
@@ -493,8 +632,8 @@ export function useInvoiceDashboardState({
         emailStates: hasSavedSelection ? mergeEmailStates(prev.emailStates, ["Get PO"], ["Draft"]) : prev.emailStates,
       };
     });
-    setManualPoNumber((prev) => savedPoNumber || prev || extractPoFromReference(savedInvoiceReference));
-  }, [savedPoNumber, savedInvoiceReference]);
+    setManualPoNumber((prev) => savedPoNumber || prev || (!persistedInvoice ? getLegacyPoFromReference(savedInvoiceReference) : ""));
+  }, [persistedInvoice, savedPoNumber, savedInvoiceReference]);
 
   useEffect(() => {
     let cancelled = false;
@@ -644,7 +783,7 @@ export function useInvoiceDashboardState({
       if (customer?.type?.toLowerCase() !== "business" || !customer.name.trim()) {
         setInvoice((prev) => ({
           ...prev,
-          contact: customer?.name?.trim() || prev.contact,
+          contact: persistedInvoice?.contactName?.trim() || customer?.name?.trim() || prev.contact,
           merchantUserName: "team",
           merchantEmails: [],
           merchantEmailRecipients: [],
@@ -669,7 +808,7 @@ export function useInvoiceDashboardState({
       if (!res.ok || !Array.isArray(res.data) || cancelled) {
         setInvoice((prev) => ({
           ...prev,
-          contact: customer.name.trim(),
+          contact: persistedInvoice?.contactName?.trim() || customer.name.trim(),
           merchantUserName: "team",
           merchantEmails: customer.email?.trim() ? [customer.email.trim()] : [],
           merchantEmailRecipients: customer.email?.trim()
@@ -725,7 +864,7 @@ export function useInvoiceDashboardState({
 
       setInvoice((prev) => ({
         ...prev,
-        contact: matched?.name?.trim() || customer.name.trim(),
+        contact: persistedInvoice?.contactName?.trim() || matched?.name?.trim() || customer.name.trim(),
         merchantUserName:
           recipients.find((item) => item.kind === "staff")?.name ||
           (recipients[0]?.kind === "business" ? "team" : prev.merchantUserName),
@@ -746,7 +885,7 @@ export function useInvoiceDashboardState({
     return () => {
       cancelled = true;
     };
-  }, [customer, vehicle]);
+  }, [customer, persistedInvoice, vehicle]);
 
   return {
     invoice,

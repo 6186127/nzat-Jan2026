@@ -24,6 +24,7 @@ builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOpt
 builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
 builder.Services.Configure<GmailSyncOptions>(builder.Configuration.GetSection(GmailSyncOptions.SectionName));
 builder.Services.Configure<ImageOcrOptions>(builder.Configuration.GetSection(ImageOcrOptions.SectionName));
+builder.Services.Configure<InventoryItemOptions>(builder.Configuration.GetSection(InventoryItemOptions.SectionName));
 builder.Services.Configure<PoFollowUpOptions>(builder.Configuration.GetSection(PoFollowUpOptions.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -86,9 +87,10 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
+builder.Services.AddScoped<InventoryItemService>();
 builder.Services.AddScoped<XeroTokenService>();
 builder.Services.AddScoped<XeroInvoiceService>();
-builder.Services.AddScoped<JobXeroDraftInvoiceService>();
+builder.Services.AddScoped<JobInvoiceService>();
 builder.Services.AddScoped<GmailTokenService>();
 builder.Services.AddScoped<GmailThreadSyncService>();
 builder.Services.AddScoped<BusinessHoursService>();

@@ -16,20 +16,50 @@ const invoiceWorkflowSteps: WorkflowStep[] = [
   { id: 9, title: "Awaiting Payment", description: "Pending payment" },
 ];
 
-type InvoiceDashboardProps = {
-  model?: InvoiceDashboardModel;
-};
-
-export function InvoiceDashboard({ model }: InvoiceDashboardProps) {
-  const dashboard = model ?? useInvoiceDashboardState();
-  return <InvoiceDashboardContent model={dashboard} />;
+function getVisibleWorkflowSteps(needsPo?: boolean) {
+  return needsPo ? invoiceWorkflowSteps : invoiceWorkflowSteps.filter((step) => step.id < 3 || step.id > 7);
 }
 
-export function InvoiceDashboardContent({ model }: { model: InvoiceDashboardModel }) {
+type InvoiceDashboardProps = {
+  model?: InvoiceDashboardModel;
+  hasInvoice?: boolean;
+  onCreateInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingInvoice?: boolean;
+  needsPo?: boolean;
+};
+
+export function InvoiceDashboard({ model, hasInvoice, onCreateInvoice, isCreatingInvoice, needsPo }: InvoiceDashboardProps) {
+  const dashboard = model ?? useInvoiceDashboardState();
+  return (
+    <InvoiceDashboardContent
+      model={dashboard}
+      hasInvoice={hasInvoice}
+      onCreateInvoice={onCreateInvoice}
+      isCreatingInvoice={isCreatingInvoice}
+      needsPo={needsPo}
+    />
+  );
+}
+
+export function InvoiceDashboardContent({
+  model,
+  hasInvoice,
+  onCreateInvoice,
+  isCreatingInvoice,
+  needsPo,
+}: {
+  model: InvoiceDashboardModel;
+  hasInvoice?: boolean;
+  onCreateInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingInvoice?: boolean;
+  needsPo?: boolean;
+}) {
+  const visibleSteps = getVisibleWorkflowSteps(needsPo);
+
   return (
     <div className="grid gap-6 lg:grid-cols-12">
       <div className="lg:col-span-3">
-        <WorkflowSidebar steps={invoiceWorkflowSteps} currentStep={model.invoice.currentWorkflowStep} />
+        <WorkflowSidebar steps={visibleSteps} currentStep={model.invoice.currentWorkflowStep} />
       </div>
 
       <div className="space-y-6 lg:col-span-9">
@@ -41,6 +71,9 @@ export function InvoiceDashboardContent({ model }: { model: InvoiceDashboardMode
           canSync={model.itemsDirty}
           onSync={model.syncInvoice}
           onOpenXero={model.openInXero}
+          hasInvoice={hasInvoice}
+          onCreateInvoice={onCreateInvoice}
+          isCreatingInvoice={isCreatingInvoice}
         >
           <InvoiceItemsTable
             items={model.items}

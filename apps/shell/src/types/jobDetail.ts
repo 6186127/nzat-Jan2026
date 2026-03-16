@@ -1,5 +1,23 @@
 export type JobDetailTabKey = "WOF" | "Mechanical" | "Parts" | "Paint" | "Worklog" | "Log" | "Invoice" | "PO";
 
+export type JobInvoiceData = {
+  id: string;
+  jobId: string;
+  provider: string;
+  externalInvoiceId?: string;
+  externalInvoiceNumber?: string;
+  externalStatus?: string;
+  reference?: string;
+  contactName?: string;
+  invoiceDate?: string;
+  lineAmountTypes?: string;
+  tenantId?: string;
+  requestPayloadJson?: string;
+  responsePayloadJson?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type VehicleInfo = {
   plate: string;
   make?: string;
@@ -175,4 +193,5 @@ export type JobDetailData = {
   createdAt?: string;
   vehicle: VehicleInfo;
   customer: CustomerInfo;
+  invoice?: JobInvoiceData | null;
 };

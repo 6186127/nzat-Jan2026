@@ -42,11 +42,17 @@ const TAX_RATE_PERCENTAGE: Record<TaxRateOption, number> = {
 };
 
 function getBaseAmount(item: InvoiceItem) {
-  return item.quantity * item.unitPrice * (1 - item.discount / 100);
+  return getLineAmount(item) - getTaxAmount(item);
 }
 
 function getTaxAmount(item: InvoiceItem) {
-  return getBaseAmount(item) * (TAX_RATE_PERCENTAGE[item.taxRate] / 100);
+  const rate = TAX_RATE_PERCENTAGE[item.taxRate];
+  if (rate <= 0) return 0;
+  return getLineAmount(item) * (rate / (100 + rate));
+}
+
+function getLineAmount(item: InvoiceItem) {
+  return item.quantity * item.unitPrice * (1 - item.discount / 100);
 }
 
 export function InvoiceItemsTable({
@@ -69,6 +75,15 @@ export function InvoiceItemsTable({
   const [showUnsyncedNotice, setShowUnsyncedNotice] = useState(!synced);
   const [showCatalogNotice, setShowCatalogNotice] = useState(itemCatalogSyncState === "syncing" || Boolean(itemCatalogFeedback));
   const descriptionRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+  useEffect(() => {
+    for (const item of items) {
+      const target = descriptionRefs.current[item.id];
+      if (!target) continue;
+      target.style.height = "0px";
+      target.style.height = `${target.scrollHeight}px`;
+    }
+  }, [items]);
 
   useEffect(() => {
     if (!synced) {
@@ -183,7 +198,7 @@ export function InvoiceItemsTable({
           <tbody>
             {items.map((item) => {
               const taxAmount = getTaxAmount(item);
-              const lineTotal = getBaseAmount(item) + taxAmount;
+              const lineAmount = getLineAmount(item);
               return (
                 <tr key={item.id} className="border-b border-[var(--ds-border)] last:border-b-0">
                   <td className="px-2 py-2 text-[var(--ds-muted)] align-top">
@@ -194,6 +209,7 @@ export function InvoiceItemsTable({
                       list={`invoice-item-options-${item.id}`}
                       value={item.itemCode}
                       onChange={(e) => onChangeItem(item.id, "itemCode", e.target.value)}
+                      placeholder="Type code or name"
                       className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0"
                     />
                     <datalist id={`invoice-item-options-${item.id}`}>
@@ -208,19 +224,42 @@ export function InvoiceItemsTable({
                         descriptionRefs.current[item.id] = node;
                       }}
                       value={item.description}
-                      rows={2}
                       onChange={(e) => onChangeItem(item.id, "description", e.target.value)}
-                      className="w-full resize-none rounded-[6px] border-0 bg-white px-1 py-1 text-sm leading-5 text-[var(--ds-text)] outline-none"
+                      className="w-full resize-none overflow-hidden rounded-[6px] border-0 bg-white px-1 py-1 text-sm leading-5 text-[var(--ds-text)] outline-none"
                     />
                   </td>
                   <td className="px-2 py-2 align-top">
-                    <Input type="number" step="1" min="0" value={item.quantity} onChange={(e) => onChangeItem(item.id, "quantity", e.target.value)} className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0" />
+                    <Input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={item.quantity}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => onChangeItem(item.id, "quantity", e.target.value)}
+                      className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0"
+                    />
                   </td>
                   <td className="px-2 py-2 align-top">
-                    <Input type="number" step="0.01" min="0" value={item.unitPrice} onChange={(e) => onChangeItem(item.id, "unitPrice", e.target.value)} className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0" />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={item.unitPrice}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => onChangeItem(item.id, "unitPrice", e.target.value)}
+                      className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0"
+                    />
                   </td>
                   <td className="px-2 py-2 align-top">
-                    <Input type="number" step="0.01" min="0" value={item.discount} onChange={(e) => onChangeItem(item.id, "discount", e.target.value)} className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0" />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={item.discount}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => onChangeItem(item.id, "discount", e.target.value)}
+                      className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0"
+                    />
                   </td>
                   <td className="px-2 py-2 align-top">
                     <Input value={item.account} onChange={(e) => onChangeItem(item.id, "account", e.target.value)} className="h-8 rounded-[6px] border-0 px-1 shadow-none focus:ring-0" />
@@ -239,7 +278,7 @@ export function InvoiceItemsTable({
                     </Select>
                   </td>
                   <td className="px-2 py-2 text-sm font-medium text-[var(--ds-text)] align-top">${taxAmount.toFixed(2)}</td>
-                  <td className="px-2 py-2 text-sm font-semibold text-[var(--ds-text)] align-top">${lineTotal.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-sm font-semibold text-[var(--ds-text)] align-top">${lineAmount.toFixed(2)}</td>
                   <td className="px-2 py-2 text-right align-top">
                     <button type="button" className="rounded-lg p-2 text-[var(--ds-muted)] hover:bg-red-50 hover:text-red-600" onClick={() => onDeleteItem(item.id)}>
                       <Trash2 className="h-4 w-4" />

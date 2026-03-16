@@ -151,6 +151,7 @@ export function MainColumn({
     vehicle: jobData.vehicle,
     persistedPoNumber: jobData.poNumber,
     persistedInvoiceReference: jobData.invoiceReference,
+    persistedInvoice: jobData.invoice,
   });
   const needsPo = Boolean(jobData.needsPo);
 
@@ -333,7 +334,15 @@ export function MainColumn({
           <WorklogPanel jobData={jobData} paintPanels={paintService?.panels ?? null} />
         ) : null}
         {activeTab === "Log" ? <LogPanel /> : null}
-        {activeTab === "Invoice" ? <InvoicePanel model={invoiceDashboard} /> : null}
+        {activeTab === "Invoice" ? (
+          <InvoicePanel
+            model={invoiceDashboard}
+            hasInvoice={Boolean(jobData.invoice)}
+            onCreateInvoice={onCreateXeroInvoice}
+            isCreatingInvoice={isCreatingXeroInvoice}
+            needsPo={needsPo}
+          />
+        ) : null}
         {activeTab === "PO" && needsPo ? <PoPanel model={invoiceDashboard} /> : null}
       </Card>
     </div>

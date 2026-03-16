@@ -136,6 +136,28 @@ public class JobsController : ControllerBase
             .Distinct()
             .ToListAsync(ct);
 
+        var invoice = await _db.JobInvoices.AsNoTracking()
+            .Where(x => x.JobId == id)
+            .Select(x => new
+            {
+                id = x.Id.ToString(CultureInfo.InvariantCulture),
+                jobId = x.JobId.ToString(CultureInfo.InvariantCulture),
+                provider = x.Provider,
+                externalInvoiceId = x.ExternalInvoiceId,
+                externalInvoiceNumber = x.ExternalInvoiceNumber,
+                externalStatus = x.ExternalStatus,
+                reference = x.Reference,
+                contactName = x.ContactName,
+                invoiceDate = x.InvoiceDate,
+                lineAmountTypes = x.LineAmountTypes,
+                tenantId = x.TenantId,
+                requestPayloadJson = x.RequestPayloadJson,
+                responsePayloadJson = x.ResponsePayloadJson,
+                createdAt = FormatDateTime(x.CreatedAt),
+                updatedAt = FormatDateTime(x.UpdatedAt),
+            })
+            .FirstOrDefaultAsync(ct);
+
         var job = new
         {
             id = row.Job.Id.ToString(CultureInfo.InvariantCulture),
@@ -186,7 +208,8 @@ public class JobsController : ControllerBase
                 accountTerms = "",
                 discount = "",
                 notes = row.Customer.Notes
-            }
+            },
+            invoice,
         };
 
         return Ok(new { job, hasWofRecord });
@@ -585,6 +608,7 @@ public class JobsController : ControllerBase
         await _db.JobTags.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.JobPoStates.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+        await _db.JobInvoices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
 
         var existingInactive = await _db.InactiveGmailCorrelations

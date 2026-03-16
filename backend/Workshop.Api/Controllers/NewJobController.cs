@@ -13,11 +13,13 @@ public class NewJobController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly JobPoStateService _jobPoStateService;
+    private readonly JobInvoiceService _jobInvoiceService;
 
-    public NewJobController(AppDbContext db, JobPoStateService jobPoStateService)
+    public NewJobController(AppDbContext db, JobPoStateService jobPoStateService, JobInvoiceService jobInvoiceService)
     {
         _db = db;
         _jobPoStateService = jobPoStateService;
+        _jobInvoiceService = jobInvoiceService;
     }
 
     [HttpPost]
@@ -171,12 +173,17 @@ catch (Exception ex)
         if (job.NeedsPo)
             await _jobPoStateService.SyncStateForJobAsync(job.Id, ct);
 
+        var invoiceResult = await _jobInvoiceService.CreateDraftForJobAsync(job.Id, ct);
+
         return Ok(new
         {
             jobId = job.Id,
             customerId = jobCustomerId,
             vehicleId = vehicle.Id,
             wofCreated,
+            invoiceCreated = invoiceResult.Ok,
+            invoiceAlreadyExists = invoiceResult.AlreadyExists,
+            invoiceError = invoiceResult.Ok ? null : invoiceResult.Error,
         });
     }
 
