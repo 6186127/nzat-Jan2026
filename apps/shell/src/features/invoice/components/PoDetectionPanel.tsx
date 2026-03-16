@@ -1,5 +1,7 @@
-import { Check, Link2 } from "lucide-react";
+import { useState } from "react";
+import { Check, ExternalLink, Link2, X } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
+import { withApiBase } from "@/utils/api";
 import { StatusBadge } from "./StatusBadge";
 import type { PoDetection } from "../types";
 
@@ -29,6 +31,22 @@ export function PoDetectionPanel({
   const normalizedManualPo = manualPoNumber.trim();
   const canSyncManualPo =
     normalizedManualPo.length > 0 && !currentInvoiceReference.toLowerCase().includes(normalizedManualPo.toLowerCase());
+  const [previewDetection, setPreviewDetection] = useState<PoDetection | null>(null);
+
+  const canPreview = (detection: PoDetection) =>
+    (detection.previewType === "pdf" || detection.previewType === "image") &&
+    Boolean(detection.gmailMessageId && detection.attachmentId && detection.attachmentFileName && detection.attachmentMimeType);
+
+  const buildPreviewUrl = (detection: PoDetection, inline: boolean) =>
+    withApiBase(
+      `/api/gmail/attachment?${new URLSearchParams({
+        messageId: detection.gmailMessageId ?? "",
+        attachmentId: detection.attachmentId ?? "",
+        fileName: detection.attachmentFileName ?? "",
+        mimeType: detection.attachmentMimeType ?? "",
+        inline: inline ? "true" : "false",
+      }).toString()}`
+    );
 
   const content = (
     <>
@@ -42,6 +60,7 @@ export function PoDetectionPanel({
               <th className="px-4 py-4">Source</th>
               <th className="px-4 py-4">Confidence Score</th>
               <th className="px-4 py-4">Evidence Preview</th>
+              <th className="px-4 py-4">Preview</th>
               <th className="px-4 py-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -77,6 +96,20 @@ export function PoDetectionPanel({
                   >
                     {detection.evidencePreview}
                   </button>
+                </td>
+                <td className="px-4 py-4">
+                  {canPreview(detection) ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-sm font-medium text-sky-700 hover:text-sky-900"
+                      onClick={() => setPreviewDetection(detection)}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {detection.previewType === "pdf" ? "View PDF" : "View Image"}
+                    </button>
+                  ) : (
+                    <span className="text-sm text-slate-400">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex justify-end gap-2">
@@ -123,7 +156,97 @@ export function PoDetectionPanel({
     </>
   );
 
-  if (embedded) return content;
+  if (embedded) {
+    return (
+      <>
+        {content}
+        {previewDetection ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+            <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold text-slate-900">
+                    {previewDetection.attachmentFileName || previewDetection.previewLabel}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {previewDetection.previewType === "pdf" ? "PDF Preview" : "Image Preview"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDetection(null)}
+                  className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="min-h-[70vh] flex-1 bg-slate-100">
+                {previewDetection.previewType === "image" ? (
+                  <div className="flex h-full items-center justify-center p-4">
+                    <img
+                      src={buildPreviewUrl(previewDetection, true)}
+                      alt={previewDetection.attachmentFileName || previewDetection.previewLabel}
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <iframe
+                    title={previewDetection.attachmentFileName || previewDetection.previewLabel}
+                    src={buildPreviewUrl(previewDetection, true)}
+                    className="h-[70vh] w-full border-0"
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
-  return <Card className="rounded-[18px] p-6">{content}</Card>;
+  return (
+    <Card className="rounded-[18px] p-6">
+      {content}
+      {previewDetection ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <div className="truncate text-base font-semibold text-slate-900">
+                  {previewDetection.attachmentFileName || previewDetection.previewLabel}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {previewDetection.previewType === "pdf" ? "PDF Preview" : "Image Preview"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewDetection(null)}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="min-h-[70vh] flex-1 bg-slate-100">
+              {previewDetection.previewType === "image" ? (
+                <div className="flex h-full items-center justify-center p-4">
+                  <img
+                    src={buildPreviewUrl(previewDetection, true)}
+                    alt={previewDetection.attachmentFileName || previewDetection.previewLabel}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              ) : (
+                <iframe
+                  title={previewDetection.attachmentFileName || previewDetection.previewLabel}
+                  src={buildPreviewUrl(previewDetection, true)}
+                  className="h-[70vh] w-full border-0"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </Card>
+  );
 }

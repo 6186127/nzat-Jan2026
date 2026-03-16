@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -642,6 +643,8 @@ public class GmailAuthController : ControllerBase
                     attachment.FileName,
                     attachment.FileName,
                     attachmentSource == "pdf" ? "pdf" : attachmentSource == "image" ? "image" : "text",
+                    attachment.AttachmentId,
+                    attachment.MimeType,
                     excludedValue: log.CorrelationId);
 
                 if (attachmentSource == "image" &&
@@ -679,6 +682,8 @@ public class GmailAuthController : ControllerBase
                                 attachment.FileName,
                                 attachment.FileName,
                                 "image",
+                                attachment.AttachmentId,
+                                attachment.MimeType,
                                 excludedValue: log.CorrelationId);
                     }
                 }
@@ -698,6 +703,21 @@ public class GmailAuthController : ControllerBase
                     continue;
 
                 var pdfText = TryExtractPdfText(cachedPath);
+                var pdfDetectionLabel = $"Matched in PDF attachment (text layer): {attachment.FileName}";
+                var pdfPreviewLabel = $"{attachment.FileName} · PDF text";
+                if (string.IsNullOrWhiteSpace(pdfText))
+                {
+                    var pdfPreviewPath = await RenderPdfPreviewForOcrAsync(cachedPath, ct);
+                    if (!string.IsNullOrWhiteSpace(pdfPreviewPath) && System.IO.File.Exists(pdfPreviewPath))
+                    {
+                        pdfText = await _imageOcrService.ExtractTextAsync(pdfPreviewPath, ct);
+                        if (!string.IsNullOrWhiteSpace(pdfText))
+                        {
+                            pdfDetectionLabel = $"Matched in PDF attachment (OCR): {attachment.FileName}";
+                            pdfPreviewLabel = $"{attachment.FileName} · PDF OCR";
+                        }
+                    }
+                }
                 if (string.IsNullOrWhiteSpace(pdfText))
                     continue;
 
@@ -709,10 +729,12 @@ public class GmailAuthController : ControllerBase
                     pdfText,
                     "pdf",
                     88,
-                    $"Matched in PDF attachment: {attachment.FileName}",
-                    attachment.FileName,
+                    pdfDetectionLabel,
+                    pdfPreviewLabel,
                     attachment.FileName,
                     "pdf",
+                    attachment.AttachmentId,
+                    attachment.MimeType,
                     excludedValue: log.CorrelationId);
             }
         }
@@ -736,6 +758,8 @@ public class GmailAuthController : ControllerBase
         string previewLabel,
         string? attachmentFileName = null,
         string previewType = "text",
+        string? attachmentId = null,
+        string? attachmentMimeType = null,
         string? excludedValue = null)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -746,12 +770,19 @@ public class GmailAuthController : ControllerBase
             if (IsExcludedPoMatch(match.NormalizedPoNumber, excludedValue))
                 continue;
 
-            var key = match.NormalizedPoNumber;
+            var key = string.Join(
+                "|",
+                match.NormalizedPoNumber,
+                source,
+                previewLabel,
+                attachmentFileName ?? "",
+                attachmentId ?? "",
+                gmailMessageId ?? "");
             if (!seen.Add(key))
                 continue;
 
             detections.Add(new PoDetectionResponse(
-                Id: $"po-{SanitizeDetectionKey(match.NormalizedPoNumber)}",
+                Id: $"po-{SanitizeDetectionKey(key)}",
                 PoNumber: match.PoNumber,
                 Source: source,
                 Confidence: confidence,
@@ -762,6 +793,8 @@ public class GmailAuthController : ControllerBase
                 GmailMessageId: gmailMessageId ?? "",
                 GmailThreadId: gmailThreadId ?? "",
                 AttachmentFileName: attachmentFileName ?? "",
+                AttachmentId: attachmentId ?? "",
+                AttachmentMimeType: attachmentMimeType ?? "",
                 TimestampSort: detections.Count + 1));
         }
     }
@@ -775,7 +808,9 @@ public class GmailAuthController : ControllerBase
         var patterns = new[]
         {
             @"\bP(?:\.|\s*)?O(?:\.|\s*)?#?\s*[:\-]?\s*(?=[A-Z0-9\-\/]*\d)[A-Z0-9][A-Z0-9\-\/]{1,30}\b",
+            @"\bP(?:\.|\s*)?O(?:\.|\s*)?\s+Number\s*[:\-]?\s*(?=[A-Z0-9\-\/]*\d)[A-Z0-9][A-Z0-9\-\/]{1,40}\b",
             @"\bPurchase\s+Order\s*[:#-]?\s*(?=[A-Z0-9\-\/]*\d)[A-Z0-9][A-Z0-9\-\/]{1,30}\b",
+            @"\b[A-Z0-9]+-CPO-\d{3,}\b",
         };
 
         foreach (var pattern in patterns)
@@ -852,6 +887,63 @@ public class GmailAuthController : ControllerBase
         }
     }
 
+    private async Task<string?> RenderPdfPreviewForOcrAsync(string pdfPath, CancellationToken ct)
+    {
+        if (!_imageOcrService.IsEnabled || !OperatingSystem.IsMacOS() || !System.IO.File.Exists(pdfPath) || !System.IO.File.Exists("/usr/bin/qlmanage"))
+            return null;
+
+        var previewDirectory = Path.Combine(_environment.ContentRootPath, "App_Data", "pdf-ocr-previews");
+        Directory.CreateDirectory(previewDirectory);
+
+        var expectedPrefix = Path.GetFileName(pdfPath);
+        var existingPreview = Directory.GetFiles(previewDirectory, $"{expectedPrefix}*.png")
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(existingPreview) && System.IO.File.Exists(existingPreview))
+            return existingPreview;
+
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "/usr/bin/qlmanage",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        process.StartInfo.ArgumentList.Add("-t");
+        process.StartInfo.ArgumentList.Add("-s");
+        process.StartInfo.ArgumentList.Add("2000");
+        process.StartInfo.ArgumentList.Add("-o");
+        process.StartInfo.ArgumentList.Add(previewDirectory);
+        process.StartInfo.ArgumentList.Add(pdfPath);
+
+        process.Start();
+        try
+        {
+            await process.WaitForExitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        if (process.ExitCode != 0)
+            return null;
+
+        return Directory.GetFiles(previewDirectory, $"{expectedPrefix}*.png")
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(path => System.IO.File.Exists(path));
+    }
+
     private static string SanitizeDetectionKey(string value)
     {
         var safe = System.Text.RegularExpressions.Regex.Replace(value, @"[^A-Z0-9]+", "-", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -879,6 +971,8 @@ public class GmailAuthController : ControllerBase
         string GmailMessageId,
         string GmailThreadId,
         string AttachmentFileName,
+        string AttachmentId,
+        string AttachmentMimeType,
         long TimestampSort);
 
     private async Task UpsertMessageLogAsync(

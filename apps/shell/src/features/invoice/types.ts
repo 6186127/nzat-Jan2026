@@ -82,6 +82,10 @@ export type PoDetection = {
   evidencePreview: string;
   previewLabel: string;
   previewType: "pdf" | "image" | "text";
+  gmailMessageId?: string;
+  attachmentFileName?: string;
+  attachmentId?: string;
+  attachmentMimeType?: string;
   status: "pending" | "confirmed" | "rejected";
 };
 
