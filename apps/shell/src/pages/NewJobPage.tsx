@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { AlertCircle, ArrowLeft, Boxes, FileText, Plus, ReceiptText, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, FileText, Loader2, Plus, ReceiptText, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Alert, Button, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
@@ -41,7 +41,8 @@ export function NewJobPage() {
   const [paintPanels, setPaintPanels] = useState("1");
   const [partsDescriptions, setPartsDescriptions] = useState<string[]>([""]);
   const [mechOptions, setMechOptions] = useState<MechOptionId[]>([]);
-  const [formAlert, setFormAlert] = useState<{ variant: "error" | "success"; message: string } | null>(
+  const [saving, setSaving] = useState(false);
+  const [formAlert, setFormAlert] = useState<{ variant: "error" | "success" | "warning"; message: string } | null>(
     null
   );
   const autoNotesRef = useRef("");
@@ -329,6 +330,7 @@ export function NewJobPage() {
   };
 
   const handleSave = async () => {
+    if (saving) return;
     setFormAlert(null);
     if (!rego) {
       setFormAlert({ variant: "error", message: "请输入车牌号" });
@@ -398,7 +400,7 @@ export function NewJobPage() {
 
 
     try {
-      
+      setSaving(true);
       const res = await fetch(withApiBase("/api/newJob"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -421,14 +423,26 @@ export function NewJobPage() {
         throw new Error(data?.error || "工单保存失败，请稍后重试");
       }
 
-      // console.log("++++++++++++++++++++job created", data);
-      setFormAlert({ variant: "success", message: "工单保存成功！" });
-      toast.success("工单保存成功！");
+     
+      const invoiceCreated = data?.invoiceCreated === true;
+      const invoiceError = typeof data?.invoiceError === "string" ? data.invoiceError : "";
       const createdId = data?.jobId ? String(data.jobId) : "";
-      if (createdId) {
-        navigate(`/jobs/${createdId}`);
+
+      if (invoiceCreated) {
+        setFormAlert({ variant: "success", message: "工单和 Invoice 已创建成功！" });
+        toast.success("工单和 Invoice 已创建成功！");
+        if (createdId) {
+          navigate(`/jobs/${createdId}`);
+        } else {
+          navigate("/jobs");
+        }
       } else {
-        navigate("/jobs");
+        const message = invoiceError
+          ? `工单已创建（Job ID: ${createdId || "未知"}），但 Invoice 创建失败：${invoiceError}`
+          : `工单已创建（Job ID: ${createdId || "未知"}），但 Invoice 没有创建成功。`;
+        setFormAlert({ variant: "warning", message });
+        toast.error(message);
+        console.log("======error======", message);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "工单保存失败，请稍后重试");
@@ -436,6 +450,8 @@ export function NewJobPage() {
         variant: "error",
         message: err instanceof Error ? err.message : "工单保存失败，请稍后重试",
       });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -657,8 +673,14 @@ export function NewJobPage() {
             </div>
           </SectionCard>
           <div className="flex justify-end">
-            <Button variant="primary" className="w-[80px] justify-center text-center" onClick={handleSave}>
-              保存
+            <Button
+              variant="primary"
+              className="w-[112px] justify-center gap-2 text-center disabled:cursor-not-allowed disabled:bg-[rgba(0,0,0,0.18)] disabled:text-white/80"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {saving ? "保存中" : "保存"}
             </Button>
           </div>
         </div>

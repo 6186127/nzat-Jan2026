@@ -159,22 +159,38 @@ public sealed class XeroInvoiceService
                         ContactNumber = TrimOrNull(request.Contact.ContactNumber),
                     },
                     LineItems = request.LineItems
-                        .Select(item => new XeroLineItem
-                        {
-                            Description = item.Description.Trim(),
-                            Quantity = item.Quantity,
-                            UnitAmount = item.UnitAmount,
-                            LineAmount = item.LineAmount,
-                            ItemCode = TrimOrNull(item.ItemCode),
-                            AccountCode = TrimOrNull(item.AccountCode),
-                            TaxType = TrimOrNull(item.TaxType),
-                            TaxAmount = item.TaxAmount,
-                            DiscountRate = item.DiscountRate,
-                            DiscountAmount = item.DiscountAmount,
-                        })
+                        .Select(MapLineItem)
                         .ToList(),
                 },
             ],
+        };
+    }
+
+    private static XeroLineItem MapLineItem(XeroInvoiceLineItemInput item)
+    {
+        var itemCode = TrimOrNull(item.ItemCode);
+        if (!string.IsNullOrWhiteSpace(itemCode))
+        {
+            return new XeroLineItem
+            {
+                ItemCode = itemCode,
+                Quantity = item.Quantity ?? 1m,
+                DiscountRate = item.DiscountRate,
+                DiscountAmount = item.DiscountAmount,
+            };
+        }
+
+        return new XeroLineItem
+        {
+            Description = TrimOrNull(item.Description),
+            Quantity = item.Quantity,
+            UnitAmount = item.UnitAmount,
+            LineAmount = item.LineAmount,
+            AccountCode = TrimOrNull(item.AccountCode),
+            TaxType = TrimOrNull(item.TaxType),
+            TaxAmount = item.TaxAmount,
+            DiscountRate = item.DiscountRate,
+            DiscountAmount = item.DiscountAmount,
         };
     }
 
@@ -262,7 +278,7 @@ public sealed class XeroInvoiceService
     private sealed class XeroLineItem
     {
         [JsonPropertyName("Description")]
-        public string Description { get; set; } = "";
+        public string? Description { get; set; }
 
         [JsonPropertyName("Quantity")]
         public decimal? Quantity { get; set; }

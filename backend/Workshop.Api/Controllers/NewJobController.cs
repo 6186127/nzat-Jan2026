@@ -168,6 +168,38 @@ catch (Exception ex)
             await _db.SaveChangesAsync(ct);
         }
 
+        if (wofCreated)
+        {
+            var existingWofRecord = await _db.JobWofRecords.AsNoTracking()
+                .AnyAsync(x => x.JobId == job.Id, ct);
+
+            if (!existingWofRecord)
+            {
+                var makeModel = string.Join(' ', new[] { vehicle.Make, vehicle.Model }
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!.Trim()));
+
+                _db.JobWofRecords.Add(new JobWofRecord
+                {
+                    JobId = job.Id,
+                    OccurredAt = now,
+                    Rego = vehicle.Plate,
+                    MakeModel = string.IsNullOrWhiteSpace(makeModel) ? null : makeModel,
+                    Odo = vehicle.Odometer?.ToString(),
+                    RecordState = WofRecordState.Pass,
+                    IsNewWof = true,
+                    OrganisationName = "Workshop",
+                    ExcelRowNo = 0,
+                    SourceFile = "new-job",
+                    Note = "Auto-created from new job WOF service selection.",
+                    WofUiState = WofUiState.Pass,
+                    ImportedAt = now,
+                    UpdatedAt = now,
+                });
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
         await tx.CommitAsync(ct);
 
         if (job.NeedsPo)

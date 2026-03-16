@@ -56,11 +56,13 @@ public sealed class JobInvoiceService
             .Where(x => x.JobId == jobId)
             .OrderBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(ct);
+        var hasWofRecord = await _db.JobWofRecords.AsNoTracking()
+            .AnyAsync(x => x.JobId == jobId, ct);
 
         CreateXeroInvoiceRequest request;
         try
         {
-            request = BuildCreateRequest(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService);
+            request = await BuildCreateRequestAsync(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService, hasWofRecord, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -141,7 +143,7 @@ public sealed class JobInvoiceService
                     LineAmount = item.LineAmount,
                     ItemCode = item.ItemCode?.Trim(),
                     AccountCode = item.AccountCode?.Trim(),
-                    TaxType = item.TaxType?.Trim(),
+                    TaxType = NormalizeXeroTaxType(item.TaxType),
                     TaxAmount = item.TaxAmount,
                     DiscountRate = item.DiscountRate,
                     DiscountAmount = item.DiscountAmount,
@@ -224,7 +226,7 @@ public sealed class JobInvoiceService
                     LineAmount = item.LineAmount,
                     ItemCode = item.ItemCode?.Trim(),
                     AccountCode = item.AccountCode?.Trim(),
-                    TaxType = item.TaxType?.Trim(),
+                    TaxType = NormalizeXeroTaxType(item.TaxType),
                     TaxAmount = item.TaxAmount,
                     DiscountRate = item.DiscountRate,
                     DiscountAmount = item.DiscountAmount,
@@ -250,13 +252,15 @@ public sealed class JobInvoiceService
         return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true, requestBody: request);
     }
 
-    private static CreateXeroInvoiceRequest BuildCreateRequest(
+    private async Task<CreateXeroInvoiceRequest> BuildCreateRequestAsync(
         Job job,
         Customer customer,
         Vehicle vehicle,
         IReadOnlyList<JobMechService> mechServices,
         IReadOnlyList<JobPartsService> partsServices,
-        JobPaintService? paintService)
+        JobPaintService? paintService,
+        bool hasWofRecord,
+        CancellationToken ct)
     {
         var reference = BuildReference(customer);
         var contactName = BuildContactName(customer, vehicle);
@@ -265,8 +269,22 @@ public sealed class JobInvoiceService
 
         var lineItems = new List<XeroInvoiceLineItemInput>();
 
+        var wofItem = await BuildWofLineItemAsync(hasWofRecord, customer, ct);
+        if (wofItem is not null)
+            lineItems.Add(wofItem);
+
+        var oilServiceItem = await BuildOilServiceLineItemAsync(customer, vehicle, mechServices, ct);
+        if (oilServiceItem is not null)
+            lineItems.Add(oilServiceItem);
+
+        var brakeServiceItem = await BuildBrakeServiceLineItemAsync(mechServices, ct);
+        if (brakeServiceItem is not null)
+            lineItems.Add(brakeServiceItem);
+
         lineItems.AddRange(mechServices
-            .Where(x => !string.IsNullOrWhiteSpace(x.Description))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Description) &&
+                        !IsOilServiceDescription(x.Description) &&
+                        !IsBrakeServiceDescription(x.Description))
             .Select(x => new XeroInvoiceLineItemInput
             {
                 Description = x.Description.Trim(),
@@ -329,6 +347,267 @@ public sealed class JobInvoiceService
             },
             LineItems = lineItems,
         };
+    }
+
+    private sealed record OilServiceRule(
+        string? MakeContains,
+        string ModelContains,
+        string? FuelType,
+        string ItemCode);
+
+    private static readonly IReadOnlyList<OilServiceRule> ExplicitOilServiceRules =
+    [
+        new(null, "xtrail", null, "Xtrail-fasst-services"),
+        new("ford", "ranger", "Diesel", "C3 Fasst 4L-4.9L Services"),
+        new("mitsubishi", "outlander", "Diesel", "C3 Fasst 4L-4.9L Services"),
+        new("kia", "stinger", "Petrol", "SN Fasst 5.6L-6L Services"),
+        new("volkswagen", "golf", "Petrol", "SN Fasst 4.1L-4.3L Services"),
+        new("audi", "q2", "Petrol", "SN Fasst 4L Services"),
+        new("mitsubishi", "eclipse cross", "Petrol", "SN Fasst 4L Services"),
+        new("suzuki", "swift", "Petrol", "SN Fasst 4L Services"),
+    ];
+
+    private async Task<XeroInvoiceLineItemInput?> BuildOilServiceLineItemAsync(
+        Customer customer,
+        Vehicle vehicle,
+        IReadOnlyList<JobMechService> mechServices,
+        CancellationToken ct)
+    {
+        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsOilServiceDescription(x.Description)))
+            return null;
+
+        var itemCode = ResolveOilServiceItemCode(customer, vehicle);
+        if (string.IsNullOrWhiteSpace(itemCode))
+            return null;
+
+        var inventoryItem = await _db.InventoryItems.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
+
+        if (inventoryItem is not null)
+        {
+            return new XeroInvoiceLineItemInput
+            {
+                ItemCode = inventoryItem.ItemCode,
+                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
+                    ? inventoryItem.ItemName
+                    : inventoryItem.SalesDescription,
+                Quantity = 1m,
+                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
+                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
+                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
+            };
+        }
+
+        return new XeroInvoiceLineItemInput
+        {
+            ItemCode = itemCode,
+            Description = "Services",
+            Quantity = 1m,
+        };
+    }
+
+    private async Task<XeroInvoiceLineItemInput?> BuildBrakeServiceLineItemAsync(
+        IReadOnlyList<JobMechService> mechServices,
+        CancellationToken ct)
+    {
+        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsBrakeServiceDescription(x.Description)))
+            return null;
+
+        const string itemCode = "BRAKE";
+        var inventoryItem = await _db.InventoryItems.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
+
+        if (inventoryItem is not null)
+        {
+            return new XeroInvoiceLineItemInput
+            {
+                ItemCode = inventoryItem.ItemCode,
+                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
+                    ? inventoryItem.ItemName
+                    : inventoryItem.SalesDescription,
+                Quantity = 1m,
+                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
+                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
+                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
+            };
+        }
+
+        return new XeroInvoiceLineItemInput
+        {
+            ItemCode = itemCode,
+            Description = "FRONT/REAR BRAKE PADS &REPLACEMENT",
+            Quantity = 1m,
+        };
+    }
+
+    private async Task<XeroInvoiceLineItemInput?> BuildWofLineItemAsync(bool hasWofRecord, Customer customer, CancellationToken ct)
+    {
+        if (!hasWofRecord)
+            return null;
+
+        var itemCode = ResolveWofItemCode(customer);
+        var inventoryItem = await _db.InventoryItems.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
+
+        if (inventoryItem is not null)
+        {
+            return new XeroInvoiceLineItemInput
+            {
+                ItemCode = inventoryItem.ItemCode,
+                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
+                    ? inventoryItem.ItemName
+                    : inventoryItem.SalesDescription,
+                Quantity = 1m,
+                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
+                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
+                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
+            };
+        }
+
+        return itemCode switch
+        {
+            "WOF" => new XeroInvoiceLineItemInput
+            {
+                ItemCode = "WOF",
+                Description = "WOF Inspection",
+                Quantity = 1m,
+                UnitAmount = 60.00m,
+                AccountCode = "208",
+                TaxType = "OUTPUT2",
+            },
+            "WOF-FASST" => new XeroInvoiceLineItemInput
+            {
+                ItemCode = "WOF-FASST",
+                Description = "WOF Inspection",
+                Quantity = 1m,
+                UnitAmount = 43.48m,
+                AccountCode = "208",
+                TaxType = "OUTPUT2",
+            },
+            _ => new XeroInvoiceLineItemInput
+            {
+                ItemCode = "WOF-DEALERSHIP",
+                Description = "WOF Inspection",
+                Quantity = 1m,
+                UnitAmount = 43.48m,
+                AccountCode = "208",
+                TaxType = "OUTPUT2",
+            },
+        };
+    }
+
+    private static bool IsOilServiceDescription(string description)
+    {
+        var normalized = description.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return false;
+
+        return normalized.Contains("换机油", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("engine oil", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("oil service", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "oil", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "service", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsBrakeServiceDescription(string description)
+    {
+        var normalized = description.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return false;
+
+        return normalized.Contains("刹车", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("brake", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("brake pad", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains("pads", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeXeroTaxType(string? value)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return null;
+
+        return normalized switch
+        {
+            "15% GST on Income" => "OUTPUT2",
+            "15% GST on Expenses" => "INPUT2",
+            "No GST" => "NONE",
+            _ when normalized.Contains(' ') || normalized.Contains('%') => null,
+            _ => normalized,
+        };
+    }
+
+    private static string? ResolveOilServiceItemCode(Customer customer, Vehicle vehicle)
+    {
+        var make = (vehicle.Make ?? "").Trim();
+        var model = (vehicle.Model ?? "").Trim();
+        var fuelType = vehicle.FuelType?.Trim();
+
+        if (string.Equals(fuelType, "Electric", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        foreach (var rule in ExplicitOilServiceRules)
+        {
+            if (!string.IsNullOrWhiteSpace(rule.MakeContains) &&
+                !make.Contains(rule.MakeContains, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!model.Contains(rule.ModelContains, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.IsNullOrWhiteSpace(rule.FuelType) &&
+                !string.Equals(fuelType, rule.FuelType, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return rule.ItemCode;
+        }
+
+        var businessCode = customer.BusinessCode?.Trim();
+        if (!string.Equals(businessCode, "FAS", StringComparison.OrdinalIgnoreCase))
+        {
+            return "203-Services";
+        }
+
+        var isC3 = string.Equals(fuelType, "Diesel", StringComparison.OrdinalIgnoreCase);
+        var cc = vehicle.CcRating ?? 0;
+
+        if (cc <= 0)
+            return isC3 ? "C3 Fasst 4L-4.9L Services" : "SN Fasst 4L Services";
+
+        if (isC3)
+        {
+            return cc switch
+            {
+                > 5900 => "C3 Fasst 6L-6.9L Services",
+                > 4900 => "C3 Fasst 5L-5.9L Services",
+                _ => "C3 Fasst 4L-4.9L Services",
+            };
+        }
+
+        return cc switch
+        {
+            <= 1800 => "SN Fasst 4L Services",
+            <= 2200 => "SN Fasst 4.1L-4.3L Services",
+            <= 2600 => "SN Fasst 4.5L Services",
+            <= 3200 => "SN Fasst 5L-5.5L Services",
+            <= 4000 => "SN Fasst 5.6L-6L Services",
+            <= 5000 => "SN Fasst 6L-7L Services",
+            _ => "SN Fasst 7L-8L Services",
+        };
+    }
+
+    private static string ResolveWofItemCode(Customer customer)
+    {
+        if (string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
+            return "WOF";
+
+        return string.Equals(customer.BusinessCode?.Trim(), "FAS", StringComparison.OrdinalIgnoreCase)
+            ? "WOF-FASST"
+            : "WOF-DEALERSHIP";
     }
 
     private static string BuildReference(Customer customer)
