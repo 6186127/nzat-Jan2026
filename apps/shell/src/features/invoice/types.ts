@@ -3,7 +3,9 @@ export type InvoiceStatus =
   | "Awaiting PO"
   | "PO Received"
   | "Awaiting Payment"
-  | "Authorised";
+  | "Paid";
+
+export type XeroInvoiceStatus = "DRAFT" | "AUTHORISED" | "PAID" | "UNKNOWN";
 
 export type AmountsAre = "Tax Exclusive" | "Tax Inclusive" | "No Tax";
 
@@ -95,6 +97,18 @@ export type WorkflowStep = {
   description: string;
 };
 
+export type ReferencePreviewSource = {
+  kind: "po-detection";
+  poNumber: string;
+  label: string;
+  previewType: "pdf" | "image" | "text";
+  gmailMessageId?: string;
+  attachmentFileName?: string;
+  attachmentId?: string;
+  attachmentMimeType?: string;
+  body?: string;
+};
+
 export type MerchantEmailRecipient = {
   email: string;
   kind: "business" | "staff";
@@ -112,6 +126,7 @@ export type InvoiceDashboardState = {
   amountsAre: AmountsAre;
   xeroInvoiceId: string;
   status: InvoiceStatus;
+  xeroStatus: XeroInvoiceStatus;
   lastSyncTime: string;
   lastSyncDirection: SyncDirection;
   synced: boolean;

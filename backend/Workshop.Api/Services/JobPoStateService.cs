@@ -154,12 +154,13 @@ public sealed class JobPoStateService
         state.LastSupplierReplyAt = lastReplyAt;
         state.LastSupplierReplyMessageId = lastReply?.GmailMessageId;
         state.FollowUpCount = reminderLogsInCurrentRound.Count;
-        state.FollowUpEnabled = true;
         state.NextFollowUpDueAt = null;
         state.RequiresAdminAttention = false;
         state.AdminAttentionReason = null;
         state.LastSyncedAt = DateTime.UtcNow;
         state.UpdatedAt = DateTime.UtcNow;
+
+        var hasDetectedPo = !string.IsNullOrWhiteSpace(state.DetectedPoNumber);
 
         if (!string.IsNullOrWhiteSpace(state.ConfirmedPoNumber))
         {
@@ -168,7 +169,7 @@ public sealed class JobPoStateService
             state.FollowUpCount = 0;
             state.NextFollowUpDueAt = null;
         }
-        else if (lastReplyAfterLatestSentAt.HasValue)
+        else if (hasDetectedPo)
         {
             state.Status = JobPoStateStatus.PendingConfirmation;
             state.FollowUpCount = 0;
@@ -177,6 +178,12 @@ public sealed class JobPoStateService
         }
         else if (lastSentAt.HasValue)
         {
+            if (lastReplyAfterLatestSentAt.HasValue)
+            {
+                state.FollowUpCount = 0;
+                state.LastFollowUpSentAt = null;
+            }
+
             if (state.FollowUpCount >= Math.Max(1, _options.MaxFollowUps))
             {
                 state.Status = JobPoStateStatus.EscalationRequired;
@@ -186,8 +193,11 @@ public sealed class JobPoStateService
             else
             {
                 state.Status = JobPoStateStatus.AwaitingReply;
-                var anchorTime = state.LastFollowUpSentAt ?? lastSentAt;
-                state.NextFollowUpDueAt = _businessHoursService.CalculateNextFollowUpDueAtUtc(anchorTime.Value);
+                if (state.FollowUpEnabled)
+                {
+                    var anchorTime = lastReplyAfterLatestSentAt ?? state.LastFollowUpSentAt ?? lastSentAt;
+                    state.NextFollowUpDueAt = _businessHoursService.CalculateNextFollowUpDueAtUtc(anchorTime.Value);
+                }
             }
         }
         else

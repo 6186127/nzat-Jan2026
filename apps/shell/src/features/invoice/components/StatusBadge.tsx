@@ -1,8 +1,8 @@
-import type { InvoiceStatus, PoSource } from "../types";
+import type { InvoiceStatus, PoSource, XeroInvoiceStatus } from "../types";
 
 type Props = {
-  kind: "invoice" | "source" | "state";
-  value: InvoiceStatus | PoSource | string;
+  kind: "invoice" | "source" | "state" | "xero";
+  value: InvoiceStatus | XeroInvoiceStatus | PoSource | string;
 };
 
 const STYLES: Record<string, string> = {
@@ -11,7 +11,11 @@ const STYLES: Record<string, string> = {
   "Awaiting PO": "bg-amber-100 text-amber-800 border border-amber-200",
   "PO Received": "bg-emerald-100 text-emerald-800 border border-emerald-200",
   "Awaiting Payment": "bg-sky-100 text-sky-800 border border-sky-200",
-  Authorised: "bg-violet-100 text-violet-800 border border-violet-200",
+  Paid: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  DRAFT: "bg-slate-100 text-slate-700 border border-slate-200",
+  AUTHORISED: "bg-violet-100 text-violet-800 border border-violet-200",
+  PAID: "bg-sky-100 text-sky-800 border border-sky-200",
+  UNKNOWN: "bg-slate-100 text-slate-500 border border-slate-200",
   Sent: "bg-emerald-100 text-emerald-800 border border-emerald-200",
   "Email Sent": "bg-emerald-100 text-emerald-800 border border-emerald-200",
   "首封发送": "bg-emerald-100 text-emerald-800 border border-emerald-200",
@@ -41,9 +45,18 @@ const STYLES: Record<string, string> = {
 };
 
 export function StatusBadge({ value }: Props) {
+  const label =
+    value === "DRAFT"
+      ? "Draft"
+      : value === "AUTHORISED"
+        ? "Awaiting Payment"
+        : value === "PAID"
+          ? "Paid"
+          : value;
+
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STYLES[value] ?? STYLES.Draft}`}>
-      {value}
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${STYLES[label] ?? STYLES[value] ?? STYLES.Draft}`}>
+      {label}
     </span>
   );
 }

@@ -155,6 +155,17 @@ export function MainColumn({
   });
   const needsPo = Boolean(jobData.needsPo);
 
+  const handleTabChange = (nextTab: JobDetailTabKey) => {
+    if (!invoiceDashboard.draftDirty) {
+      onTabChange(nextTab);
+      return;
+    }
+
+    void invoiceDashboard.confirmSaveBeforeLeaving().then((shouldProceed) => {
+      if (shouldProceed) onTabChange(nextTab);
+    });
+  };
+
   const tabs = useMemo(() => {
     const base: { key: JobDetailTabKey; label: ReactNode }[] = [
       { key: "WOF", label: JOB_DETAIL_TEXT.tabs.wof },
@@ -189,15 +200,15 @@ export function MainColumn({
 
   useEffect(() => {
     if (activeTab === "Parts" && !hasPartsServices && !partsTabVisibleForCreate) {
-      onTabChange("Mechanical");
+      handleTabChange("Mechanical");
     }
-  }, [activeTab, hasPartsServices, onTabChange, partsTabVisibleForCreate]);
+  }, [activeTab, hasPartsServices, partsTabVisibleForCreate]);
 
   useEffect(() => {
     if (activeTab === "PO" && !needsPo) {
-      onTabChange("Invoice");
+      handleTabChange("Invoice");
     }
-  }, [activeTab, needsPo, onTabChange]);
+  }, [activeTab, needsPo]);
 
   useEffect(() => {
     if (activeTab === "PO" && invoiceDashboard.unreadReplyCount > 0) {
@@ -254,7 +265,7 @@ export function MainColumn({
 
       <Card className="p-4">
         <div className="flex items-start justify-between gap-3">
-          <JobTabs activeTab={activeTab} onChange={onTabChange} tabs={tabs} />
+              <JobTabs activeTab={activeTab} onChange={handleTabChange} tabs={tabs} />
           <Button
             variant="ghost"
             className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-base font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
@@ -262,7 +273,7 @@ export function MainColumn({
             onClick={() => {
               setPartsTabVisibleForCreate(true);
               setPartsCreateTrigger((prev) => prev + 1);
-              onTabChange("Parts");
+              handleTabChange("Parts");
             }}
           >
             添加配件
@@ -345,6 +356,36 @@ export function MainColumn({
         ) : null}
         {activeTab === "PO" && needsPo ? <PoPanel model={invoiceDashboard} /> : null}
       </Card>
+
+      {invoiceDashboard.leavePromptOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="text-lg font-semibold text-[var(--ds-primary)]">Invoice changes not saved</div>
+            <p className="mt-2 text-sm leading-6 text-[var(--ds-muted)]">
+              You have invoice changes that have not been confirmed yet. Choose whether to keep the current changes or cancel them before leaving this page.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              {/* <Button variant="ghost" className="h-10 px-4" onClick={() => invoiceDashboard.resolveLeavePrompt("stay")}>
+                Stay Here
+              </Button> */}
+              <Button
+                variant="ghost"
+                className="h-10 border-[var(--ds-border)] px-4"
+                onClick={() => invoiceDashboard.resolveLeavePrompt("discard")}
+              >
+                Cancel Changes
+              </Button>
+              <Button  variant="ghost" 
+              
+        className="h-10 px-4 !bg-red-600 !text-white"
+              
+              onClick={() => invoiceDashboard.resolveLeavePrompt("save")}>
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

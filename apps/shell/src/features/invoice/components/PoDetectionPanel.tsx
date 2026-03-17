@@ -58,7 +58,6 @@ export function PoDetectionPanel({
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-sm font-semibold text-slate-700">
               <th className="px-4 py-4">PO Number</th>
               <th className="px-4 py-4">Source</th>
-              <th className="px-4 py-4">Confidence Score</th>
               <th className="px-4 py-4">Evidence Preview</th>
               <th className="px-4 py-4">Preview</th>
               <th className="px-4 py-4 text-right">Actions</th>
@@ -81,11 +80,6 @@ export function PoDetectionPanel({
                 <td className={`px-4 py-4 text-sm font-semibold ${isConfirmed ? "text-slate-500" : "text-slate-900"}`}>{detection.poNumber}</td>
                 <td className="px-4 py-4">
                   <StatusBadge kind="source" value={detection.source} />
-                </td>
-                <td className={`px-4 py-4 text-sm font-semibold ${
-                  isConfirmed ? "text-slate-500" : detection.confidence >= 90 ? "text-emerald-600" : "text-amber-600"
-                }`}>
-                  {detection.confidence}%
                 </td>
                 <td className="px-4 py-4">
                   <button

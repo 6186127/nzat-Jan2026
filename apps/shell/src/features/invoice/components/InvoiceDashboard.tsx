@@ -12,8 +12,8 @@ const invoiceWorkflowSteps: WorkflowStep[] = [
   { id: 5, title: "PO Extracted", description: "PO number detected" },
   { id: 6, title: "PO Confirmed", description: "PO verified and approved" },
   { id: 7, title: "Reference Updated", description: "Updated in Xero" },
-  { id: 8, title: "Authorised", description: "Invoice approved" },
-  { id: 9, title: "Awaiting Payment", description: "Pending payment" },
+  { id: 8, title: "Awaiting Payment", description: "Invoice approved and waiting for payment" },
+  { id: 9, title: "Paid", description: "Payment received" },
 ];
 
 function getVisibleWorkflowSteps(needsPo?: boolean) {
@@ -55,11 +55,19 @@ export function InvoiceDashboardContent({
   needsPo?: boolean;
 }) {
   const visibleSteps = getVisibleWorkflowSteps(needsPo);
+  const currentWorkflowStep =
+    model.invoice.xeroStatus === "PAID"
+      ? 9
+      : model.invoice.xeroStatus === "AUTHORISED"
+        ? 8
+        : model.invoice.status === "PO Received"
+          ? Math.max(model.invoice.currentWorkflowStep, 7)
+          : model.invoice.currentWorkflowStep;
 
   return (
     <div className="grid gap-6 lg:grid-cols-12">
       <div className="lg:col-span-3">
-        <WorkflowSidebar steps={visibleSteps} currentStep={model.invoice.currentWorkflowStep} />
+        <WorkflowSidebar steps={visibleSteps} currentStep={currentWorkflowStep} />
       </div>
 
       <div className="space-y-6 lg:col-span-9">
@@ -69,10 +77,14 @@ export function InvoiceDashboardContent({
           taxTotal={model.taxTotal}
           totalAmount={model.totalAmount}
           canSync={model.itemsDirty}
+          canDiscardChanges={model.itemsDirty}
           onSync={model.syncInvoice}
+          onDiscardChanges={() => void model.discardChanges()}
           onRefreshFromXero={model.refreshFromXero}
           onOpenXero={model.openInXero}
+          onSaveReference={model.saveReference}
           isRefreshingFromXero={model.refreshingFromXero}
+          referencePreview={model.referencePreview}
           hasInvoice={hasInvoice}
           onCreateInvoice={onCreateInvoice}
           isCreatingInvoice={isCreatingInvoice}

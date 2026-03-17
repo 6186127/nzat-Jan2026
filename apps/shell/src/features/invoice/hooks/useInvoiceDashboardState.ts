@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useBlocker } from "react-router-dom";
 import { useToast } from "@/components/ui";
 import { requestJson } from "@/utils/api";
+import { notifyPoDashboardRefresh } from "@/utils/refreshSignals";
 import { pullJobXeroDraftInvoice, saveJobInvoiceDraft, syncJobXeroDraftInvoice, updateJobPoSelection } from "@/features/jobDetail/api/jobDetailApi";
 import type {
   EmailState,
@@ -9,8 +11,10 @@ import type {
   InvoiceItem,
   MerchantEmailRecipient,
   PoDetection,
+  ReferencePreviewSource,
   TaxRateOption,
   XeroItemDefinition,
+  XeroInvoiceStatus,
 } from "../types";
 import type { CustomerInfo, JobInvoiceData, VehicleInfo } from "@/types";
 
@@ -90,6 +94,7 @@ const initialInvoiceState: InvoiceDashboardState = {
   amountsAre: "Tax Inclusive",
   xeroInvoiceId: "",
   status: "Awaiting PO",
+  xeroStatus: "UNKNOWN",
   lastSyncTime: "",
   lastSyncDirection: "Xero -> System",
   synced: false,
@@ -111,6 +116,7 @@ const initialInvoiceState: InvoiceDashboardState = {
 };
 
 const initialItemCatalog: XeroItemDefinition[] = [];
+const EDITABLE_XERO_STATUSES: XeroInvoiceStatus[] = ["DRAFT", "AUTHORISED"];
 
 function mergeEmailStates(current: EmailState[], add: EmailState[], remove: EmailState[] = []): EmailState[] {
   const next = new Set(current);
@@ -135,18 +141,55 @@ type UseInvoiceDashboardStateArgs = {
   persistedInvoice?: JobInvoiceData | null;
 };
 
+type InvoiceSnapshot = {
+  invoice: InvoiceDashboardState;
+  items: InvoiceItem[];
+};
+
+type LeavePromptDecision = "save" | "discard" | "stay";
+
 function mapExternalStatus(status?: string | null): InvoiceDashboardState["status"] {
   const normalized = status?.trim().toUpperCase();
   switch (normalized) {
     case "AUTHORISED":
       return "Awaiting Payment";
     case "PAID":
-      return "Awaiting Payment";
+      return "Paid";
     case "DRAFT":
       return "Draft";
     default:
       return "Awaiting PO";
   }
+}
+
+function mapXeroStatus(status?: string | null): XeroInvoiceStatus {
+  const normalized = status?.trim().toUpperCase();
+  switch (normalized) {
+    case "DRAFT":
+      return "DRAFT";
+    case "AUTHORISED":
+      return "AUTHORISED";
+    case "PAID":
+      return "PAID";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function resolveInvoiceStatus(status?: string | null, poNumber?: string | null): InvoiceDashboardState["status"] {
+  const mapped = mapExternalStatus(status);
+  if (mapped === "Awaiting Payment") return mapped;
+  if ((poNumber ?? "").trim()) return "PO Received";
+  return mapped;
+}
+
+function resolveWorkflowStep(status?: string | null, poNumber?: string | null, hasInvoice?: boolean): number {
+  const normalizedStatus = status?.trim().toUpperCase();
+  if (normalizedStatus === "PAID") return 9;
+  if (normalizedStatus === "AUTHORISED") return 8;
+  if ((poNumber ?? "").trim()) return 7;
+  if (hasInvoice) return 2;
+  return 1;
 }
 
 function parsePersistedItems(invoice?: JobInvoiceData | null): InvoiceItem[] {
@@ -235,6 +278,7 @@ export function useInvoiceDashboardState({
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
   const [refreshingFromXero, setRefreshingFromXero] = useState(false);
+  const [leavePromptOpen, setLeavePromptOpen] = useState(false);
   const [pendingFocusRowId, setPendingFocusRowId] = useState<string | null>(null);
   const [manualPoNumber, setManualPoNumber] = useState("");
   const [poPanelLoading, setPoPanelLoading] = useState(true);
@@ -243,10 +287,41 @@ export function useInvoiceDashboardState({
   const [merchantRecipientsLoading, setMerchantRecipientsLoading] = useState(true);
   const [savedPoNumber, setSavedPoNumber] = useState(persistedPoNumber?.trim() || "");
   const [savedInvoiceReference, setSavedInvoiceReference] = useState(persistedInvoiceReference?.trim() || "");
+  const blocker = useBlocker(draftDirty || itemsDirty);
+  const syncedSnapshotRef = useRef<InvoiceSnapshot>({
+    invoice: initialInvoiceState,
+    items: parsePersistedItems(persistedInvoice),
+  });
+  const leavePromptResolverRef = useRef<((decision: LeavePromptDecision) => void) | null>(null);
   const resolvedCorrelationId = useMemo(() => buildCorrelationId(jobId, vehicle), [jobId, vehicle]);
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + getBaseAmount(item), 0), [items]);
   const taxTotal = useMemo(() => items.reduce((sum, item) => sum + getTaxAmount(item), 0), [items]);
   const totalAmount = useMemo(() => subtotal + taxTotal, [subtotal, taxTotal]);
+  const referencePreview = useMemo<ReferencePreviewSource | null>(() => {
+    const normalizedPo = savedPoNumber.trim().toUpperCase();
+    if (!normalizedPo) return null;
+    if (!invoice.reference.trim().toUpperCase().includes(normalizedPo)) return null;
+
+    const matchedDetection = detections.find((item) => item.poNumber.trim().toUpperCase() === normalizedPo);
+    if (!matchedDetection) return null;
+
+    const latestReplyBody = timeline
+      .filter((event) => event.type === "reply" && event.body?.trim())
+      .map((event) => event.body?.trim() || "")
+      .find(Boolean);
+
+    return {
+      kind: "po-detection",
+      poNumber: matchedDetection.poNumber,
+      label: matchedDetection.previewLabel || matchedDetection.attachmentFileName || matchedDetection.evidencePreview,
+      previewType: matchedDetection.previewType,
+      gmailMessageId: matchedDetection.gmailMessageId,
+      attachmentFileName: matchedDetection.attachmentFileName,
+      attachmentId: matchedDetection.attachmentId,
+      attachmentMimeType: matchedDetection.attachmentMimeType,
+      body: matchedDetection.previewType === "text" ? latestReplyBody || matchedDetection.evidencePreview : undefined,
+    };
+  }, [detections, savedPoNumber, timeline]);
 
   const buildDraftPayload = () => ({
     lineAmountTypes: "Inclusive",
@@ -263,6 +338,36 @@ export function useInvoiceDashboardState({
       discountRate: item.discount > 0 ? item.discount : undefined,
     })),
   });
+
+  const cloneInvoiceState = (state: InvoiceDashboardState): InvoiceDashboardState => ({
+    ...state,
+    merchantEmails: [...state.merchantEmails],
+    merchantEmailRecipients: state.merchantEmailRecipients.map((recipient) => ({ ...recipient })),
+    emailStates: [...state.emailStates],
+  });
+
+  const cloneItems = (source: InvoiceItem[]) => source.map((item) => ({ ...item }));
+
+  const applySnapshot = (snapshot: InvoiceSnapshot) => {
+    setInvoice(cloneInvoiceState(snapshot.invoice));
+    setItems(cloneItems(snapshot.items));
+    setNextItemId(snapshot.items.length + 1);
+    setItemsDirty(false);
+    setDraftDirty(false);
+    setPendingFocusRowId(null);
+  };
+
+  const requestLeaveDecision = () =>
+    new Promise<LeavePromptDecision>((resolve) => {
+      leavePromptResolverRef.current = resolve;
+      setLeavePromptOpen(true);
+    });
+
+  const resolveLeavePrompt = (decision: LeavePromptDecision) => {
+    setLeavePromptOpen(false);
+    leavePromptResolverRef.current?.(decision);
+    leavePromptResolverRef.current = null;
+  };
 
   const persistDraftToDb = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!jobId) return true;
@@ -282,8 +387,61 @@ export function useInvoiceDashboardState({
         issueDate: savedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: savedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: savedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
+        xeroStatus: mapXeroStatus(savedInvoice?.externalStatus) || prev.xeroStatus,
       }));
       setDraftDirty(false);
+      return true;
+    } finally {
+      setDraftSaving(false);
+    }
+  };
+
+  const confirmSaveBeforeLeaving = async () => {
+    if (!draftDirty && !itemsDirty) return true;
+    const decision = await requestLeaveDecision();
+    if (decision === "stay") return false;
+    if (decision === "discard") {
+      const reverted = await discardChanges({ silent: true });
+      return reverted;
+    }
+    if (!draftDirty) return true;
+    return await persistDraftToDb();
+  };
+
+  const discardChanges = async ({ silent = false }: { silent?: boolean } = {}) => {
+    const snapshot = syncedSnapshotRef.current;
+
+    if (!jobId) {
+      applySnapshot(snapshot);
+      if (!silent) toast.info("Invoice changes discarded");
+      return true;
+    }
+
+    setDraftSaving(true);
+    try {
+      const res = await saveJobInvoiceDraft(jobId, {
+        lineAmountTypes: "Inclusive",
+        date: snapshot.invoice.issueDate || new Date().toISOString().slice(0, 10),
+        reference: snapshot.invoice.reference,
+        contactName: snapshot.invoice.contact,
+        lineItems: snapshot.items.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitAmount: item.unitPrice,
+          itemCode: item.itemCode || undefined,
+          accountCode: item.account || undefined,
+          taxType: item.taxRate,
+          discountRate: item.discount > 0 ? item.discount : undefined,
+        })),
+      });
+
+      if (!res.ok) {
+        if (!silent) toast.error(res.error || "Failed to discard invoice changes");
+        return false;
+      }
+
+      applySnapshot(snapshot);
+      if (!silent) toast.info("Invoice changes discarded");
       return true;
     } finally {
       setDraftSaving(false);
@@ -342,14 +500,14 @@ export function useInvoiceDashboardState({
 
   const syncInvoice = () => {
     if (!itemsDirty || !jobId) return;
-    if (invoice.status !== "Draft") {
-      toast.error("This Xero invoice is no longer Draft. Line item changes cannot be synced from the system.");
+    if (!EDITABLE_XERO_STATUSES.includes(invoice.xeroStatus)) {
+      toast.error("This Xero invoice can no longer accept item changes from the system.");
       return;
     }
 
     const payload = {
       ...buildDraftPayload(),
-      status: "DRAFT",
+      status: invoice.xeroStatus === "AUTHORISED" ? "AUTHORISED" : "DRAFT",
     };
 
     void syncJobXeroDraftInvoice(jobId, payload).then((res) => {
@@ -368,9 +526,10 @@ export function useInvoiceDashboardState({
         issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
+        xeroStatus: mapXeroStatus(syncedInvoice?.externalStatus),
         snapshotTotal: totalAmount,
         synced: true,
-        status: mapExternalStatus(syncedInvoice?.externalStatus) || prev.status,
+        status: resolveInvoiceStatus(syncedInvoice?.externalStatus, savedPoNumber) || prev.status,
         lastSyncTime: syncedInvoice?.updatedAt || now,
         lastSyncDirection: "System -> Xero",
         currentWorkflowStep: Math.max(prev.currentWorkflowStep, 2),
@@ -424,7 +583,8 @@ export function useInvoiceDashboardState({
         issueDate: pulledInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: pulledInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: pulledInvoice?.externalInvoiceId || prev.xeroInvoiceId,
-        status: mapExternalStatus(pulledInvoice?.externalStatus) || prev.status,
+        xeroStatus: mapXeroStatus(pulledInvoice?.externalStatus),
+        status: resolveInvoiceStatus(pulledInvoice?.externalStatus, savedPoNumber) || prev.status,
         synced: true,
         lastSyncTime: pulledInvoice?.updatedAt || now,
         lastSyncDirection: "Xero -> System",
@@ -674,7 +834,6 @@ export function useInvoiceDashboardState({
       const syncRes = await syncJobXeroDraftInvoice(jobId, {
         ...buildDraftPayload(),
         reference: nextReference,
-        status: "DRAFT",
       });
 
       if (!syncRes.ok) {
@@ -692,6 +851,7 @@ export function useInvoiceDashboardState({
       issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
       invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
       xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
+      xeroStatus: mapXeroStatus(syncedInvoice?.externalStatus || "DRAFT"),
       status: "PO Received",
       currentWorkflowStep: Math.max(prev.currentWorkflowStep, 7),
       synced: !xeroSyncFailed && Boolean(syncedInvoice || prev.xeroInvoiceId),
@@ -713,6 +873,46 @@ export function useInvoiceDashboardState({
     if (!xeroSyncFailed) {
       toast.success("Invoice reference updated in Xero");
     }
+    return true;
+  };
+
+  const saveReference = async (nextReferenceRaw: string) => {
+    const nextReference = nextReferenceRaw.trim();
+    if (!jobId) return false;
+    if (!nextReference) {
+      toast.error("Reference cannot be empty");
+      return false;
+    }
+
+    const res = await syncJobXeroDraftInvoice(jobId, {
+      ...buildDraftPayload(),
+      reference: nextReference,
+    });
+
+    if (!res.ok) {
+      toast.error(res.error || "Failed to update reference in Xero");
+      return false;
+    }
+
+    const syncedInvoice = res.data?.invoice;
+    const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
+    setInvoice((prev) => ({
+      ...prev,
+      contact: syncedInvoice?.contactName || prev.contact,
+      reference: syncedInvoice?.reference || nextReference,
+      issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
+      invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
+      xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
+      xeroStatus: mapXeroStatus(syncedInvoice?.externalStatus),
+      status: resolveInvoiceStatus(syncedInvoice?.externalStatus, savedPoNumber) || prev.status,
+      synced: true,
+      lastSyncTime: syncedInvoice?.updatedAt || now,
+      lastSyncDirection: "System -> Xero",
+    }));
+    setSavedInvoiceReference(nextReference);
+    setDraftDirty(false);
+    setItemsDirty(false);
+    toast.success("Reference updated in Xero");
     return true;
   };
 
@@ -747,17 +947,19 @@ export function useInvoiceDashboardState({
   };
 
   useEffect(() => {
-    setInvoice((prev) => ({
-      ...prev,
+    const nextInvoice: InvoiceDashboardState = {
+      ...initialInvoiceState,
       correlationId: resolvedCorrelationId,
-      reference: persistedInvoice?.reference?.trim() || prev.reference,
+      reference: persistedInvoice?.reference?.trim() || "",
       issueDate: persistedInvoice?.invoiceDate || "",
       invoiceNumber: persistedInvoice?.externalInvoiceNumber || "",
       xeroInvoiceId: persistedInvoice?.externalInvoiceId || "",
-      status: persistedInvoice ? mapExternalStatus(persistedInvoice.externalStatus) : savedPoNumber ? "PO Received" : prev.status,
+      status: persistedInvoice ? resolveInvoiceStatus(persistedInvoice.externalStatus, persistedPoNumber) : savedPoNumber ? "PO Received" : initialInvoiceState.status,
+      xeroStatus: persistedInvoice ? mapXeroStatus(persistedInvoice.externalStatus) : initialInvoiceState.xeroStatus,
+      currentWorkflowStep: resolveWorkflowStep(persistedInvoice?.externalStatus, persistedPoNumber ?? savedPoNumber, Boolean(persistedInvoice)),
       synced: Boolean(persistedInvoice),
       lastSyncTime: persistedInvoice?.updatedAt || "",
-      lastSyncDirection: persistedInvoice ? "Xero -> System" : prev.lastSyncDirection,
+      lastSyncDirection: persistedInvoice ? "Xero -> System" : initialInvoiceState.lastSyncDirection,
       selectedMerchantEmail: "",
       merchantEmails: [],
       merchantEmailRecipients: [],
@@ -765,6 +967,10 @@ export function useInvoiceDashboardState({
       lastReplyReceived: "No reply yet",
       lastEmailSent: "",
       nextReminderIn: "NaNh NaNm",
+    };
+    setInvoice((prev) => ({
+      ...prev,
+      ...nextInvoice,
     }));
     const persistedItems = parsePersistedItems(persistedInvoice);
     setItems(persistedItems);
@@ -779,6 +985,10 @@ export function useInvoiceDashboardState({
     setPoPanelInitialized(false);
     setPoPanelRefreshing(false);
     setMerchantRecipientsLoading(true);
+    syncedSnapshotRef.current = {
+      invoice: cloneInvoiceState(nextInvoice),
+      items: cloneItems(persistedItems),
+    };
   }, [persistedInvoice, persistedInvoiceReference, persistedPoNumber, resolvedCorrelationId]);
 
   useEffect(() => {
@@ -792,15 +1002,23 @@ export function useInvoiceDashboardState({
   }, [draftDirty, jobId, items, invoice.contact, invoice.issueDate, invoice.reference]);
 
   useEffect(() => {
+    if (draftDirty || itemsDirty) return;
+    syncedSnapshotRef.current = {
+      invoice: cloneInvoiceState(invoice),
+      items: cloneItems(items),
+    };
+  }, [draftDirty, itemsDirty, invoice, items]);
+
+  useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!draftDirty && !draftSaving) return;
+      if (!draftDirty && !itemsDirty && !draftSaving) return;
       event.preventDefault();
       event.returnValue = "";
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [draftDirty, draftSaving]);
+  }, [draftDirty, itemsDirty, draftSaving]);
 
   useEffect(() => {
     setSavedPoNumber(persistedPoNumber?.trim() || "");
@@ -815,8 +1033,8 @@ export function useInvoiceDashboardState({
       return {
         ...prev,
         reference: nextReference,
-        status: hasSavedSelection ? "PO Received" : prev.status,
-        currentWorkflowStep: hasSavedSelection ? Math.max(prev.currentWorkflowStep, 7) : prev.currentWorkflowStep,
+        status: hasSavedSelection && prev.status !== "Awaiting Payment" ? "PO Received" : prev.status,
+        currentWorkflowStep: hasSavedSelection ? 7 : prev.currentWorkflowStep,
         emailStates: hasSavedSelection ? mergeEmailStates(prev.emailStates, ["Get PO"], ["Draft"]) : prev.emailStates,
       };
     });
@@ -917,6 +1135,7 @@ export function useInvoiceDashboardState({
       }
 
       if (!cancelled) {
+        notifyPoDashboardRefresh();
         setPoPanelLoading(false);
         setPoPanelInitialized(true);
         setPoPanelRefreshing(false);
@@ -1075,6 +1294,25 @@ export function useInvoiceDashboardState({
     };
   }, [customer, persistedInvoice, vehicle]);
 
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    let cancelled = false;
+
+    void (async () => {
+      const shouldProceed = await confirmSaveBeforeLeaving();
+      if (cancelled) return;
+      if (shouldProceed) {
+        blocker.proceed();
+      } else {
+        blocker.reset();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [blocker]);
+
   return {
     invoice,
     items,
@@ -1086,7 +1324,10 @@ export function useInvoiceDashboardState({
     itemCatalogFeedback,
     itemCatalogLastUpdated,
     itemsDirty,
+    draftDirty,
+    leavePromptOpen,
     refreshingFromXero,
+    referencePreview,
     pendingFocusRowId,
     poPanelLoading,
     poPanelRefreshing,
@@ -1102,8 +1343,12 @@ export function useInvoiceDashboardState({
     addItem,
     deleteItem,
     syncInvoice,
+    discardChanges,
     refreshFromXero,
     openInXero,
+    saveReference,
+    confirmSaveBeforeLeaving,
+    resolveLeavePrompt,
     refreshItemCatalog,
     sendPoRequest,
     sendReminderNow,

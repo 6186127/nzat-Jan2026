@@ -218,6 +218,17 @@ export function PoRequestPanel({
 
     return rounds;
   }, [threadEvents, hasConfirmedPo]);
+  const flattenedStateSteps = useMemo(
+    () =>
+      stateRounds.flatMap((round, roundIndex) =>
+        round.map((item, index) => ({
+          ...item,
+          showConnector:
+            index < round.length - 1 || roundIndex < stateRounds.length - 1,
+        }))
+      ),
+    [stateRounds]
+  );
   const supplierReplyCount = threadEvents.filter((event) => event.type === "reply").length;
   const lastThreadTimestamp = threadEvents[0]?.timestamp ?? "暂无记录";
   const latestThreadEvent = threadEvents[0];
@@ -352,29 +363,22 @@ export function PoRequestPanel({
             <StatusBadge kind="state" value="Draft" />
           </div>
         ) : (
-          stateRounds.map((round, roundIndex) => (
-            <div key={`round-${roundIndex + 1}`} className="space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                Round {roundIndex + 1}
+          <div className="flex flex-wrap items-center gap-2">
+            {flattenedStateSteps.map((item) => (
+              <div key={item.key} className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
+                  {stateMeta[item.label] ?? <MailCheck className="h-4 w-4 text-slate-500" />}
+                  <StatusBadge kind="state" value={item.label} />
+                </div>
+                {item.showConnector ? (
+                  <span className="px-1 text-xs font-semibold text-slate-400">------</span>
+                ) : null}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {round.map((item, index) => (
-                  <div key={item.key} className="flex items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      {stateMeta[item.label] ?? <MailCheck className="h-4 w-4 text-slate-500" />}
-                      <StatusBadge kind="state" value={item.label} />
-                    </div>
-                    {index < round.length - 1 ? (
-                      <span className="px-1 text-xs font-semibold text-slate-400">------</span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
-      <div className="mt-2 text-xs text-slate-500">每次新的 Sent 会开启新一轮催发流程，直到 Get Reply 或 Escalation Required。</div>
+      {/* <div className="mt-2 text-xs text-slate-500">每次新的 Sent 会开启新一轮催发流程，直到 Get Reply 或 Escalation Required。</div> */}
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
         <div className="flex flex-wrap border-b border-slate-200 bg-white">

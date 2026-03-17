@@ -126,13 +126,14 @@ public class PoStateController : ControllerBase
                     supplier = state.CounterpartyEmail ?? "",
                     status = MapStatusLabel(state.Status),
                     confirmedPo = state.ConfirmedPoNumber ?? "",
-                    detectedPo = state.DetectedPoNumber ?? "",
-                    unreadReplies = unreadReplyCounts.TryGetValue(state.JobId, out var unreadCount) ? unreadCount : 0,
-                    followUpCount = state.FollowUpCount,
-                    firstSent = FormatDateTime(state.FirstRequestSentAt),
-                    lastSent = FormatDateTime(state.LastFollowUpSentAt ?? state.LastRequestSentAt),
-                    lastReply = FormatDateTime(state.LastSupplierReplyAt),
-                    nextFollowUp = FormatDateTime(state.NextFollowUpDueAt),
+                detectedPo = state.DetectedPoNumber ?? "",
+                unreadReplies = unreadReplyCounts.TryGetValue(state.JobId, out var unreadCount) ? unreadCount : 0,
+                followUpCount = state.FollowUpCount,
+                followUpEnabled = state.FollowUpEnabled,
+                firstSent = FormatDateTime(state.FirstRequestSentAt),
+                lastSent = FormatDateTime(state.LastFollowUpSentAt ?? state.LastRequestSentAt),
+                lastReply = FormatDateTime(state.LastSupplierReplyAt),
+                nextFollowUp = FormatDateTime(state.NextFollowUpDueAt),
                 })
             .Where(item =>
                 string.IsNullOrWhiteSpace(normalizedSearch) ||
@@ -240,6 +241,45 @@ public class PoStateController : ControllerBase
             success = true,
             refreshed.jobId,
             refreshed.status,
+            refreshed.FollowUpCount,
+            refreshed.LastFollowUpSentAt,
+            refreshed.NextFollowUpDueAt,
+        });
+    }
+
+    [HttpPost("jobs/{jobId:long}/cancel-follow-up")]
+    public async Task<IActionResult> CancelFollowUp(long jobId, CancellationToken ct)
+    {
+        var state = await _db.JobPoStates.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (state is null)
+            return NotFound(new { error = "PO state not found." });
+
+        state.FollowUpEnabled = false;
+        state.NextFollowUpDueAt = null;
+        state.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        await _jobPoStateService.SyncStateForJobAsync(jobId, ct);
+
+        var refreshed = await _db.JobPoStates.AsNoTracking()
+            .Where(x => x.JobId == jobId)
+            .Select(x => new
+            {
+                jobId = x.JobId,
+                status = x.Status.ToString(),
+                x.FollowUpEnabled,
+                x.FollowUpCount,
+                x.LastFollowUpSentAt,
+                x.NextFollowUpDueAt,
+            })
+            .FirstAsync(ct);
+
+        return Ok(new
+        {
+            success = true,
+            refreshed.jobId,
+            refreshed.status,
+            refreshed.FollowUpEnabled,
             refreshed.FollowUpCount,
             refreshed.LastFollowUpSentAt,
             refreshed.NextFollowUpDueAt,

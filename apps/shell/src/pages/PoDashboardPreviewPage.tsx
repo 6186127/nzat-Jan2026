@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, useToast } from "@/components/ui";
 import { AlertTriangle, Mail, Search, X } from "lucide-react";
 import { requestJson } from "@/utils/api";
+import { subscribePoDashboardRefresh } from "@/utils/refreshSignals";
 
 type SummaryFilter = "Needs PO" | "Draft" | "Awaiting Reply" | "Escalation Required" | "Pending Confirmation" | "PO Confirmed";
 
@@ -22,6 +23,7 @@ type PoJob = {
   detectedPo?: string;
   unreadReplies: number;
   followUpCount: number;
+  followUpEnabled: boolean;
   firstSent?: string;
   lastSent: string;
   lastReply?: string;
@@ -54,6 +56,16 @@ type SendFollowUpResponse = {
   nextFollowUpDueAt: string | null;
 };
 
+type CancelFollowUpResponse = {
+  success: boolean;
+  jobId: number;
+  status: string;
+  followUpEnabled: boolean;
+  followUpCount: number;
+  lastFollowUpSentAt: string | null;
+  nextFollowUpDueAt: string | null;
+};
+
 function kpiCardClasses(isActive: boolean) {
   return isActive
     ? "border-[var(--ds-primary)] bg-[var(--ds-primary)] text-white"
@@ -75,6 +87,10 @@ function statusClasses(status: PoJob["status"]) {
   }
 }
 
+function showNextFollowUp(job: PoJob) {
+  return job.followUpEnabled && job.status === "Awaiting Reply" && Boolean(job.nextFollowUp && job.nextFollowUp !== "-");
+}
+
 export function PoDashboardPreviewPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -86,14 +102,15 @@ export function PoDashboardPreviewPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendingFollowUp, setSendingFollowUp] = useState(false);
+  const [cancellingFollowUpJobId, setCancellingFollowUpJobId] = useState<string | null>(null);
 
   const summaryCards: SummaryCard[] = useMemo(
     () => [
       { label: "Needs PO", value: summary?.needsPo ?? 0, note: "所有仍在跟进的工单" },
       { label: "Draft", value: summary?.draft ?? 0, note: "未发出 request 邮件" },
-      { label: "Awaiting Reply", value: summary?.awaitingReply ?? 0, note: "已发邮件，等待商户回复" },
+      { label: "Awaiting Reply", value: summary?.awaitingReply ?? 0, note: "已发邮件，等待回复或继续跟进" },
       { label: "Escalation Required", value: summary?.escalationRequired ?? 0, note: "催发 2 次后仍未回复" },
-      { label: "Pending Confirmation", value: summary?.pendingConfirmation ?? 0, note: "收到回复" },
+      { label: "Pending Confirmation", value: summary?.pendingConfirmation ?? 0, note: "已检测到 PO，待人工确认" },
       { label: "PO Confirmed", value: summary?.poConfirmed ?? 0, note: "PO 已确认" },
     ],
     [summary]
@@ -142,6 +159,13 @@ export function PoDashboardPreviewPage() {
   }, []);
 
   useEffect(() => {
+    return subscribePoDashboardRefresh(() => {
+      void loadSummary();
+      void loadJobs();
+    });
+  }, [searchText, selectedFilter]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       await loadJobs();
@@ -157,6 +181,29 @@ export function PoDashboardPreviewPage() {
   }, [jobs]);
 
   const canSendFollowUp = (job: PoJob) => job.status === "Awaiting Reply";
+
+  const handleCancelFollowUp = async (jobId: string) => {
+    if (cancellingFollowUpJobId) return;
+
+    const confirmed = window.confirm("确认手动取消这个工单的自动催发吗？");
+    if (!confirmed) return;
+
+    setCancellingFollowUpJobId(jobId);
+    const res = await requestJson<CancelFollowUpResponse>(`/api/po/jobs/${encodeURIComponent(jobId)}/cancel-follow-up`, {
+      method: "POST",
+    });
+
+    if (!res.ok) {
+      toast.error(res.error || "Failed to cancel follow-up");
+      setCancellingFollowUpJobId(null);
+      return;
+    }
+
+    toast.success("自动催发已取消");
+    await loadSummary();
+    await loadJobs();
+    setCancellingFollowUpJobId(null);
+  };
 
   const handleConfirmSendFollowUp = async () => {
     if (!confirmingJob || sendingFollowUp) return;
@@ -283,12 +330,18 @@ export function PoDashboardPreviewPage() {
                   <td className="px-5 py-4 align-top text-sm text-slate-600">
                     <div>Last sent: {job.lastSent}</div>
                     <div className="mt-1">Last reply: {job.lastReply || "-"}</div>
-                    <div className="mt-1 text-xs font-semibold text-[var(--ds-primary)]">Next: {job.nextFollowUp || "-"}</div>
+                    {showNextFollowUp(job) ? (
+                      <div className="mt-2">
+                        <span className="inline-flex items-center rounded-full bg-[var(--ds-primary)] px-3 py-1 text-sm font-semibold text-white shadow-sm">
+                          Next follow up: {job.nextFollowUp}
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-5 py-4 align-top text-right">
                     {canSendFollowUp(job) ? (
                       <div
-                        className="inline-flex"
+                        className="inline-flex gap-2"
                         onClick={(event) => {
                           event.stopPropagation();
                         }}
@@ -301,6 +354,19 @@ export function PoDashboardPreviewPage() {
                         >
                           发送催发
                         </Button>
+                        {job.followUpEnabled ? (
+                          <Button
+                            className="h-10 px-4"
+                            onClick={() => void handleCancelFollowUp(job.id)}
+                            disabled={cancellingFollowUpJobId === job.id}
+                          >
+                            {cancellingFollowUpJobId === job.id ? "取消中..." : "取消催发"}
+                          </Button>
+                        ) : (
+                          <Button className="h-10 px-4 border-slate-200 bg-slate-200 text-slate-500 hover:bg-slate-200" disabled>
+                            已取消催发
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <span className="text-sm text-slate-300">-</span>

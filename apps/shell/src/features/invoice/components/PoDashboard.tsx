@@ -16,7 +16,7 @@ export function PoDashboard({ model }: PoDashboardProps) {
           vehicleRego={model.invoice.vehicleRego}
           vehicleModel={model.invoice.vehicleModel}
           vehicleMake={model.invoice.vehicleMake}
-          snapshotTotal={model.invoice.snapshotTotal}
+          snapshotTotal={model.totalAmount}
           items={model.items}
           emailStates={model.invoice.emailStates}
           timelineEvents={model.timeline}
