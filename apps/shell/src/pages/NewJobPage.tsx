@@ -3,23 +3,25 @@ import { AlertCircle, ArrowLeft, Boxes, FileText, Loader2, Plus, ReceiptText, X 
 import { Link, useNavigate } from "react-router-dom";
 import { Alert, Button, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
+  type ChildServiceOption,
   CustomerSection,
   NotesSection,
   ServicesSection,
   VehicleSection,
+  type ServiceCatalogItem,
+  type ServiceOption,
   extractVehicleInfo,
   normalizePlateInput,
-  serviceOptions,
+  serviceOptions as defaultServiceOptions,
   type BusinessOption,
   type CustomerType,
   type ImportState,
   type ServiceType,
   type VehicleInfo,
 } from "@/features/newJob";
-import { withApiBase } from "@/utils/api";
+import { requestJson, withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
-  type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
   type PersonalCustomerOption = {
     id: string;
     name: string;
@@ -56,7 +58,10 @@ export function NewJobPage() {
   const [importState, setImportState] = useState<ImportState>("idle");
   const [importError, setImportError] = useState("");
   const [lastRequestedPlate, setLastRequestedPlate] = useState("");
+  const [serviceOptions, setServiceOptions] = useState<ServiceOption[]>(defaultServiceOptions);
   const [selectedServices, setSelectedServices] = useState<ServiceType[]>([]);
+  const [mechOptionChoices, setMechOptionChoices] = useState<ChildServiceOption[]>([]);
+  const [paintOptionChoices, setPaintOptionChoices] = useState<ChildServiceOption[]>([]);
   const [customerType, setCustomerType] = useState<CustomerType>("personal");
   const [personalName, setPersonalName] = useState("");
   const [personalPhone, setPersonalPhone] = useState("");
@@ -71,7 +76,8 @@ export function NewJobPage() {
   const [needsPo, setNeedsPo] = useState(true);
   const [paintPanels, setPaintPanels] = useState("1");
   const [partsDescriptions, setPartsDescriptions] = useState<string[]>([""]);
-  const [mechOptions, setMechOptions] = useState<MechOptionId[]>([]);
+  const [mechOptions, setMechOptions] = useState<string[]>([]);
+  const [paintOptions, setPaintOptions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formAlert, setFormAlert] = useState<{ variant: "error" | "success" | "warning"; message: string } | null>(
     null
@@ -103,37 +109,25 @@ export function NewJobPage() {
       map[opt.id] = opt.label;
     });
     return map;
-  }, []);
-  const mechOptionChoices = useMemo(
-    () => [
-      { id: "tire" as const, label: "补胎" },
-      { id: "oil" as const, label: "换机油" },
-      { id: "brake" as const, label: "换刹车片" },
-      { id: "battery" as const, label: "换电池" },
-      { id: "filter" as const, label: "换滤芯" },
-      { id: "other" as const, label: "其他机修" },
-    ],
-    []
-  );
-  const mechOptionLabelMap = useMemo(
-    () => ({
-      tire: "补胎",
-      oil: "换机油",
-      brake: "换刹车片",
-      battery: "换电池",
-      filter: "换滤芯",
-      other: "其他机修",
-    }),
-    []
-  );
+  }, [serviceOptions]);
   const selectedMechOptionLabels = useMemo(
-    () => mechOptions.map((id) => mechOptionLabelMap[id]).filter(Boolean),
-    [mechOptions, mechOptionLabelMap]
+    () =>
+      mechOptions
+        .map((id) => mechOptionChoices.find((item) => item.id === id)?.label)
+        .filter((value): value is string => Boolean(value)),
+    [mechOptions, mechOptionChoices]
   );
-  const mechOptionsLine = useMemo(() => {
-    if (!selectedMechOptionLabels.length) return "";
-    return selectedMechOptionLabels.join("，");
-  }, [selectedMechOptionLabels]);
+  const selectedPaintOptionLabels = useMemo(
+    () =>
+      paintOptions
+        .map((id) => paintOptionChoices.find((item) => item.id === id)?.label)
+        .filter((value): value is string => Boolean(value)),
+    [paintOptions, paintOptionChoices]
+  );
+  const mechOptionsLine = useMemo(
+    () => (selectedMechOptionLabels.length ? selectedMechOptionLabels.join("，") : ""),
+    [selectedMechOptionLabels]
+  );
   const normalizedPartsDescriptions = useMemo(
     () => partsDescriptions.map((item) => item.trim()).filter(Boolean),
     [partsDescriptions]
@@ -155,10 +149,14 @@ export function NewJobPage() {
       );
     }
     if (selectedServices.includes("paint")) {
-      rows.push(`喷漆（${paintPanels || "1"}片）`);
+      rows.push(
+        selectedPaintOptionLabels.length
+          ? `喷漆（${selectedPaintOptionLabels.join("，")}；${paintPanels || "1"}片）`
+          : `喷漆（${paintPanels || "1"}片）`
+      );
     }
     return rows;
-  }, [selectedServices, serviceLabelMap, selectedMechOptionLabels, paintPanels]);
+  }, [selectedServices, serviceLabelMap, selectedMechOptionLabels, selectedPaintOptionLabels, paintPanels]);
   const customerTypeLabel = customerType === "business" ? "商户客户" : "个人客户";
   const customerDisplayName =
     customerType === "business"
@@ -178,12 +176,16 @@ export function NewJobPage() {
     if (selectedServices.includes("mech") && selectedMechOptionLabels.length) {
       items.push(selectedMechOptionLabels.join("，"));
     }
+    if (selectedServices.includes("paint") && selectedPaintOptionLabels.length) {
+      items.push(selectedPaintOptionLabels.join("，"));
+    }
     if (items.length === 0) return "";
     return items.join("，");
   }, [
     selectedServices,
     serviceLabelMap,
     selectedMechOptionLabels,
+    selectedPaintOptionLabels,
   ]);
 
   useEffect(() => {
@@ -232,6 +234,68 @@ export function NewJobPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadServiceCatalog = async () => {
+      const res = await requestJson<{
+        rootServices?: ServiceCatalogItem[];
+        childServices?: ServiceCatalogItem[];
+      }>("/api/service-catalog");
+
+      if (!res.ok || !res.data || cancelled) return;
+
+      const roots = Array.isArray(res.data.rootServices) ? res.data.rootServices : [];
+      const children = Array.isArray(res.data.childServices) ? res.data.childServices : [];
+
+      const nextRootOptions = roots
+        .filter((item) => item.isActive)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((item) => {
+          const fallback = defaultServiceOptions.find((opt) => opt.id === item.serviceType);
+          return fallback
+            ? {
+                ...fallback,
+                label: item.name,
+              }
+            : null;
+        })
+        .filter((item): item is ServiceOption => Boolean(item));
+
+      if (nextRootOptions.length) {
+        setServiceOptions(nextRootOptions);
+      }
+
+      setMechOptionChoices(
+        children
+          .filter((item) => item.isActive && item.serviceType === "mech")
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((item) => ({
+            id: String(item.id),
+            label: item.name,
+            personalLinkCode: item.personalLinkCode,
+            dealershipLinkCode: item.dealershipLinkCode,
+          }))
+      );
+
+      setPaintOptionChoices(
+        children
+          .filter((item) => item.isActive && item.serviceType === "paint")
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((item) => ({
+            id: String(item.id),
+            label: item.name,
+            personalLinkCode: item.personalLinkCode,
+            dealershipLinkCode: item.dealershipLinkCode,
+          }))
+      );
+    };
+
+    void loadServiceCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (showNeedsPo) {
       setNeedsPo(true);
     } else {
@@ -250,6 +314,12 @@ export function NewJobPage() {
   useEffect(() => {
     if (!selectedServices.includes("mech")) {
       setMechOptions([]);
+    }
+  }, [selectedServices]);
+
+  useEffect(() => {
+    if (!selectedServices.includes("paint")) {
+      setPaintOptions([]);
     }
   }, [selectedServices]);
 
@@ -287,8 +357,12 @@ export function NewJobPage() {
       prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
     );
   };
-  const toggleMechOption = (id: MechOptionId) => {
+  const toggleMechOption = (id: string) => {
     setMechOptions((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  const togglePaintOption = (id: string) => {
+    setPaintOptions((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
   const resetImportState = () => {
@@ -660,6 +734,9 @@ export function NewJobPage() {
               mechOptionChoices={mechOptionChoices}
               mechOptions={mechOptions}
               onToggleMechOption={toggleMechOption}
+              paintOptionChoices={paintOptionChoices}
+              paintOptions={paintOptions}
+              onTogglePaintOption={togglePaintOption}
               showPaintPanels={showPaintPanels}
               paintPanels={paintPanels}
               onPaintPanelsChange={handlePaintPanelsChange}

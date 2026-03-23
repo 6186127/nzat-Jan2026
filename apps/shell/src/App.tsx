@@ -9,6 +9,7 @@ import { TagsPage } from "./pages/tags/TagsPage";
 import { CustomersPage } from "./pages/customers/CustomersPage";
 import { WofFailReasonsPage } from "./pages/wofFails/WofFailReasonsPage";
 import { XeroItemCodesPage } from "./pages/settings/XeroItemCodesPage";
+import { ServiceCatalogPage } from "./pages/settings/ServiceCatalogPage";
 import { PartFlowPage } from "./pages/PartFlowPages/PartFlowPage";
 import { PaintBoardPage } from "./pages/paint/PaintBoardPage";
 import { PaintTechBoardPage } from "./pages/paint/PaintTechBoardPage";
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
       { path: "customers", element: <CustomersPage /> },
       { path: "wof-fails", element: <WofFailReasonsPage /> },
       { path: "xero-item-codes", element: <XeroItemCodesPage /> },
+      { path: "service-settings", element: <ServiceCatalogPage /> },
       {
         path: "/jobs/new",
         element: <NewJobPage />

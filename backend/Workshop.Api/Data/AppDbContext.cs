@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<JobPayment> JobPayments => Set<JobPayment>();
     public DbSet<XeroTokenRecord> XeroTokenRecords => Set<XeroTokenRecord>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<ServiceCatalogItem> ServiceCatalogItems => Set<ServiceCatalogItem>();
     public DbSet<SystemSyncState> SystemSyncStates => Set<SystemSyncState>();
     public DbSet<JobPoState> JobPoStates => Set<JobPoState>();
     public DbSet<Tag> Tags => Set<Tag>();
@@ -276,6 +277,21 @@ public class AppDbContext : DbContext
         ii.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         ii.HasIndex(x => x.ItemCode).IsUnique().HasDatabaseName("ux_inventory_items_item_code");
         ii.HasIndex(x => x.ItemName).HasDatabaseName("ix_inventory_items_item_name");
+
+        var sci = modelBuilder.Entity<ServiceCatalogItem>();
+        sci.ToTable("service_catalog_items");
+        sci.HasKey(x => x.Id);
+        sci.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        sci.Property(x => x.ServiceType).HasColumnName("service_type").IsRequired();
+        sci.Property(x => x.Category).HasColumnName("category").IsRequired();
+        sci.Property(x => x.Name).HasColumnName("name").IsRequired();
+        sci.Property(x => x.PersonalLinkCode).HasColumnName("personal_link_code");
+        sci.Property(x => x.DealershipLinkCode).HasColumnName("dealership_link_code");
+        sci.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+        sci.Property(x => x.SortOrder).HasColumnName("sort_order").HasDefaultValue(0);
+        sci.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        sci.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        sci.HasIndex(x => new { x.ServiceType, x.Category }).HasDatabaseName("ix_service_catalog_items_type_category");
 
         var sss = modelBuilder.Entity<SystemSyncState>();
         sss.ToTable("system_sync_state");

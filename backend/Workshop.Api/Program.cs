@@ -90,6 +90,7 @@ builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
 builder.Services.AddScoped<InventoryItemService>();
+builder.Services.AddScoped<ServiceCatalogService>();
 builder.Services.AddScoped<XeroTokenConfiguration>();
 builder.Services.AddScoped<XeroTokenStore>();
 builder.Services.AddScoped<XeroTokenService>();

@@ -170,6 +170,14 @@ export function Sidebar() {
               WOF Fails
             </NavLink>
             <NavLink
+              to="/service-settings"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : linkIdle}`
+              }
+            >
+              Service Settings
+            </NavLink>
+            <NavLink
               to="/xero-item-codes"
               className={({ isActive }) =>
                 `${linkBase} ${isActive ? linkActive : linkIdle}`

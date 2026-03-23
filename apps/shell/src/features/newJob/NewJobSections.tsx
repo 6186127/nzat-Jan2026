@@ -4,9 +4,15 @@ import { Link } from "react-router-dom";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { Button, Input, SectionCard, Select } from "@/components/ui";
 import { CustomerTypeToggle, VehicleInfoBanner } from "@/features/newJob/components";
-import type { BusinessOption, CustomerType, ImportState, ServiceOption, ServiceType, VehicleInfo } from "./newJob.types";
-
-type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
+import type {
+  BusinessOption,
+  ChildServiceOption,
+  CustomerType,
+  ImportState,
+  ServiceOption,
+  ServiceType,
+  VehicleInfo,
+} from "./newJob.types";
 
 type VehicleSectionProps = {
   rego: string;
@@ -75,9 +81,12 @@ type ServicesSectionProps = {
   selectedServices: ServiceType[];
   onToggleService: (service: ServiceType) => void;
   options: ServiceOption[];
-  mechOptionChoices: { id: MechOptionId; label: string }[];
-  mechOptions: MechOptionId[];
-  onToggleMechOption: (id: MechOptionId) => void;
+  mechOptionChoices: ChildServiceOption[];
+  mechOptions: string[];
+  onToggleMechOption: (id: string) => void;
+  paintOptionChoices: ChildServiceOption[];
+  paintOptions: string[];
+  onTogglePaintOption: (id: string) => void;
   showPaintPanels: boolean;
   paintPanels: string;
   onPaintPanelsChange: (value: string) => void;
@@ -90,6 +99,9 @@ export function ServicesSection({
   mechOptionChoices,
   mechOptions,
   onToggleMechOption,
+  paintOptionChoices,
+  paintOptions,
+  onTogglePaintOption,
   showPaintPanels,
   paintPanels,
   onPaintPanelsChange,
@@ -176,6 +188,31 @@ export function ServicesSection({
                       </label>
                     ))}
                   </div>
+                </div>
+              ) : null}
+
+              {service.id === "paint" && selected ? (
+                <div className="mt-4 pl-9">
+                  {paintOptionChoices.length ? (
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {paintOptionChoices.map((opt) => (
+                        <label
+                          key={opt.id}
+                          className="flex items-center gap-2 text-base text-[rgba(0,0,0,0.82)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={paintOptions.includes(opt.id)}
+                            onChange={() => onTogglePaintOption(opt.id)}
+                            className="h-4 w-4 accent-[#dc2626]"
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-base text-[rgba(0,0,0,0.50)]">暂无已配置的喷漆子服务</div>
+                  )}
                 </div>
               ) : null}
 

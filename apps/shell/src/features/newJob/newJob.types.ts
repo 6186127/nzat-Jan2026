@@ -20,6 +20,24 @@ export type ServiceOption = {
   icon: LucideIcon;
 };
 
+export type ServiceCatalogItem = {
+  id: string | number;
+  serviceType: ServiceType;
+  category: "root" | "child";
+  name: string;
+  personalLinkCode?: string | null;
+  dealershipLinkCode?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type ChildServiceOption = {
+  id: string;
+  label: string;
+  personalLinkCode?: string | null;
+  dealershipLinkCode?: string | null;
+};
+
 export type BusinessOption = {
   id: string;
   label: string;
