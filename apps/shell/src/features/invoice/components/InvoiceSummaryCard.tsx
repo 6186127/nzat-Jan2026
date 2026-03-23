@@ -1,6 +1,7 @@
-import { Check, ExternalLink, Pencil, Plus, RefreshCcw, X } from "lucide-react";
+import { Check, Pencil, Plus, RefreshCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Input, Select } from "@/components/ui";
+import { XeroButton } from "@/components/common/XeroButton";
 import { withApiBase } from "@/utils/api";
 import type { InvoiceDashboardState, ReferencePreviewSource, XeroStateOption } from "../types";
 import type React from "react";
@@ -178,13 +179,7 @@ export function InvoiceSummaryCard({
             >
               {isRefreshingFromXero ? "Refreshing..." : "Refresh From Xero"}
             </Button>
-            <Button
-              leftIcon={<ExternalLink className="h-4 w-4" />}
-              className="h-11 border-[var(--ds-primary)] bg-white px-5 text-[var(--ds-primary)] hover:bg-red-50"
-              onClick={onOpenXero}
-            >
-              Open in Xero
-            </Button>
+            <XeroButton className="h-11 px-5" onClick={onOpenXero} />
           </div>
         ) : (
           <Button

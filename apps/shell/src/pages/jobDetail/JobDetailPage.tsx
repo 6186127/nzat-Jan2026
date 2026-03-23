@@ -18,6 +18,7 @@ export function JobDetailPage() {
     loadError,
     deleteError,
     deletingJob,
+    archivingJob,
     creatingXeroInvoice,
     hasWofRecord,
     wofRecords,
@@ -48,6 +49,7 @@ export function JobDetailPage() {
     updateMechService,
     deleteMechService,
     deleteJob,
+    archiveJob,
     createJobXeroDraftInvoice,
     saveTags,
     saveJobNotes,
@@ -118,6 +120,8 @@ export function JobDetailPage() {
         onRefreshPaintService={refreshPaintService}
         onCreateXeroInvoice={createJobXeroDraftInvoice}
         isCreatingXeroInvoice={creatingXeroInvoice}
+        onArchiveJob={archiveJob}
+        isArchivingJob={archivingJob}
         onDeleteJob={deleteJob}
         isDeletingJob={deletingJob}
         tagOptions={tagOptions}

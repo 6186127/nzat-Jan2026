@@ -16,6 +16,7 @@ import {
   fetchTags,
   updateJobNotes,
   updateJobTags,
+  updateJobStatus,
   updateVehicleInfo,
   deleteJob as apiDeleteJob,
   createJobXeroDraftInvoice as apiCreateJobXeroDraftInvoice,
@@ -81,6 +82,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [archivingJob, setArchivingJob] = useState(false);
   const [creatingXeroInvoice, setCreatingXeroInvoice] = useState(false);
   const [hasWofRecord, setHasWofRecord] = useState(false);
 
@@ -577,6 +579,34 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     }
   }, [jobId, onDeleted, toast]);
 
+  const archiveJob = useCallback(async () => {
+    if (!jobId) return { success: false, message: "缺少工单 ID" };
+    if (jobData?.status === "Archived") return { success: true, message: "工单已归档" };
+
+    setArchivingJob(true);
+    try {
+      const res = await updateJobStatus(jobId, "Archived");
+      if (!res.ok) {
+        const message = res.error || "归档失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      setJobData((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "Archived",
+            }
+          : prev
+      );
+      toast.success("已归档");
+      return { success: true, message: "已归档" };
+    } finally {
+      setArchivingJob(false);
+    }
+  }, [jobData?.status, jobId, toast]);
+
   const createJobXeroDraftInvoice = useCallback(async () => {
     if (!jobId || !jobData) {
       return { success: false, message: "缺少工单数据" };
@@ -793,6 +823,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     loadError,
     deleteError,
     deletingJob,
+    archivingJob,
     creatingXeroInvoice,
     hasWofRecord,
     wofRecords,
@@ -825,6 +856,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     updatePartsNote: updatePartsNoteRow,
     deletePartsNote: deletePartsNoteRow,
     refreshPartsServices,
+    archiveJob,
     deleteJob,
     createJobXeroDraftInvoice,
     saveTags,

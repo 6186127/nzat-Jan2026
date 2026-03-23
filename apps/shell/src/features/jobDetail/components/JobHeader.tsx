@@ -1,6 +1,7 @@
 import { Archive, Trash2, AlertCircle, Plus, Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, TagPill, Textarea } from "@/components/ui";
+import { XeroButton, getXeroInvoiceUrl } from "@/components/common/XeroButton";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { MultiTagSelect } from "@/components/MultiTagSelect";
@@ -19,6 +20,7 @@ interface JobHeaderProps {
   customerName: string;
   customerCode?: string;
   customerPhone?: string;
+  externalInvoiceId?: string;
   needsPo?: boolean;
   vin?: string | null;
   nzFirstRegistration?: string | null;
@@ -26,6 +28,8 @@ interface JobHeaderProps {
   hasPaintService?: boolean;
   onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingXeroInvoice?: boolean;
+  onArchive?: () => Promise<{ success: boolean; message?: string }> | void;
+  isArchiving?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
   tagOptions?: TagOption[];
@@ -45,10 +49,13 @@ export function JobHeader({
   vehicleModel,
   customerName,
   customerCode,
+  externalInvoiceId,
   vin,
   nzFirstRegistration,
   paintPanels,
   hasPaintService,
+  onArchive,
+  isArchiving,
   onDelete,
   isDeleting,
   tagOptions = [],
@@ -157,6 +164,11 @@ export function JobHeader({
     }
     handlePrint("paint");
   };
+
+  const openXero = () => {
+    const url = getXeroInvoiceUrl(externalInvoiceId);
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
   const getStatusColor = (status: string) => {
     switch (status) {
       case "In Shop":
@@ -225,7 +237,9 @@ export function JobHeader({
         </div>
 
         <div className="flex items-center gap-3 ml-auto">
-          <Button leftIcon={<Archive className="w-4 h-4" />}>{JOB_DETAIL_TEXT.buttons.archive}</Button>
+          <Button leftIcon={<Archive className="w-4 h-4" />} onClick={() => void onArchive?.()} disabled={isArchiving || status === "Archived"}>
+            {isArchiving ? "归档中..." : JOB_DETAIL_TEXT.buttons.archive}
+          </Button>
           <Button
             leftIcon={<Trash2 className="w-4 h-4" />}
             className="border-red-300 text-red-700 hover:bg-red-50"
@@ -290,6 +304,12 @@ export function JobHeader({
           <Button variant="primary" onClick={() => handlePrint("mech")}>
             机修打印
           </Button>
+          {externalInvoiceId ? (
+            <XeroButton
+              onClick={openXero}
+              showIcon={false}
+            />
+          ) : null}
         </div>
       </div>
     </div>

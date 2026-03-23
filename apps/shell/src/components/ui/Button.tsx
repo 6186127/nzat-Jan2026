@@ -9,6 +9,7 @@ type ButtonProps = {
   className?: string;
   disabled?: boolean;
   type?: "button" | "submit" | "reset";
+  title?: string;
 };
 
 export function Button({
@@ -20,6 +21,7 @@ export function Button({
   className = "",
   disabled,
   type = "button",
+  title,
 }: ButtonProps) {
   const cls =
     variant === "primary"
@@ -31,6 +33,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={[
         "h-9 inline-flex items-center gap-2 rounded-[8px] px-3 text-sm font-medium transition",
         "disabled:opacity-50 disabled:cursor-not-allowed",

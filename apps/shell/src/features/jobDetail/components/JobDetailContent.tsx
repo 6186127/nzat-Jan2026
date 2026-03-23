@@ -79,6 +79,8 @@ type JobDetailContentProps = {
   }) => Promise<{ success: boolean; message?: string }>;
   onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingXeroInvoice?: boolean;
+  onArchiveJob?: () => Promise<{ success: boolean; message?: string }>;
+  isArchivingJob?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: TagOption[];
@@ -126,6 +128,8 @@ export function JobDetailContent({
   onSaveVehicle,
   onCreateXeroInvoice,
   isCreatingXeroInvoice,
+  onArchiveJob,
+  isArchivingJob,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -175,6 +179,8 @@ export function JobDetailContent({
           onSaveVehicle={onSaveVehicle}
           onCreateXeroInvoice={onCreateXeroInvoice}
           isCreatingXeroInvoice={isCreatingXeroInvoice}
+          onArchiveJob={onArchiveJob}
+          isArchivingJob={isArchivingJob}
           onDeleteJob={onDeleteJob}
           isDeletingJob={isDeletingJob}
           tagOptions={tagOptions}

@@ -90,6 +90,8 @@ type MainColumnProps = {
   }) => Promise<{ success: boolean; message?: string }>;
   onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingXeroInvoice?: boolean;
+  onArchiveJob?: () => Promise<{ success: boolean; message?: string }>;
+  isArchivingJob?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -135,6 +137,8 @@ export function MainColumn({
   onSaveVehicle,
   onCreateXeroInvoice,
   isCreatingXeroInvoice,
+  onArchiveJob,
+  isArchivingJob,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -241,11 +245,14 @@ export function MainColumn({
           customerName={jobData.customer.name}
           customerCode={jobData.customer.businessCode}
           customerPhone={jobData.customer.phone}
+          externalInvoiceId={jobData.invoice?.externalInvoiceId}
           needsPo={needsPo}
           paintPanels={paintService?.panels ?? null}
           vin={jobData.vehicle.vin}
           nzFirstRegistration={jobData.vehicle.nzFirstRegistration}
           hasPaintService={Boolean(paintService?.id)}
+          onArchive={onArchiveJob}
+          isArchiving={isArchivingJob}
           onDelete={onDeleteJob}
           isDeleting={isDeletingJob}
           tagOptions={tagOptions}
