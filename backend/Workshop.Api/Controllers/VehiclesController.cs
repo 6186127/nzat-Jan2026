@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Workshop.Api.Data;
 using Workshop.Api.DTOs;
-using Workshop.Api.Models;
 using Workshop.Api.Services;
 
 namespace Workshop.Api.Controllers;
@@ -76,6 +75,54 @@ public class VehiclesController : ControllerBase
         if (vehicle is null)
             return NotFound(new { error = "Vehicle not found." });
 
+        var latestJobCustomer = await (
+                from j in _db.Jobs.AsNoTracking()
+                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
+                where j.VehicleId == vehicle.Id
+                orderby j.CreatedAt descending, j.Id descending
+                select new
+                {
+                    source = "job",
+                    jobId = j.Id,
+                    customer = new
+                    {
+                        id = c.Id,
+                        type = c.Type,
+                        name = c.Name,
+                        phone = c.Phone,
+                        email = c.Email,
+                        address = c.Address,
+                        businessCode = c.BusinessCode,
+                        notes = c.Notes,
+                    }
+                }
+            )
+            .FirstOrDefaultAsync(ct);
+
+        object? linkedCustomer = latestJobCustomer;
+        if (linkedCustomer is null && vehicle.CustomerId.HasValue)
+        {
+            linkedCustomer = await _db.Customers.AsNoTracking()
+                .Where(x => x.Id == vehicle.CustomerId.Value)
+                .Select(c => new
+                {
+                    source = "vehicle",
+                    jobId = (long?)null,
+                    customer = new
+                    {
+                        id = c.Id,
+                        type = c.Type,
+                        name = c.Name,
+                        phone = c.Phone,
+                        email = c.Email,
+                        address = c.Address,
+                        businessCode = c.BusinessCode,
+                        notes = c.Notes,
+                    }
+                })
+                .FirstOrDefaultAsync(ct);
+        }
+
         return Ok(new
         {
             vehicle = new
@@ -90,7 +137,8 @@ public class VehiclesController : ControllerBase
                 vehicle.NzFirstRegistration,
                 vehicle.Odometer,
                 vehicle.UpdatedAt
-            }
+            },
+            linkedCustomer
         });
     }
 

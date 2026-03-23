@@ -26,12 +26,12 @@ export function VehicleSection({
 }: VehicleSectionProps) {
   return (
     <SectionCard title="车辆信息" titleIcon={<CarFront size={18} />} titleClassName="text-lg font-semibold">
-      <div className="mt-3 grid grid-cols-4 gap-3">
-        <div className="col-span-1 space-y-1">
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+        <div className="min-w-0 space-y-1">
           <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
             车牌号 <span className="text-red-500">*</span>
           </label>
-          <div className="flex gap-2 items-end">
+          <div className="flex flex-wrap gap-2 items-end">
             <div className="flex-shrink-0">
               <Input
                 placeholder="输入车牌"
@@ -55,10 +55,8 @@ export function VehicleSection({
             >
               {importState === "loading" ? "抓取中" : "抓取"}
             </Button>
-            {rego ? (
-              <span className="text-base text-[rgba(0,0,0,0.45)] flex-shrink-0">长度 {rego.length}</span>
-            ) : null}
           </div>
+          {rego ? <div className="text-base text-[rgba(0,0,0,0.45)]">长度 {rego.length}</div> : null}
           {importState === "loading" && (
             <div className="text-base text-[rgba(37,99,235,0.85)] mt-1">正在抓取车辆信息…</div>
           )}
@@ -205,6 +203,8 @@ type CustomerSectionProps = {
   businessId: string;
   businessOptions: BusinessOption[];
   onBusinessChange: (value: string) => void;
+  personalNameSuggestions: string[];
+  onPersonalNameBlur?: () => void;
 };
 
 export function CustomerSection({
@@ -223,6 +223,8 @@ export function CustomerSection({
   businessId,
   businessOptions,
   onBusinessChange,
+  personalNameSuggestions,
+  onPersonalNameBlur,
 }: CustomerSectionProps) {
   return (
     <SectionCard title="客户信息" titleIcon={<UserRound size={18} />} titleClassName="text-lg font-semibold">
@@ -243,8 +245,15 @@ export function CustomerSection({
               <Input
                 placeholder="输入客户名字"
                 value={personalName}
+                list="new-job-personal-customer-options"
                 onChange={(event) => onPersonalNameChange(event.target.value)}
+                onBlur={onPersonalNameBlur}
               />
+              <datalist id="new-job-personal-customer-options">
+                {personalNameSuggestions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">

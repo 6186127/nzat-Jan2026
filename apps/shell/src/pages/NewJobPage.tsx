@@ -20,6 +20,32 @@ import { withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
   type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
+  type PersonalCustomerOption = {
+    id: string;
+    name: string;
+    phone: string;
+    email: string;
+    address: string;
+  };
+  type LinkedCustomerPayload = {
+    source?: string;
+    jobId?: number | null;
+    customer?: {
+      id?: number | string;
+      type?: string;
+      name?: string;
+      phone?: string | null;
+      email?: string | null;
+      address?: string | null;
+      businessCode?: string | null;
+      notes?: string | null;
+    } | null;
+  };
+  type VehicleLookupPayload = {
+    vehicle?: unknown;
+    linkedCustomer?: LinkedCustomerPayload | null;
+  };
+
   const navigate = useNavigate();
   const toast = useToast();
   const [rego, setRego] = useState("");
@@ -36,6 +62,7 @@ export function NewJobPage() {
   const [customerAddress, setCustomerAddress] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [businessOptions, setBusinessOptions] = useState<BusinessOption[]>([]);
+  const [personalCustomerOptions, setPersonalCustomerOptions] = useState<PersonalCustomerOption[]>([]);
   const [notes, setNotes] = useState("");
   const [needsPo, setNeedsPo] = useState(true);
   const [paintPanels, setPaintPanels] = useState("1");
@@ -60,6 +87,10 @@ export function NewJobPage() {
   const selectedBusiness = useMemo(
     () => businessOptions.find((biz) => biz.id === businessId),
     [businessOptions, businessId]
+  );
+  const personalNameSuggestions = useMemo(
+    () => personalCustomerOptions.map((item) => item.name),
+    [personalCustomerOptions]
   );
 
   const serviceLabelMap = useMemo(() => {
@@ -162,6 +193,17 @@ export function NewJobPage() {
         }
         if (!cancelled) {
           const list = Array.isArray(data) ? data : [];
+          const personalCustomers = list
+            .filter((item) => String(item?.type || "").toLowerCase() === "personal")
+            .map((item) => ({
+              id: String(item.id),
+              name: String(item.name || "").trim(),
+              phone: String(item.phone || ""),
+              email: String(item.email || ""),
+              address: String(item.address || ""),
+            }))
+            .filter((item) => item.name);
+          setPersonalCustomerOptions(personalCustomers);
           const businesses = list
             .filter((item) => String(item?.type || "").toLowerCase() === "business")
             .map((item) => ({
@@ -174,6 +216,7 @@ export function NewJobPage() {
         }
       } catch {
         if (!cancelled) {
+          setPersonalCustomerOptions([]);
           setBusinessOptions([]);
         }
       }
@@ -259,6 +302,48 @@ export function NewJobPage() {
     throw new Error(data?.error || "读取数据库失败");
   };
 
+  const applyPersonalCustomer = (customer: {
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+  }) => {
+    setCustomerType("personal");
+    setBusinessId("");
+    setPersonalName(String(customer.name || ""));
+    setPersonalPhone(String(customer.phone || ""));
+    setPersonalEmail(String(customer.email || ""));
+    setCustomerAddress(String(customer.address || ""));
+  };
+
+  const applyLinkedCustomer = (payload: LinkedCustomerPayload | null | undefined) => {
+    const customer = payload?.customer;
+    if (!customer?.name) return;
+
+    const normalizedType = String(customer.type || "").toLowerCase();
+    if (normalizedType === "business") {
+      setCustomerType("business");
+      setBusinessId(customer.id ? String(customer.id) : "");
+      setPersonalName("");
+      setPersonalPhone("");
+      setPersonalEmail("");
+      setCustomerAddress("");
+      return;
+    }
+
+    applyPersonalCustomer(customer);
+  };
+
+  const handlePersonalNameBlur = () => {
+    const normalized = personalName.trim().toLowerCase();
+    if (!normalized) return;
+
+    const matched = personalCustomerOptions.find((item) => item.name.trim().toLowerCase() === normalized);
+    if (!matched) return;
+
+    applyPersonalCustomer(matched);
+  };
+
   const importVehicle = async (plate: string) => {
 
     //  console.log('in importVehicle:', plate, lastRequestedPlate, importState);
@@ -289,6 +374,7 @@ export function NewJobPage() {
 
       console.log("vehicle from db", dbData?.vehicle ?? dbData);
       setVehicleInfo(extractVehicleInfo(dbData));
+      applyLinkedCustomer((dbData as VehicleLookupPayload | null)?.linkedCustomer);
       setImportState("success");
     } catch (err) {
       setImportState("error");
@@ -309,6 +395,7 @@ export function NewJobPage() {
       if (dbData) {
         console.log("vehicle from db", dbData?.vehicle ?? dbData);
         setVehicleInfo(extractVehicleInfo(dbData));
+        applyLinkedCustomer((dbData as VehicleLookupPayload | null)?.linkedCustomer);
         setImportState("success");
         return;
       }
@@ -521,6 +608,8 @@ export function NewJobPage() {
             businessId={businessId}
             businessOptions={businessOptions}
             onBusinessChange={setBusinessId}
+            personalNameSuggestions={personalNameSuggestions}
+            onPersonalNameBlur={handlePersonalNameBlur}
           />
           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
             <ServicesSection
@@ -672,10 +761,10 @@ export function NewJobPage() {
               ) : null}
             </div>
           </SectionCard>
-          <div className="flex justify-end">
+          <div>
             <Button
               variant="primary"
-              className="w-[112px] justify-center gap-2 text-center disabled:cursor-not-allowed disabled:bg-[rgba(0,0,0,0.18)] disabled:text-white/80"
+              className="w-full justify-center gap-2 text-center disabled:cursor-not-allowed disabled:bg-[rgba(0,0,0,0.18)] disabled:text-white/80"
               onClick={handleSave}
               disabled={saving}
             >
