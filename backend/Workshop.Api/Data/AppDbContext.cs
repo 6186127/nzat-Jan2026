@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerStaff> CustomerStaffMembers => Set<CustomerStaff>();
+    public DbSet<CustomerServicePrice> CustomerServicePrices => Set<CustomerServicePrice>();
     public DbSet<GmailAccount> GmailAccounts => Set<GmailAccount>();
     public DbSet<GmailMessageLog> GmailMessageLogs => Set<GmailMessageLog>();
     public DbSet<InactiveGmailCorrelation> InactiveGmailCorrelations => Set<InactiveGmailCorrelation>();
@@ -112,6 +113,10 @@ public class AppDbContext : DbContext
             .WithOne(x => x.Customer)
             .HasForeignKey(x => x.CustomerId)
             .OnDelete(DeleteBehavior.Cascade);
+        c.HasMany(x => x.ServicePrices)
+            .WithOne(x => x.Customer)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         var cs = modelBuilder.Entity<CustomerStaff>();
         cs.ToTable("customer_staff");
@@ -122,6 +127,27 @@ public class AppDbContext : DbContext
         cs.Property(x => x.Title).HasColumnName("title");
         cs.Property(x => x.Email).HasColumnName("email");
         cs.HasIndex(x => x.CustomerId).HasDatabaseName("ix_customer_staff_customer_id");
+
+        var csp = modelBuilder.Entity<CustomerServicePrice>();
+        csp.ToTable("customer_service_prices");
+        csp.HasKey(x => x.Id);
+        csp.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        csp.Property(x => x.CustomerId).HasColumnName("customer_id").IsRequired();
+        csp.Property(x => x.ServiceCatalogItemId).HasColumnName("service_catalog_item_id").IsRequired();
+        csp.Property(x => x.XeroItemCode).HasColumnName("xero_item_code").IsRequired();
+        csp.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
+        csp.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .HasDefaultValueSql("date_trunc('milliseconds', now())");
+        csp.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at")
+            .HasDefaultValueSql("date_trunc('milliseconds', now())");
+        csp.HasIndex(x => x.CustomerId).HasDatabaseName("ix_customer_service_prices_customer_id");
+        csp.HasIndex(x => x.ServiceCatalogItemId).HasDatabaseName("ix_customer_service_prices_service_catalog_item_id");
+        csp.HasOne(x => x.ServiceCatalogItem)
+            .WithMany()
+            .HasForeignKey(x => x.ServiceCatalogItemId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         var ga = modelBuilder.Entity<GmailAccount>();
         ga.ToTable("gmail_accounts");

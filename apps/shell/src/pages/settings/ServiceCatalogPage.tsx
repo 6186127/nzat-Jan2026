@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { Alert, Button, Card, EmptyState, Input, Pagination, useToast } from "@/components/ui";
 import { requestJson } from "@/utils/api";
 import { paginate } from "@/utils/pagination";
@@ -90,12 +91,12 @@ function InventoryItemValue({
   }
 
   return (
-    <div className="min-w-0">
-      <div className="mb-1 inline-flex rounded-[8px] border border-[rgba(0,0,0,0.85)] px-2 py-0.5 text-[9px] font-semibold tracking-[0.02em] text-[rgba(0,0,0,0.92)]">
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="shrink-0 rounded-[8px] border border-[rgba(0,0,0,0.85)] px-2 py-0.5 text-[9px] font-semibold tracking-[0.02em] text-[rgba(0,0,0,0.92)]">
         {matchedItem.itemCode}
       </div>
-      <div className="truncate text-[13px] font-medium text-[rgba(0,0,0,0.78)]">{matchedItem.itemName}</div>
-      <div className="mt-0.5 text-[11px] text-[rgba(0,0,0,0.6)]">Sales price: {formatSalesPrice(matchedItem.salesUnitPrice)}</div>
+      <div className="min-w-0 truncate text-[13px] font-medium text-[rgba(0,0,0,0.78)]">{matchedItem.itemName}</div>
+      <div className="shrink-0 text-[11px] font-medium text-[rgba(0,0,0,0.78)]">Sales price: {formatSalesPrice(matchedItem.salesUnitPrice)}</div>
     </div>
   );
 }
@@ -113,7 +114,11 @@ function InventoryLinkCodeInput({
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [openUpward, setOpenUpward] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState<{ top: number; left: number; width: number }>({
+    top: 0,
+    left: 0,
+    width: 520,
+  });
   const blurTimer = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -145,10 +150,21 @@ function InventoryLinkCodeInput({
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const dropdownWidth = Math.min(520, viewportWidth - 48);
     const estimatedDropdownHeight = Math.min(320, Math.max(160, filteredOptions.length * 56)) + 12;
     const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
-    setOpenUpward(spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow);
+    const nextOpenUpward = spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow;
+    const preferRightAligned = rect.right + dropdownWidth > viewportWidth - 24;
+    const left = preferRightAligned
+      ? Math.max(24, rect.right - dropdownWidth)
+      : Math.max(24, Math.min(rect.left, viewportWidth - dropdownWidth - 24));
+    const top = nextOpenUpward
+      ? Math.max(16, rect.top - estimatedDropdownHeight - 8)
+      : Math.min(rect.bottom + 8, viewportHeight - estimatedDropdownHeight - 16);
+
+    setDropdownStyle({ top, left, width: dropdownWidth });
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -193,13 +209,17 @@ function InventoryLinkCodeInput({
           blurTimer.current = window.setTimeout(() => setOpen(false), 120);
         }}
       />
-      {open ? (
+      {open
+        ? createPortal(
         <div
-          className={[
-            "absolute z-50 rounded-[10px] border border-[rgba(0,0,0,0.12)] bg-white shadow-lg",
-            openUpward ? "bottom-full mb-2" : "top-full mt-2",
-          ].join(" ")}
-          style={{ width: "min(520px, calc(100vw - 48px))" }}
+          className="rounded-[10px] border border-[rgba(0,0,0,0.12)] bg-white shadow-lg"
+          style={{
+            position: "fixed",
+            top: dropdownStyle.top,
+            left: dropdownStyle.left,
+            width: dropdownStyle.width,
+            zIndex: 9999,
+          }}
         >
           {filteredOptions.length > 0 ? (
             <ul className="max-h-[320px] overflow-auto py-1">
@@ -236,8 +256,10 @@ function InventoryLinkCodeInput({
           ) : (
             <div className="px-3 py-3 text-sm text-[rgba(0,0,0,0.45)]">没有匹配的 Inventory Item</div>
           )}
-        </div>
-      ) : null}
+        </div>,
+        document.body
+      )
+        : null}
     </div>
   );
 }
@@ -257,7 +279,7 @@ export function ServiceCatalogPage() {
   const [childFilter, setChildFilter] = useState<"wof" | "mech" | "paint">("wof");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 8;
+  const pageSize = 15;
 
   const inventoryItemMap = useMemo(
     () => new Map(inventoryItems.map((item) => [item.itemCode, item])),
@@ -478,7 +500,6 @@ export function ServiceCatalogPage() {
     <div className="space-y-4 text-[14px]">
       <div>
         <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">Service Settings</h1>
-        <div className="mt-1 text-sm text-[rgba(0,0,0,0.48)]">管理 New Job 的 WOF / 机修 / 喷漆子服务和 personal / dealership link code。</div>
       </div>
 
       {loadError ? <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} /> : null}
@@ -524,7 +545,7 @@ export function ServiceCatalogPage() {
         </div>
 
         {adding ? (
-          <div className="grid grid-cols-[120px_1fr_220px_220px_120px_140px] gap-2 px-4 py-3 hover:bg-[rgba(0,0,0,0.02)]">
+          <div className="grid grid-cols-[88px_260px_500px_500px_72px_minmax(88px,1fr)] gap-2 px-4 py-3 hover:bg-[rgba(0,0,0,0.02)]">
             <div className="text-xs text-[rgba(0,0,0,0.6)]">{serviceTypeLabel(draft.serviceType)}</div>
             <Input value={draft.name} placeholder="子服务名称" onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))} />
             <InventoryLinkCodeInput
@@ -555,20 +576,26 @@ export function ServiceCatalogPage() {
         ) : pagination.totalItems === 0 ? (
           <EmptyState message="暂无子服务" />
         ) : (
-          <div className="overflow-x-auto">
-            <div className="min-w-[1120px]">
-              <div className="grid grid-cols-[120px_1fr_220px_220px_120px_140px] gap-2 border-b border-[rgba(0,0,0,0.06)] px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.55)]">
+          <div className="overflow-x-auto overflow-y-visible">
+            <div className="min-w-[1560px]">
+              <div className="grid grid-cols-[88px_260px_500px_500px_72px_minmax(88px,1fr)] gap-2 border-b border-[rgba(0,0,0,0.06)] px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.55)]">
                 <div>Type</div>
                 <div>Name</div>
                 <div>Personal Link Code</div>
                 <div>Dealership Link Code</div>
-                <div>Active</div>
+                <div className="text-right">Active</div>
                 <div className="text-right pr-2">操作</div>
               </div>
-            {pagination.pageRows.map((row) => {
+            {pagination.pageRows.map((row, index) => {
               const editing = editingId === row.id && editDraft;
               return (
-                <div key={row.id} className="group grid grid-cols-[120px_1fr_220px_220px_120px_140px] gap-2 px-4 py-3 transition hover:bg-[rgba(0,0,0,0.02)]">
+                <div
+                  key={row.id}
+                  className={[
+                    "group grid grid-cols-[88px_260px_500px_500px_72px_minmax(88px,1fr)] gap-2 px-4 py-3 transition hover:bg-[rgba(239,68,68,0.08)]",
+                    index % 2 === 0 ? "bg-white" : "bg-[rgba(0,0,0,0.02)]",
+                  ].join(" ")}
+                >
                   <div className="text-xs text-[rgba(0,0,0,0.6)]">{serviceTypeLabel(row.serviceType)}</div>
                   <div>
                     {editing ? (
@@ -605,7 +632,7 @@ export function ServiceCatalogPage() {
                       <InventoryItemValue code={row.dealershipLinkCode} matchedItem={inventoryItemMap.get(row.dealershipLinkCode)} />
                     )}
                   </div>
-                  <div>
+                  <div className="flex justify-end">
                     <Toggle
                       checked={editing ? editDraft.isActive : row.isActive}
                       onChange={editing ? (next) => setEditDraft({ ...editDraft, isActive: next }) : undefined}

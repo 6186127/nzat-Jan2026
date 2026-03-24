@@ -106,6 +106,57 @@ namespace Workshop.Api.Migrations
                     b.ToTable("customer_staff", (string)null);
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.CustomerServicePrice", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<long>("CustomerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("customer_id");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active")
+                        .HasDefaultValue(true);
+
+                    b.Property<long>("ServiceCatalogItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("service_catalog_item_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("XeroItemCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("xero_item_code");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_customer_service_prices_customer_id");
+
+                    b.HasIndex("ServiceCatalogItemId")
+                        .HasDatabaseName("ix_customer_service_prices_service_catalog_item_id");
+
+                    b.ToTable("customer_service_prices", (string)null);
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.GmailMessageLog", b =>
                 {
                     b.Property<long>("Id")
@@ -1317,6 +1368,25 @@ namespace Workshop.Api.Migrations
                     b.Navigation("Customer");
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.CustomerServicePrice", b =>
+                {
+                    b.HasOne("Workshop.Api.Models.Customer", "Customer")
+                        .WithMany("ServicePrices")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Workshop.Api.Models.ServiceCatalogItem", "ServiceCatalogItem")
+                        .WithMany()
+                        .HasForeignKey("ServiceCatalogItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("ServiceCatalogItem");
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.JobInvoice", b =>
                 {
                     b.HasOne("Workshop.Api.Models.Job", null)
@@ -1347,6 +1417,8 @@ namespace Workshop.Api.Migrations
 
             modelBuilder.Entity("Workshop.Api.Models.Customer", b =>
                 {
+                    b.Navigation("ServicePrices");
+
                     b.Navigation("StaffMembers");
                 });
 #pragma warning restore 612, 618
