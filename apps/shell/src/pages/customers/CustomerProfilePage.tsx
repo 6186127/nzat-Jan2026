@@ -639,7 +639,6 @@ export function CustomerProfilePage() {
                 </div>
               ) : (
                 servicePriceRows.map((row) => {
-                  const service = serviceOptionById.get(row.serviceCatalogItemId) ?? null;
                   const inventory = inventoryOptionByCode.get(row.xeroItemCode) ?? null;
                   return (
                     <div key={row.id} className="grid grid-cols-[1.2fr_1.6fr_120px_120px_56px] gap-3">

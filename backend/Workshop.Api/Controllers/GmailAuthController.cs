@@ -541,11 +541,31 @@ public class GmailAuthController : ControllerBase
         var attachments = DeserializeAttachments(log?.AttachmentsJson);
         var attachment = attachments.FirstOrDefault(x => string.Equals(x.AttachmentId, attachmentId, StringComparison.Ordinal));
 
+        var directory = Path.Combine(_environment.ContentRootPath, "App_Data", "gmail-attachments");
+        Directory.CreateDirectory(directory);
+
+        var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(fileName));
+        var shortenedBaseName = safeBaseName.Length > 40 ? safeBaseName[..40] : safeBaseName;
+        var extension = ResolveFileExtension(fileName, mimeType);
+        var messageHash = ComputeShortHash(messageId, 12);
+        var attachmentHash = ComputeShortHash(attachmentId, 12);
+        var relativePath = Path.Combine(
+            "App_Data",
+            "gmail-attachments",
+            $"{messageHash}_{attachmentHash}_{shortenedBaseName}{extension}");
+        var fullPath = Path.Combine(_environment.ContentRootPath, relativePath);
+
         if (!string.IsNullOrWhiteSpace(attachment?.CachedRelativePath))
         {
             var cachedPath = Path.Combine(_environment.ContentRootPath, attachment.CachedRelativePath);
             if (System.IO.File.Exists(cachedPath))
                 return cachedPath;
+        }
+
+        if (System.IO.File.Exists(fullPath))
+        {
+            await UpdateAttachmentCacheMetadataAsync(log, attachments, attachmentId, relativePath, ct);
+            return fullPath;
         }
 
         var tokenResult = await _gmailTokenService.RefreshAccessTokenAsync(log?.GmailAccountId, ct);
@@ -571,40 +591,48 @@ public class GmailAuthController : ControllerBase
         if (bytes.Length == 0)
             return null;
 
-        var directory = Path.Combine(_environment.ContentRootPath, "App_Data", "gmail-attachments");
-        Directory.CreateDirectory(directory);
-
-        var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(fileName));
-        var shortenedBaseName = safeBaseName.Length > 40 ? safeBaseName[..40] : safeBaseName;
-        var extension = ResolveFileExtension(fileName, mimeType);
-        var messageHash = ComputeShortHash(messageId, 12);
-        var attachmentHash = ComputeShortHash(attachmentId, 12);
-        var relativePath = Path.Combine(
-            "App_Data",
-            "gmail-attachments",
-            $"{messageHash}_{attachmentHash}_{shortenedBaseName}{extension}");
-        var fullPath = Path.Combine(_environment.ContentRootPath, relativePath);
-
         await System.IO.File.WriteAllBytesAsync(fullPath, bytes, ct);
-
-        if (log is not null)
-        {
-            var updatedAttachments = attachments
-                .Select(item => item.AttachmentId == attachmentId
-                    ? item with
-                    {
-                        CachedRelativePath = relativePath,
-                        CachedAtUtc = DateTime.UtcNow,
-                    }
-                    : item)
-                .ToList();
-            log.AttachmentsJson = JsonSerializer.Serialize(updatedAttachments, JsonOptions);
-            log.HasAttachments = updatedAttachments.Count > 0;
-            log.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
-        }
+        await UpdateAttachmentCacheMetadataAsync(log, attachments, attachmentId, relativePath, ct);
 
         return fullPath;
+    }
+
+    private async Task UpdateAttachmentCacheMetadataAsync(
+        GmailMessageLog? log,
+        List<GmailAttachmentDescriptor> attachments,
+        string attachmentId,
+        string relativePath,
+        CancellationToken ct)
+    {
+        if (log is null || attachments.Count == 0)
+            return;
+
+        var updated = false;
+        var updatedAttachments = attachments
+            .Select(item =>
+            {
+                if (!string.Equals(item.AttachmentId, attachmentId, StringComparison.Ordinal))
+                    return item;
+
+                updated = updated ||
+                    !string.Equals(item.CachedRelativePath, relativePath, StringComparison.Ordinal) ||
+                    item.CachedAtUtc is null;
+
+                return item with
+                {
+                    CachedRelativePath = relativePath,
+                    CachedAtUtc = DateTime.UtcNow,
+                };
+            })
+            .ToList();
+
+        if (!updated)
+            return;
+
+        log.AttachmentsJson = JsonSerializer.Serialize(updatedAttachments, JsonOptions);
+        log.HasAttachments = updatedAttachments.Count > 0;
+        log.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
     }
 
     private async Task CacheAttachmentOcrTextAsync(

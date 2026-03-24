@@ -1,6 +1,6 @@
-import { Check, Pencil, Plus, RefreshCcw, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, Plus, RefreshCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Input, Select } from "@/components/ui";
+import { Button, Card, Input } from "@/components/ui";
 import { XeroButton } from "@/components/common/XeroButton";
 import { withApiBase } from "@/utils/api";
 import type { InvoiceDashboardState, ReferencePreviewSource, XeroStateOption } from "../types";
@@ -26,6 +26,12 @@ type Props = {
   onCreateInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingInvoice?: boolean;
   children?: React.ReactNode;
+};
+
+const XERO_STATE_STYLES: Record<"DRAFT" | "AUTHORISED" | "PAID", string> = {
+  DRAFT: "border-[#b7c0c8] bg-[#e2e6ea] text-[#4b5563]",
+  AUTHORISED: "border-[#8fd3a7] bg-[#bfe8cc] text-[#1f5132]",
+  PAID: "border-[#88c4e8] bg-[#c9e8fb] text-[#17506f]",
 };
 
 function SummaryField({ label, value, className = "" }: { label: string; value: string; className?: string }) {
@@ -64,10 +70,20 @@ export function InvoiceSummaryCard({
   const [savedXeroState, setSavedXeroState] = useState<XeroStateOption>("DRAFT");
 
   useEffect(() => {
-    const nextState: XeroStateOption = invoice.xeroStatus === "AUTHORISED" ? "AUTHORISED" : "DRAFT";
+    const paymentMethod = invoice.latestPaymentMethod?.trim().toLowerCase();
+    const nextState: XeroStateOption =
+      paymentMethod === "cash"
+        ? "PAID_CASH"
+        : paymentMethod === "epost"
+          ? "PAID_EPOST"
+          : paymentMethod === "bank_transfer"
+            ? "PAID_BANK_TRANSFER"
+            : invoice.xeroStatus === "AUTHORISED"
+              ? "AUTHORISED"
+              : "DRAFT";
     setXeroState(nextState);
     setSavedXeroState(nextState);
-  }, [invoice.xeroStatus]);
+  }, [invoice.xeroStatus, invoice.latestPaymentMethod]);
 
   useEffect(() => {
     setReferenceDraft(invoice.reference);
@@ -114,6 +130,12 @@ export function InvoiceSummaryCard({
   };
 
   const xeroStateDirty = xeroState !== savedXeroState;
+  const currentXeroStateStyle =
+    xeroState === "AUTHORISED"
+      ? XERO_STATE_STYLES.AUTHORISED
+      : xeroState === "DRAFT"
+        ? XERO_STATE_STYLES.DRAFT
+        : XERO_STATE_STYLES.PAID;
 
   return (
     <Card className="rounded-[18px] p-6">
@@ -123,15 +145,33 @@ export function InvoiceSummaryCard({
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--ds-muted)]">
             <span>Xero ID: {invoice.xeroInvoiceId}</span>
             <div className="inline-flex items-center gap-2 whitespace-nowrap">
-              <Select
-                value={xeroState}
-                onChange={(event) => setXeroState(event.target.value as XeroStateOption)}
-                className="h-8 min-w-[90px] py-0 text-xs"
-                disabled={isReadOnly}
-              >
-                <option value="DRAFT">Draft</option>
-                <option value="AUTHORISED">Approve</option>
-              </Select>
+              <div className="relative">
+                <select
+                  value={xeroState}
+                  onChange={(event) => setXeroState(event.target.value as XeroStateOption)}
+                  disabled={isReadOnly}
+                  className={[
+                    "h-8 appearance-none rounded-[6px] border px-3 pr-8 text-sm font-normal leading-5 shadow-none outline-none transition-colors",
+                    "focus:ring-2 focus:ring-[rgba(37,99,235,0.12)]",
+                    currentXeroStateStyle,
+                    isReadOnly ? "cursor-default" : "cursor-pointer",
+                  ].join(" ")}
+                >
+                  <option value="DRAFT">Draft</option>
+                  <option value="AUTHORISED">Waiting Payment</option>
+                  <option value="PAID_CASH">Cash Payment</option>
+                  <option value="PAID_EPOST">ePost Payment</option>
+                  <option value="PAID_BANK_TRANSFER">Bank Transfer</option>
+                </select>
+                {!isReadOnly ? (
+                  <ChevronDown
+                    className={[
+                      "pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2",
+                      xeroState === "AUTHORISED" ? "text-[#1f5132]" : xeroState === "DRAFT" ? "text-[#4b5563]" : "text-[#17506f]",
+                    ].join(" ")}
+                  />
+                ) : null}
+              </div>
               {xeroStateDirty ? (
                 <>
                   <Button className="h-8 px-3 text-xs" variant="ghost" onClick={handleCancelXeroStateChange} disabled={isReadOnly || isUpdatingXeroState}>
@@ -173,7 +213,6 @@ export function InvoiceSummaryCard({
       <div className="mt-6 grid gap-5 md:grid-cols-3 xl:grid-cols-4">
         <SummaryField label="Contact" value={invoice.contact} />
         <SummaryField label="Issue date" value={invoice.issueDate} />
-        <SummaryField label="Due date" value={invoice.dueDate} />
         <SummaryField label="Invoice number" value={invoice.invoiceNumber} />
         <div>
           <div className="text-sm text-[var(--ds-muted)]">Reference</div>

@@ -72,6 +72,7 @@ public sealed class JobInvoiceService
         try
         {
             request = await BuildCreateRequestAsync(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService, hasWofRecord, ct);
+            request.LineItems = await SanitizeLineItemsAsync(request.LineItems, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -142,22 +143,7 @@ public sealed class JobInvoiceService
             {
                 Name = string.IsNullOrWhiteSpace(payload.ContactName) ? jobInvoice.ContactName : payload.ContactName.Trim(),
             },
-            LineItems = payload.LineItems
-                .Where(item => !string.IsNullOrWhiteSpace(item.Description))
-                .Select(item => new XeroInvoiceLineItemInput
-                {
-                    Description = item.Description.Trim(),
-                    Quantity = item.Quantity,
-                    UnitAmount = item.UnitAmount,
-                    LineAmount = item.LineAmount,
-                    ItemCode = item.ItemCode?.Trim(),
-                    AccountCode = item.AccountCode?.Trim(),
-                    TaxType = NormalizeXeroTaxType(item.TaxType),
-                    TaxAmount = item.TaxAmount,
-                    DiscountRate = item.DiscountRate,
-                    DiscountAmount = item.DiscountAmount,
-                })
-                .ToList(),
+            LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
 
         if (request.LineItems.Count == 0)
@@ -225,22 +211,7 @@ public sealed class JobInvoiceService
             {
                 Name = string.IsNullOrWhiteSpace(payload.ContactName) ? jobInvoice.ContactName : payload.ContactName.Trim(),
             },
-            LineItems = payload.LineItems
-                .Where(item => !string.IsNullOrWhiteSpace(item.Description))
-                .Select(item => new XeroInvoiceLineItemInput
-                {
-                    Description = item.Description.Trim(),
-                    Quantity = item.Quantity,
-                    UnitAmount = item.UnitAmount,
-                    LineAmount = item.LineAmount,
-                    ItemCode = item.ItemCode?.Trim(),
-                    AccountCode = item.AccountCode?.Trim(),
-                    TaxType = NormalizeXeroTaxType(item.TaxType),
-                    TaxAmount = item.TaxAmount,
-                    DiscountRate = item.DiscountRate,
-                    DiscountAmount = item.DiscountAmount,
-                })
-                .ToList(),
+            LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
 
         if (request.LineItems.Count == 0)
@@ -351,19 +322,6 @@ public sealed class JobInvoiceService
 
         if (state is "PAID_CASH" or "PAID_EPOST" or "PAID_BANK_TRANSFER")
         {
-            if (string.Equals(jobInvoice.ExternalStatus, "PAID", StringComparison.OrdinalIgnoreCase))
-                return await BuildStateUpdateResultAsync(jobInvoice, ct);
-
-            var authorisedDuringRequest = false;
-            if (!string.Equals(jobInvoice.ExternalStatus, "AUTHORISED", StringComparison.OrdinalIgnoreCase))
-            {
-                var authoriseResult = await SyncInvoiceStatusAsync(jobInvoice, "AUTHORISED", ct);
-                if (!authoriseResult.Ok)
-                    return JobInvoiceStateUpdateResult.Fail(authoriseResult.StatusCode, authoriseResult.Error ?? "Failed to authorise invoice before payment.", authoriseResult.Payload);
-
-                authorisedDuringRequest = true;
-            }
-
             var paymentMethod = state switch
             {
                 "PAID_CASH" => "cash",
@@ -371,41 +329,40 @@ public sealed class JobInvoiceService
                 _ => "bank_transfer",
             };
 
-            var accountCode = ResolvePaymentAccountCode(paymentMethod);
-            if (string.IsNullOrWhiteSpace(accountCode))
-                return JobInvoiceStateUpdateResult.Fail(400, $"Missing Xero payment account configuration for method '{paymentMethod}'.");
-
-            var amountToPay = ExtractAmountDue(jobInvoice.ResponsePayloadJson) ?? ExtractInvoiceTotal(jobInvoice.ResponsePayloadJson) ?? ExtractInvoiceTotal(jobInvoice.RequestPayloadJson);
-            if (amountToPay is null || amountToPay <= 0)
+            var paymentDate = payload.PaymentDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var amount = ExtractAmountDue(jobInvoice.ResponsePayloadJson)
+                ?? ExtractInvoiceTotal(jobInvoice.ResponsePayloadJson)
+                ?? ExtractInvoiceTotal(jobInvoice.RequestPayloadJson);
+            if (amount is null || amount <= 0)
                 return JobInvoiceStateUpdateResult.Fail(400, "Unable to determine invoice payment amount.");
 
-            var paymentRequest = new CreateXeroPaymentRequest
+            var targetInvoiceStatus = paymentMethod == "cash" ? "DELETED" : "AUTHORISED";
+            if (!string.Equals(jobInvoice.ExternalStatus, targetInvoiceStatus, StringComparison.OrdinalIgnoreCase))
             {
-                InvoiceId = invoiceId,
-                AccountCode = accountCode,
-                Amount = amountToPay.Value,
-                Date = DateOnly.FromDateTime(DateTime.UtcNow),
-                Reference = paymentMethod == "epost" ? payload.EpostReferenceId?.Trim() : null,
-            };
+                var statusSyncResult = await SyncInvoiceStatusAsync(jobInvoice, targetInvoiceStatus, ct);
+                if (!statusSyncResult.Ok)
+                {
+                    var fallbackError = paymentMethod == "cash"
+                        ? "Failed to delete invoice in Xero."
+                        : "Failed to update invoice status in Xero.";
+                    return JobInvoiceStateUpdateResult.Fail(statusSyncResult.StatusCode, statusSyncResult.Error ?? fallbackError, statusSyncResult.Payload);
+                }
 
-            var paymentResult = await _xeroPaymentService.CreatePaymentAsync(paymentRequest, ct);
-            if (!paymentResult.Ok)
-            {
-                var message = authorisedDuringRequest
-                    ? $"Invoice authorised successfully, but payment was not created. {paymentResult.Error ?? "Failed to create payment in Xero."}"
-                    : paymentResult.Error ?? "Failed to create payment in Xero.";
-                return JobInvoiceStateUpdateResult.Fail(paymentResult.StatusCode, message, paymentResult.Payload);
+                job.InvoiceReference = jobInvoice.Reference;
+                job.UpdatedAt = DateTime.UtcNow;
             }
 
-            var jobPayment = BuildJobPayment(jobInvoice, paymentMethod, accountCode, paymentRequest, paymentResult.Payload);
+            var jobPayment = BuildJobPayment(
+                jobInvoice,
+                paymentMethod,
+                amount.Value,
+                paymentDate,
+                paymentMethod == "epost" ? payload.EpostReferenceId?.Trim() : null,
+                paymentMethod == "cash" ? "DELETED" : "AUTHORISED");
             _db.JobPayments.Add(jobPayment);
             await _db.SaveChangesAsync(ct);
 
-            var resynced = await SyncFromXeroAsync(jobId, ct);
-            if (!resynced.Ok || resynced.Invoice is null)
-                return JobInvoiceStateUpdateResult.Fail(resynced.StatusCode, resynced.Error ?? "Payment created, but failed to refresh invoice status from Xero.", resynced.Payload);
-
-            return await BuildStateUpdateResultAsync(resynced.Invoice, ct);
+            return await BuildStateUpdateResultAsync(jobInvoice, ct);
         }
 
         return JobInvoiceStateUpdateResult.Fail(400, $"Unsupported state '{payload.State}'.");
@@ -506,44 +463,33 @@ public sealed class JobInvoiceService
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
-    private static JobPayment BuildJobPayment(JobInvoice jobInvoice, string method, string accountCode, CreateXeroPaymentRequest request, object? payload)
+    private static JobPayment BuildJobPayment(
+        JobInvoice jobInvoice,
+        string method,
+        decimal amount,
+        DateOnly paymentDate,
+        string? reference,
+        string externalStatus)
     {
         var now = DateTime.UtcNow;
         return new JobPayment
         {
             JobId = jobInvoice.JobId,
             JobInvoiceId = jobInvoice.Id,
-            Provider = "xero",
-            ExternalPaymentId = ExtractPaymentId(payload),
+            Provider = "system",
+            ExternalPaymentId = null,
             ExternalInvoiceId = jobInvoice.ExternalInvoiceId,
             Method = method,
-            Amount = request.Amount,
-            PaymentDate = request.Date,
-            Reference = request.Reference,
-            AccountCode = accountCode,
-            ExternalStatus = "PAID",
-            RequestPayloadJson = JsonSerializer.Serialize(request, JsonOptions),
-            ResponsePayloadJson = payload is null ? null : JsonSerializer.Serialize(payload, JsonOptions),
+            Amount = amount,
+            PaymentDate = paymentDate,
+            Reference = reference,
+            AccountCode = null,
+            ExternalStatus = externalStatus,
+            RequestPayloadJson = null,
+            ResponsePayloadJson = null,
             CreatedAt = now,
             UpdatedAt = now,
         };
-    }
-
-    private static string? ExtractPaymentId(object? payload)
-    {
-        if (payload is null) return null;
-        try
-        {
-            using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload, JsonOptions));
-            if (!document.RootElement.TryGetProperty("Payments", out var payments) || payments.ValueKind != JsonValueKind.Array)
-                return null;
-            var payment = payments.EnumerateArray().FirstOrDefault();
-            return TryGetString(payment, "PaymentID");
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
     private static decimal? ExtractAmountDue(string? payloadJson) => ExtractDecimalFromInvoicePayload(payloadJson, "AmountDue");
@@ -686,6 +632,66 @@ public sealed class JobInvoiceService
             },
             LineItems = lineItems,
         };
+    }
+
+    private async Task<List<XeroInvoiceLineItemInput>> SanitizeLineItemsAsync(
+        IEnumerable<XeroInvoiceLineItemInput> lineItems,
+        CancellationToken ct)
+    {
+        var normalized = lineItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.Description))
+            .Select(item => new XeroInvoiceLineItemInput
+            {
+                Description = item.Description.Trim(),
+                Quantity = item.Quantity,
+                UnitAmount = item.UnitAmount,
+                LineAmount = item.LineAmount,
+                ItemCode = item.ItemCode?.Trim(),
+                AccountCode = item.AccountCode?.Trim(),
+                TaxType = NormalizeXeroTaxType(item.TaxType),
+                TaxAmount = item.TaxAmount,
+                DiscountRate = item.DiscountRate,
+                DiscountAmount = item.DiscountAmount,
+            })
+            .ToList();
+
+        if (normalized.Count == 0)
+            return normalized;
+
+        var requestedCodes = normalized
+            .Select(item => item.ItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        HashSet<string> validCodes = new(StringComparer.OrdinalIgnoreCase);
+        if (requestedCodes.Count > 0)
+        {
+            var matchedCodes = await _db.InventoryItems.AsNoTracking()
+                .Where(x => requestedCodes.Contains(x.ItemCode))
+                .Select(x => x.ItemCode)
+                .ToListAsync(ct);
+            validCodes = new HashSet<string>(matchedCodes, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return normalized
+            .Select(item => new XeroInvoiceLineItemInput
+            {
+                Description = item.Description,
+                Quantity = item.Quantity,
+                UnitAmount = item.UnitAmount,
+                LineAmount = item.LineAmount,
+                ItemCode = !string.IsNullOrWhiteSpace(item.ItemCode) && validCodes.Contains(item.ItemCode)
+                    ? item.ItemCode
+                    : null,
+                AccountCode = item.AccountCode,
+                TaxType = item.TaxType,
+                TaxAmount = item.TaxAmount,
+                DiscountRate = item.DiscountRate,
+                DiscountAmount = item.DiscountAmount,
+            })
+            .ToList();
     }
 
     private sealed record OilServiceRule(

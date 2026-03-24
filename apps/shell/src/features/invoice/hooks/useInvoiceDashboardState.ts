@@ -895,6 +895,7 @@ export function useInvoiceDashboardState({
       const syncRes = await syncJobXeroDraftInvoice(jobId, {
         ...buildDraftPayload(),
         reference: nextReference,
+        status: "AUTHORISED",
       });
 
       if (!syncRes.ok) {
@@ -1129,7 +1130,7 @@ export function useInvoiceDashboardState({
         return;
       }
 
-      if (savedPoNumberRef.current.trim()) {
+      if (savedPoNumberRef.current.trim() && poPanelInitializedRef.current && existingThreadEvents.length > 0) {
         setPoPanelLoading(false);
         setPoPanelInitialized(true);
         setPoPanelRefreshing(false);
@@ -1217,13 +1218,16 @@ export function useInvoiceDashboardState({
     };
 
     void refreshThreadEvents();
-    const timer = window.setInterval(() => {
-      void refreshThreadEvents();
-    }, 30000);
+    const shouldPoll = !savedPoNumberRef.current.trim();
+    const timer = shouldPoll
+      ? window.setInterval(() => {
+          void refreshThreadEvents();
+        }, 30000)
+      : null;
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
   }, [
     invoice.selectedMerchantEmail,
@@ -1389,9 +1393,11 @@ export function useInvoiceDashboardState({
 
     setUpdatingXeroState(true);
     try {
+      const shouldPersistPaymentDate = state === "PAID_CASH" || state === "PAID_EPOST" || state === "PAID_BANK_TRANSFER";
       const res = await updateJobInvoiceXeroState(jobId, {
         state,
         epostReferenceId: epostReferenceId?.trim() || undefined,
+        paymentDate: shouldPersistPaymentDate ? new Date().toISOString().slice(0, 10) : undefined,
       });
 
       if (!res.ok) {

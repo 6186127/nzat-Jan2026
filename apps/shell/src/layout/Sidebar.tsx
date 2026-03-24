@@ -120,7 +120,7 @@ export function Sidebar() {
               `${linkBase} ${isActive ? linkActive : linkIdle}`
             }
           >
-            Invoice
+            Invoice Payment
           </NavLink>
 
           <NavLink
