@@ -222,6 +222,7 @@ public class JobsController : ControllerBase
             },
             customer = new
             {
+                id = row.Customer.Id.ToString(CultureInfo.InvariantCulture),
                 type = row.Customer.Type,
                 name = row.Customer.Name,
                 phone = row.Customer.Phone,

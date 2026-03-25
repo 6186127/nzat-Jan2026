@@ -94,6 +94,7 @@ function getLegacyPoFromReference(reference: string) {
 
 const EMAIL_STATE_ORDER: EmailState[] = ["Draft", "Email Sent", "Get Reply", "Reminder Scheduled", "Get PO"];
 const PO_REQUEST_SEND_LOCK_WINDOW_MS = 5 * 60 * 1000;
+const PO_THREAD_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const PO_REQUEST_SEND_LOCK_PREFIX = "po-request-send-lock:";
 
 function getPoRequestSendLockKey(correlationId: string) {
@@ -1261,7 +1262,7 @@ export function useInvoiceDashboardState({
     const timer = shouldPoll
       ? window.setInterval(() => {
           void refreshThreadEvents();
-        }, 30000)
+        }, PO_THREAD_POLL_INTERVAL_MS)
       : null;
 
     return () => {
@@ -1300,6 +1301,7 @@ export function useInvoiceDashboardState({
 
     const loadMerchantRecipients = async () => {
       setMerchantRecipientsLoading(true);
+      const customerId = customer?.id?.trim();
 
       if (customer?.type?.toLowerCase() !== "business" || !customer.name.trim()) {
         setInvoice((prev) => ({
@@ -1317,16 +1319,7 @@ export function useInvoiceDashboardState({
         return;
       }
 
-      const res = await requestJson<Array<{
-        id: string;
-        type: string;
-        name: string;
-        email: string;
-        businessCode: string;
-        staffMembers?: Array<{ name: string; title: string; email: string }>;
-      }>>("/api/customers");
-
-      if (!res.ok || !Array.isArray(res.data) || cancelled) {
+      if (!customerId) {
         setInvoice((prev) => ({
           ...prev,
           contact: persistedInvoice?.contactName?.trim() || customer.name.trim(),
@@ -1344,14 +1337,34 @@ export function useInvoiceDashboardState({
         return;
       }
 
-      const normalizedBusinessCode = (customer.businessCode ?? "").trim().toLowerCase();
-      const normalizedName = customer.name.trim().toLowerCase();
-      const matched = res.data.find((row) => {
-        if ((row.type ?? "").toLowerCase() !== "business") return false;
-        const rowBusinessCode = (row.businessCode ?? "").trim().toLowerCase();
-        const rowName = (row.name ?? "").trim().toLowerCase();
-        return (normalizedBusinessCode && rowBusinessCode === normalizedBusinessCode) || rowName === normalizedName;
-      });
+      const res = await requestJson<{
+        id: string;
+        type: string;
+        name: string;
+        email: string;
+        businessCode: string;
+        staffMembers?: Array<{ name: string; title: string; email: string }>;
+      }>(`/api/customers/${encodeURIComponent(customerId)}`);
+
+      if (!res.ok || !res.data || cancelled) {
+        setInvoice((prev) => ({
+          ...prev,
+          contact: persistedInvoice?.contactName?.trim() || customer.name.trim(),
+          merchantUserName: "team",
+          merchantEmails: customer.email?.trim() ? [customer.email.trim()] : [],
+          merchantEmailRecipients: customer.email?.trim()
+            ? [{ email: customer.email.trim(), kind: "business", name: "Team", title: "" }]
+            : [],
+          selectedMerchantEmail: customer.email?.trim() || "",
+          vehicleRego: vehicle?.plate || prev.vehicleRego,
+          vehicleModel: vehicle?.model || prev.vehicleModel,
+          vehicleMake: vehicle?.make || prev.vehicleMake,
+        }));
+        if (!cancelled) setMerchantRecipientsLoading(false);
+        return;
+      }
+
+      const matched = res.data;
 
       const recipients: MerchantEmailRecipient[] = [];
       const seen = new Set<string>();

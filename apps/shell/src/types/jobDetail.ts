@@ -59,6 +59,7 @@ export type VehicleInfo = {
 };
 
 export type CustomerInfo = {
+  id?: string;
   type: string;
   name: string;
   phone: string;
