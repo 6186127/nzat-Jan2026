@@ -9,11 +9,11 @@ public sealed class XeroInvoicePollingBackgroundService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<XeroInvoicePollingBackgroundService> _logger;
-    private readonly XeroWebhookOptions _options;
+    private readonly XeroPollingOptions _options;
 
     public XeroInvoicePollingBackgroundService(
         IServiceScopeFactory scopeFactory,
-        IOptions<XeroWebhookOptions> options,
+        IOptions<XeroPollingOptions> options,
         ILogger<XeroInvoicePollingBackgroundService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -23,7 +23,7 @@ public sealed class XeroInvoicePollingBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.PollingEnabled)
+        if (!_options.Enabled)
             return;
 
         var interval = TimeSpan.FromMinutes(Math.Clamp(_options.PollIntervalMinutes, 1, 120));
