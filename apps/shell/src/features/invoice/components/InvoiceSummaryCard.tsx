@@ -194,7 +194,7 @@ export function InvoiceSummaryCard({
               onClick={onRefreshFromXero}
               disabled={isReadOnly || !onRefreshFromXero || isRefreshingFromXero}
             >
-              {isRefreshingFromXero ? "Refreshing..." : "Refresh From Xero"}
+              {isRefreshingFromXero ? "Pulling..." : "Pull From Xero"}
             </Button>
             <XeroButton className="h-11 px-5" onClick={onOpenXero} />
           </div>
