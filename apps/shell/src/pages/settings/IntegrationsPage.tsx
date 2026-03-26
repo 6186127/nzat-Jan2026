@@ -331,7 +331,7 @@ export function IntegrationsPage() {
           <Card className="border-[rgba(0,0,0,0.08)] p-4 shadow-none">
             <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.44)]">How It Works</div>
             <div className="mt-2 text-xs leading-5 text-[rgba(0,0,0,0.56)]">
-              用户授权后，refresh token 和 tenant 信息写入 `xero_tokens`。切换默认账号后，后端自动用默认 tenant 调 Xero API。
+              用户授权后，refresh token 和 tenant 信息写入 `xero_tokens`。切换默认账号后，后端会使用默认 tenant 调用 Xero API。
             </div>
           </Card>
         </div>

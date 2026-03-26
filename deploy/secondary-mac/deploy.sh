@@ -50,6 +50,26 @@ find_docker_bin() {
   return 1
 }
 
+find_docker_compose_bin() {
+  if [ -n "${DOCKER_COMPOSE_BIN:-}" ] && [ -x "${DOCKER_COMPOSE_BIN}" ]; then
+    echo "${DOCKER_COMPOSE_BIN}"
+    return 0
+  fi
+
+  for candidate in \
+    "$(command -v docker-compose 2>/dev/null || true)" \
+    /opt/homebrew/bin/docker-compose \
+    /usr/local/bin/docker-compose
+  do
+    if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 write_docker_auth_config() {
   local docker_config_dir="$1"
   local registry="$2"
@@ -83,12 +103,14 @@ DOCKER_BIN="$(find_docker_bin)" || {
   exit 1
 }
 
+export PATH="$(dirname "${DOCKER_BIN}"):/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 if "${DOCKER_BIN}" compose version >/dev/null 2>&1; then
   COMPOSE_CMD=("${DOCKER_BIN}" compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=("$(command -v docker-compose)")
+elif DOCKER_COMPOSE_BIN="$(find_docker_compose_bin)"; then
+  COMPOSE_CMD=("${DOCKER_COMPOSE_BIN}")
 else
-  echo "Neither 'docker compose' nor 'docker-compose' is available."
+  echo "Neither 'docker compose' nor 'docker-compose' is available. Install Docker Desktop, or install docker-compose and ensure it exists under /opt/homebrew/bin or /usr/local/bin."
   exit 1
 fi
 

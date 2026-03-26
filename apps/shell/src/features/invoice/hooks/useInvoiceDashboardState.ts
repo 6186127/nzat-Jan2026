@@ -651,7 +651,7 @@ export function useInvoiceDashboardState({
     try {
       const res = await pullJobXeroDraftInvoice(jobId);
       if (!res.ok) {
-        toast.error(res.error || "Failed to refresh invoice from Xero");
+        toast.error(res.error || "Failed to pull invoice from Xero");
         return;
       }
 
@@ -688,7 +688,7 @@ export function useInvoiceDashboardState({
         }
       }
 
-      toast.success("Invoice refreshed from Xero");
+      toast.success("Invoice pulled from Xero");
     } finally {
       setRefreshingFromXero(false);
     }
