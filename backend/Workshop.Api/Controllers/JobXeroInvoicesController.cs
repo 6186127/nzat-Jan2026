@@ -138,6 +138,7 @@ public class JobXeroInvoicesController : ControllerBase
             externalStatus = invoice.ExternalStatus,
             reference = invoice.Reference,
             contactName = invoice.ContactName,
+            invoiceNote = invoice.InvoiceNote,
             invoiceDate = invoice.InvoiceDate,
             lineAmountTypes = invoice.LineAmountTypes,
             tenantId = invoice.TenantId,

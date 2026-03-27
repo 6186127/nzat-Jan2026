@@ -137,6 +137,7 @@ export type InvoiceDashboardState = {
   dueDate: string;
   invoiceNumber: string;
   reference: string;
+  invoiceNote: string;
   amountsAre: AmountsAre;
   xeroInvoiceId: string;
   status: InvoiceStatus;

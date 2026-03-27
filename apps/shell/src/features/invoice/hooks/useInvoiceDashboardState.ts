@@ -122,6 +122,7 @@ const initialInvoiceState: InvoiceDashboardState = {
   dueDate: "",
   invoiceNumber: "",
   reference: "",
+  invoiceNote: "",
   amountsAre: "Tax Exclusive",
   xeroInvoiceId: "",
   status: "Awaiting PO",
@@ -149,7 +150,11 @@ const initialInvoiceState: InvoiceDashboardState = {
 };
 
 const initialItemCatalog: XeroItemDefinition[] = [];
-const EDITABLE_XERO_STATUSES: XeroInvoiceStatus[] = ["DRAFT", "AUTHORISED"];
+const EDITABLE_XERO_STATUSES: XeroInvoiceStatus[] = ["DRAFT"];
+
+function isSystemLocked(status: XeroInvoiceStatus) {
+  return status === "AUTHORISED" || status === "PAID";
+}
 
 function mergeEmailStates(current: EmailState[], add: EmailState[], remove: EmailState[] = []): EmailState[] {
   const next = new Set(current);
@@ -347,8 +352,8 @@ export function useInvoiceDashboardState({
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + getBaseAmount(item), 0), [items]);
   const taxTotal = useMemo(() => items.reduce((sum, item) => sum + getTaxAmount(item), 0), [items]);
   const totalAmount = useMemo(() => subtotal + taxTotal, [subtotal, taxTotal]);
-  const poLocked = invoice.xeroStatus === "PAID";
-  const poLockReason = poLocked ? "Invoice is already marked as Paid in Xero. PO Request data is locked and can no longer be changed." : "";
+  const poLocked = isSystemLocked(invoice.xeroStatus);
+  const poLockReason = poLocked ? "Invoice is no longer in Draft. System changes are locked; only Pull From Xero is allowed." : "";
   const draftSendBlockedReason =
     !poLocked && hasExternalDraftSend
       ? "Detected external send from Gmail. System draft send is disabled for this PO thread."
@@ -405,6 +410,7 @@ export function useInvoiceDashboardState({
     date: invoice.issueDate || new Date().toISOString().slice(0, 10),
     reference: invoice.reference,
     contactName: invoice.contact,
+    invoiceNote: invoice.invoiceNote,
     lineItems: items.map((item) => ({
       description: item.description,
       quantity: item.quantity,
@@ -448,6 +454,10 @@ export function useInvoiceDashboardState({
 
   const persistDraftToDb = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!jobId) return true;
+    if (isSystemLocked(invoice.xeroStatus)) {
+      if (!silent) toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return false;
+    }
 
     setDraftSaving(true);
     try {
@@ -461,6 +471,7 @@ export function useInvoiceDashboardState({
       setInvoice((prev) => ({
         ...prev,
         reference: savedInvoice?.reference || prev.reference,
+        invoiceNote: savedInvoice?.invoiceNote ?? "",
         issueDate: savedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: savedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: savedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -503,6 +514,7 @@ export function useInvoiceDashboardState({
         date: snapshot.invoice.issueDate || new Date().toISOString().slice(0, 10),
         reference: snapshot.invoice.reference,
         contactName: snapshot.invoice.contact,
+        invoiceNote: snapshot.invoice.invoiceNote,
         lineItems: snapshot.items.map((item) => ({
           description: item.description,
           quantity: item.quantity,
@@ -528,6 +540,10 @@ export function useInvoiceDashboardState({
   };
 
   const updateItem = (id: string, field: keyof InvoiceItem, value: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -559,6 +575,10 @@ export function useInvoiceDashboardState({
   };
 
   const addItem = () => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     const newId = `line-${nextItemId}`;
     setItems((prev) => [...prev, createNewItem(nextItemId)]);
     setNextItemId((prev) => prev + 1);
@@ -570,11 +590,28 @@ export function useInvoiceDashboardState({
   };
 
   const deleteItem = (id: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     setItems((prev) => prev.filter((item) => item.id !== id));
     setInvoice((prev) => ({ ...prev, synced: false }));
     setItemsDirty(true);
     setDraftDirty(true);
     toast.info("Invoice item removed");
+  };
+
+  const setInvoiceNote = (value: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
+
+    setInvoice((prev) => ({
+      ...prev,
+      invoiceNote: value,
+    }));
+    setDraftDirty(true);
   };
 
   const syncInvoice = () => {
@@ -602,6 +639,7 @@ export function useInvoiceDashboardState({
         ...prev,
         contact: syncedInvoice?.contactName || prev.contact,
         reference: syncedInvoice?.reference || prev.reference,
+        invoiceNote: syncedInvoice?.invoiceNote ?? "",
         issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -661,6 +699,7 @@ export function useInvoiceDashboardState({
         ...prev,
         contact: pulledInvoice?.contactName || prev.contact,
         reference: pulledInvoice?.reference || prev.reference,
+        invoiceNote: pulledInvoice?.invoiceNote ?? "",
         issueDate: pulledInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: pulledInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: pulledInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -947,6 +986,7 @@ export function useInvoiceDashboardState({
       ...prev,
       contact: syncedInvoice?.contactName || prev.contact,
       reference: syncedInvoice?.reference || nextReference,
+      invoiceNote: syncedInvoice?.invoiceNote ?? "",
       issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
       invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
       xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -980,6 +1020,10 @@ export function useInvoiceDashboardState({
   const saveReference = async (nextReferenceRaw: string) => {
     const nextReference = nextReferenceRaw.trim();
     if (!jobId) return false;
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return false;
+    }
     if (!nextReference) {
       toast.error("Reference cannot be empty");
       return false;
@@ -1001,6 +1045,7 @@ export function useInvoiceDashboardState({
       ...prev,
       contact: syncedInvoice?.contactName || prev.contact,
       reference: syncedInvoice?.reference || nextReference,
+      invoiceNote: syncedInvoice?.invoiceNote ?? "",
       issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
       invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
       xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -1064,6 +1109,7 @@ export function useInvoiceDashboardState({
       ...initialInvoiceState,
       correlationId: resolvedCorrelationId,
       reference: persistedInvoice?.reference?.trim() || "",
+      invoiceNote: persistedInvoice?.invoiceNote?.trim() || "",
       issueDate: persistedInvoice?.invoiceDate || "",
       invoiceNumber: persistedInvoice?.externalInvoiceNumber || "",
       xeroInvoiceId: persistedInvoice?.externalInvoiceId || "",
@@ -1115,7 +1161,7 @@ export function useInvoiceDashboardState({
     }, 800);
 
     return () => window.clearTimeout(timer);
-  }, [draftDirty, jobId, items, invoice.contact, invoice.issueDate, invoice.reference]);
+  }, [draftDirty, jobId, items, invoice.contact, invoice.issueDate, invoice.reference, invoice.invoiceNote]);
 
   useEffect(() => {
     if (draftDirty || itemsDirty) return;
@@ -1462,6 +1508,7 @@ export function useInvoiceDashboardState({
       setInvoice((prev) => ({
         ...prev,
         reference: updatedInvoice?.reference || prev.reference,
+        invoiceNote: updatedInvoice?.invoiceNote ?? "",
         issueDate: updatedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: updatedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: updatedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -1474,6 +1521,10 @@ export function useInvoiceDashboardState({
         currentWorkflowStep: resolveWorkflowStep(updatedInvoice?.externalStatus, savedPoNumber, true),
         synced: true,
       }));
+      if (state !== "DRAFT") {
+        setItemsDirty(false);
+        setDraftDirty(false);
+      }
       toast.success("Xero invoice status updated");
       return true;
     } finally {
@@ -1509,6 +1560,7 @@ export function useInvoiceDashboardState({
     taxTotal,
     totalAmount,
     manualPoNumber,
+    setInvoiceNote,
     setSelectedDetectionId,
     setPendingFocusRowId,
     setManualPoNumber,

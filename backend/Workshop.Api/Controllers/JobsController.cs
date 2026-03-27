@@ -154,6 +154,7 @@ public class JobsController : ControllerBase
                 externalStatus = x.ExternalStatus,
                 reference = x.Reference,
                 contactName = x.ContactName,
+                invoiceNote = x.InvoiceNote,
                 invoiceDate = x.InvoiceDate,
                 lineAmountTypes = x.LineAmountTypes,
                 tenantId = x.TenantId,

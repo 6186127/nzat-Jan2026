@@ -249,12 +249,13 @@ export function NewJobPage() {
       const nextRootOptions = roots
         .filter((item) => item.isActive)
         .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((item) => {
+        .map<ServiceOption | null>((item) => {
           const fallback = defaultServiceOptions.find((opt) => opt.id === item.serviceType);
           return fallback
             ? {
                 ...fallback,
                 label: item.name,
+                catalogItemId: String(item.id),
               }
             : null;
         })
@@ -584,17 +585,29 @@ export function NewJobPage() {
 
     try {
       setSaving(true);
+      const rootServiceCatalogItemIds = selectedServices
+        .map((serviceType) => serviceOptions.find((option) => option.id === serviceType)?.catalogItemId)
+        .filter((value): value is string => Boolean(value))
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+
       const res = await fetch(withApiBase("/api/newJob"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plate: rego,
+          useServiceCatalogMapping: true,
           services: selectedServices,
+          rootServiceCatalogItemIds,
           needsPo: showNeedsPo ? needsPo : false,
           notes: notesPayload,
           // partsDescription: normalizedPartsDescriptions[0],
           partsDescriptions: normalizedPartsDescriptions,
+          mechServiceCatalogItemIds: hasMech ? mechOptions.map((id) => Number(id)).filter((value) => Number.isFinite(value)) : [],
           mechItems: hasMech ? selectedMechOptionLabels : [],
+          paintServiceCatalogItemIds: selectedServices.includes("paint")
+            ? paintOptions.map((id) => Number(id)).filter((value) => Number.isFinite(value))
+            : [],
           paintPanels: showPaintPanels ? Number(paintPanels) || 1 : undefined,
           businessId: customerType === "business" ? businessId : undefined,
           customer: customerPayload,

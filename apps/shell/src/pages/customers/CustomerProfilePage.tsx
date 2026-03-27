@@ -39,6 +39,13 @@ type CustomerProfile = {
 };
 
 type ServiceCatalogResponse = {
+  rootServices?: Array<{
+    id: number | string;
+    serviceType: string;
+    category: string;
+    name: string;
+    isActive: boolean;
+  }>;
   childServices?: Array<{
     id: number | string;
     serviceType: string;
@@ -292,7 +299,8 @@ export function CustomerProfilePage() {
     if (!inventoryRes.ok) throw new Error(inventoryRes.error || "加载 Xero item code 失败");
 
     setServiceOptions(
-      (serviceRes.data?.childServices ?? [])
+      [...(serviceRes.data?.rootServices ?? []), ...(serviceRes.data?.childServices ?? [])]
+        .filter((item) => item.isActive)
         .map((item) => ({
           id: String(item.id),
           name: item.name,

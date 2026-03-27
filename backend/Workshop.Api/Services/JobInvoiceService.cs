@@ -67,11 +67,20 @@ public sealed class JobInvoiceService
             .FirstOrDefaultAsync(ct);
         var hasWofRecord = await _db.JobWofRecords.AsNoTracking()
             .AnyAsync(x => x.JobId == jobId, ct);
+        var serviceSelections = row.Job.UseServiceCatalogMapping
+            ? await _db.JobServiceSelections.AsNoTracking()
+                .Where(x => x.JobId == jobId)
+                .OrderBy(x => x.CreatedAt)
+                .ThenBy(x => x.Id)
+                .ToListAsync(ct)
+            : [];
 
         CreateXeroInvoiceRequest request;
         try
         {
-            request = await BuildCreateRequestAsync(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService, hasWofRecord, ct);
+            request = row.Job.UseServiceCatalogMapping
+                ? await BuildCatalogMappedCreateRequestAsync(row.Job, row.Customer, row.Vehicle, serviceSelections, partsServices, paintService, ct)
+                : await BuildLegacyCreateRequestAsync(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService, hasWofRecord, ct);
             request.LineItems = await SanitizeLineItemsAsync(request.LineItems, ct);
         }
         catch (InvalidOperationException ex)
@@ -145,6 +154,7 @@ public sealed class JobInvoiceService
             },
             LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
+        var normalizedInvoiceNote = string.IsNullOrWhiteSpace(payload.InvoiceNote) ? null : payload.InvoiceNote.Trim();
 
         if (request.LineItems.Count == 0)
             return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
@@ -171,6 +181,7 @@ public sealed class JobInvoiceService
         }
 
         ApplyInvoiceUpdate(jobInvoice, request, syncResult.Payload, syncResult.TenantId);
+        jobInvoice.InvoiceNote = normalizedInvoiceNote;
         job.InvoiceReference = request.Reference;
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -213,12 +224,14 @@ public sealed class JobInvoiceService
             },
             LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
+        var normalizedInvoiceNote = string.IsNullOrWhiteSpace(payload.InvoiceNote) ? null : payload.InvoiceNote.Trim();
 
         if (request.LineItems.Count == 0)
             return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
 
         jobInvoice.Reference = request.Reference;
         jobInvoice.ContactName = request.Contact.Name;
+        jobInvoice.InvoiceNote = normalizedInvoiceNote;
         jobInvoice.InvoiceDate = request.Date;
         jobInvoice.LineAmountTypes = request.LineAmountTypes;
         jobInvoice.RequestPayloadJson = JsonSerializer.Serialize(request, JsonOptions);
@@ -517,7 +530,7 @@ public sealed class JobInvoiceService
         }
     }
 
-    private async Task<CreateXeroInvoiceRequest> BuildCreateRequestAsync(
+    private async Task<CreateXeroInvoiceRequest> BuildLegacyCreateRequestAsync(
         Job job,
         Customer customer,
         Vehicle vehicle,
@@ -634,6 +647,108 @@ public sealed class JobInvoiceService
         };
     }
 
+    private async Task<CreateXeroInvoiceRequest> BuildCatalogMappedCreateRequestAsync(
+        Job job,
+        Customer customer,
+        Vehicle vehicle,
+        IReadOnlyList<JobServiceSelection> serviceSelections,
+        IReadOnlyList<JobPartsService> partsServices,
+        JobPaintService? paintService,
+        CancellationToken ct)
+    {
+        var reference = BuildReference(job, customer, vehicle);
+        var contactName = BuildContactName(customer, vehicle);
+        if (string.IsNullOrWhiteSpace(contactName))
+            throw new InvalidOperationException("Unable to derive contact name for invoice.");
+
+        var lineItems = new List<XeroInvoiceLineItemInput>();
+        var selectionIds = serviceSelections
+            .Select(x => x.ServiceCatalogItemId)
+            .Distinct()
+            .ToArray();
+
+        var catalogItemsById = selectionIds.Length == 0
+            ? new Dictionary<long, ServiceCatalogItem>()
+            : await _db.ServiceCatalogItems.AsNoTracking()
+                .Where(x => selectionIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, ct);
+
+        var overrideByServiceId = selectionIds.Length == 0
+            ? new Dictionary<long, string>()
+            : (await _db.CustomerServicePrices.AsNoTracking()
+                .Where(x => x.CustomerId == customer.Id && x.IsActive && selectionIds.Contains(x.ServiceCatalogItemId))
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.Id)
+                .ToListAsync(ct))
+                .GroupBy(x => x.ServiceCatalogItemId)
+                .ToDictionary(x => x.Key, x => x.First().XeroItemCode.Trim());
+
+        var requestedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var selection in serviceSelections)
+        {
+            if (!catalogItemsById.TryGetValue(selection.ServiceCatalogItemId, out var catalogItem))
+                continue;
+
+            var resolvedCode = ResolveCatalogItemCode(customer, catalogItem, overrideByServiceId);
+            if (!string.IsNullOrWhiteSpace(resolvedCode))
+                requestedCodes.Add(resolvedCode);
+        }
+        if (partsServices.Any(x => !string.IsNullOrWhiteSpace(x.Description)))
+            requestedCodes.Add(PartsItemCode);
+
+        var inventoryByCode = requestedCodes.Count == 0
+            ? new Dictionary<string, InventoryItem>(StringComparer.OrdinalIgnoreCase)
+            : await _db.InventoryItems.AsNoTracking()
+                .Where(x => requestedCodes.Contains(x.ItemCode))
+                .ToDictionaryAsync(x => x.ItemCode, x => x, StringComparer.OrdinalIgnoreCase, ct);
+
+        foreach (var selection in serviceSelections)
+        {
+            if (!catalogItemsById.TryGetValue(selection.ServiceCatalogItemId, out var catalogItem))
+                continue;
+
+            var itemCode = ResolveCatalogItemCode(customer, catalogItem, overrideByServiceId);
+            var description = ResolveSelectionDescription(selection, catalogItem, paintService);
+            inventoryByCode.TryGetValue(itemCode ?? "", out var inventoryItem);
+            lineItems.Add(BuildConfiguredLineItem(itemCode, description, inventoryItem, fallbackUnitAmount: 0m, useInventoryPrice: true));
+        }
+
+        foreach (var part in partsServices.Where(x => !string.IsNullOrWhiteSpace(x.Description)))
+        {
+            inventoryByCode.TryGetValue(PartsItemCode, out var partsInventoryItem);
+            lineItems.Add(BuildConfiguredLineItem(
+                PartsItemCode,
+                part.Description.Trim(),
+                partsInventoryItem,
+                fallbackUnitAmount: 0m,
+                useInventoryPrice: false));
+        }
+
+        if (lineItems.Count == 0)
+        {
+            lineItems.Add(new XeroInvoiceLineItemInput
+            {
+                Description = "Job draft",
+                Quantity = 1m,
+                UnitAmount = 0m,
+            });
+        }
+
+        return new CreateXeroInvoiceRequest
+        {
+            Type = "ACCREC",
+            Status = "DRAFT",
+            LineAmountTypes = "Exclusive",
+            Date = DateOnly.FromDateTime(DateTime.UtcNow),
+            Reference = reference,
+            Contact = new XeroInvoiceContactInput
+            {
+                Name = contactName,
+            },
+            LineItems = lineItems,
+        };
+    }
+
     private async Task<List<XeroInvoiceLineItemInput>> SanitizeLineItemsAsync(
         IEnumerable<XeroInvoiceLineItemInput> lineItems,
         CancellationToken ct)
@@ -692,6 +807,68 @@ public sealed class JobInvoiceService
                 DiscountAmount = item.DiscountAmount,
             })
             .ToList();
+    }
+
+    private const string PartsItemCode = "333Parts";
+
+    private static string? ResolveCatalogItemCode(
+        Customer customer,
+        ServiceCatalogItem catalogItem,
+        IReadOnlyDictionary<long, string> overrideByServiceId)
+    {
+        overrideByServiceId.TryGetValue(catalogItem.Id, out var overrideCode);
+        return JobInvoiceItemCodeResolver.Resolve(customer, catalogItem, overrideCode);
+    }
+
+    private static string ResolveSelectionDescription(
+        JobServiceSelection selection,
+        ServiceCatalogItem catalogItem,
+        JobPaintService? paintService)
+    {
+        var description = string.IsNullOrWhiteSpace(selection.ServiceNameSnapshot)
+            ? catalogItem.Name.Trim()
+            : selection.ServiceNameSnapshot.Trim();
+
+        if (catalogItem.ServiceType == "paint" &&
+            string.Equals(catalogItem.Category, "root", StringComparison.OrdinalIgnoreCase) &&
+            paintService is not null &&
+            paintService.Panels > 0)
+        {
+            return $"{description} - {paintService.Panels} panel(s)";
+        }
+
+        return description;
+    }
+
+    private static XeroInvoiceLineItemInput BuildConfiguredLineItem(
+        string? itemCode,
+        string description,
+        InventoryItem? inventoryItem,
+        decimal fallbackUnitAmount,
+        bool useInventoryPrice)
+    {
+        if (inventoryItem is not null)
+        {
+            return new XeroInvoiceLineItemInput
+            {
+                ItemCode = string.IsNullOrWhiteSpace(itemCode) ? inventoryItem.ItemCode : itemCode.Trim(),
+                Description = description,
+                Quantity = 1m,
+                UnitAmount = useInventoryPrice
+                    ? inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? fallbackUnitAmount
+                    : fallbackUnitAmount,
+                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
+                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
+            };
+        }
+
+        return new XeroInvoiceLineItemInput
+        {
+            ItemCode = string.IsNullOrWhiteSpace(itemCode) ? null : itemCode.Trim(),
+            Description = description,
+            Quantity = 1m,
+            UnitAmount = fallbackUnitAmount,
+        };
     }
 
     private sealed record OilServiceRule(
@@ -1119,12 +1296,7 @@ public sealed class JobInvoiceService
     private static string BuildReference(Job job, Customer customer, Vehicle vehicle)
     {
         if (string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = new[] { customer.Name, customer.Phone }
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x!.Trim());
-            return string.Join(' ', parts);
-        }
+            return string.Empty;
 
         var poNumber = string.IsNullOrWhiteSpace(job.PoNumber) ? "[PO]" : job.PoNumber.Trim();
         var year = vehicle.Year.HasValue && vehicle.Year.Value > 0 ? vehicle.Year.Value.ToString() : "[YEAR]";
@@ -1139,22 +1311,26 @@ public sealed class JobInvoiceService
         if (!string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
             return customer.Name.Trim();
 
-        var vehicleSummary = new[]
+        var rego = vehicle.Plate?.Trim().ToUpperInvariant();
+        var vehicleSummary = string.Join(
+            ' ',
+            new[]
             {
                 vehicle.Year > 0 ? vehicle.Year.ToString() : null,
                 vehicle.Make,
                 vehicle.Model,
             }
             .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!.Trim().ToUpperInvariant())
-            .ToList();
+            .Select(x => x!.Trim().ToUpperInvariant()));
 
-        var rego = vehicle.Plate?.Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(rego) && !string.IsNullOrWhiteSpace(vehicleSummary))
+            return $"{rego}-{vehicleSummary}";
+
         if (!string.IsNullOrWhiteSpace(rego))
-            vehicleSummary.Insert(0, rego);
+            return rego;
 
-        return vehicleSummary.Count > 0
-            ? string.Join(' ', vehicleSummary)
+        return !string.IsNullOrWhiteSpace(vehicleSummary)
+            ? vehicleSummary
             : customer.Name.Trim();
     }
 

@@ -409,7 +409,7 @@ public class CustomersController : ControllerBase
             .ToArray();
 
         var validServiceIds = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => serviceIds.Contains(x.Id) && x.Category == "child")
+            .Where(x => serviceIds.Contains(x.Id))
             .Select(x => x.Id)
             .ToListAsync(ct);
 

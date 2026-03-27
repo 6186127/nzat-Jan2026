@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, GripVertical, Loader2, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { Button, Input, Select } from "@/components/ui";
 import type { InvoiceItem, TaxRateOption, XeroItemDefinition } from "../types";
+import { useInvoiceDisplay } from "./InvoiceDisplayContext";
 
 type ItemCatalogSyncState = "idle" | "syncing" | "success" | "error";
 
@@ -70,6 +71,7 @@ export function InvoiceItemsTable({
   onRefreshItemCatalog,
   onPendingFocusHandled,
 }: Props) {
+  const { isCashPaymentSelected } = useInvoiceDisplay();
   const [showUnsyncedNotice, setShowUnsyncedNotice] = useState(!synced);
   const [showCatalogNotice, setShowCatalogNotice] = useState(itemCatalogSyncState === "syncing" || Boolean(itemCatalogFeedback));
   const descriptionRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -124,6 +126,8 @@ export function InvoiceItemsTable({
           : "border-[var(--ds-border)] bg-[rgba(0,0,0,0.02)] text-[var(--ds-muted)]";
 
   const itemOptions = useMemo(() => itemCatalog.map((item) => `${item.code} - ${item.name}`), [itemCatalog]);
+  const effectiveTaxTotal = isCashPaymentSelected ? 0 : taxTotal;
+  const effectiveTotalAmount = isCashPaymentSelected ? subtotal : totalAmount;
 
   return (
     <div className="mt-8">
@@ -195,7 +199,7 @@ export function InvoiceItemsTable({
           </thead>
           <tbody>
             {items.map((item) => {
-              const taxAmount = getTaxAmount(item);
+              const taxAmount = isCashPaymentSelected ? 0 : getTaxAmount(item);
               const lineAmount = getLineAmount(item);
               return (
                 <tr key={item.id} className="border-b border-[var(--ds-border)] last:border-b-0">
@@ -316,12 +320,12 @@ export function InvoiceItemsTable({
           </div>
           <div className="flex items-center justify-between text-[15px] text-[var(--ds-text)]">
             <span>Total GST</span>
-            <span>{taxTotal.toFixed(2)}</span>
+            <span>{effectiveTaxTotal.toFixed(2)}</span>
           </div>
           <div className="border-t-4 border-[rgba(0,0,0,0.18)] pt-4">
             <div className="flex items-center justify-between text-2xl font-semibold text-[var(--ds-text)]">
               <span>Total</span>
-              <span>{totalAmount.toFixed(2)}</span>
+              <span>{effectiveTotalAmount.toFixed(2)}</span>
             </div>
           </div>
         </div>

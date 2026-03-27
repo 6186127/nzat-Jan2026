@@ -10,6 +10,7 @@ public class JobInvoice
     public string? ExternalStatus { get; set; }
     public string? Reference { get; set; }
     public string? ContactName { get; set; }
+    public string? InvoiceNote { get; set; }
     public DateOnly? InvoiceDate { get; set; }
     public string LineAmountTypes { get; set; } = "Exclusive";
     public string? TenantId { get; set; }

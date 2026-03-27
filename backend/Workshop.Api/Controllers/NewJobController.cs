@@ -38,6 +38,15 @@ public class NewJobController : ControllerBase
         req.Customer.Type = normalizedCustomerType;
         var isBusiness = string.Equals(req.Customer.Type, "Business", StringComparison.Ordinal);
         var customerNotes = req.Customer.Notes?.Trim();
+        SelectedServiceCatalogItems selectedCatalogItems;
+        try
+        {
+            selectedCatalogItems = await ResolveSelectedServiceCatalogItemsAsync(req, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
 
         var now = DateTime.UtcNow;
         using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -84,6 +93,7 @@ public class NewJobController : ControllerBase
             Status = "InProgress",
             IsUrgent = false,
             NeedsPo = req.NeedsPo ?? false,
+            UseServiceCatalogMapping = req.UseServiceCatalogMapping,
             VehicleId = vehicle.Id,
             CustomerId = jobCustomerId,
             Notes = req.Notes?.Trim(),
@@ -130,17 +140,18 @@ catch (Exception ex)
 
         }
 
-        if (hasMech && req.MechItems is { Length: > 0 })
+        var mechDescriptions = selectedCatalogItems.MechItems.Count > 0
+            ? selectedCatalogItems.MechItems.Select(x => x.Name.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList()
+            : req.MechItems.Select(x => x?.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().ToList();
+
+        if (hasMech && mechDescriptions.Count > 0)
         {
-            foreach (var item in req.MechItems)
+            foreach (var item in mechDescriptions)
             {
-                var trimmed = item?.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed))
-                    continue;
                 var mechService = new JobMechService
                 {
                     JobId = job.Id,
-                    Description = trimmed,
+                    Description = item,
                     Cost = null,
                     CreatedAt = now,
                     UpdatedAt = now,
@@ -200,6 +211,22 @@ catch (Exception ex)
             }
         }
 
+        if (req.UseServiceCatalogMapping)
+        {
+            var selections = BuildJobServiceSelections(
+                hasMech,
+                hasPaint,
+                wofCreated,
+                selectedCatalogItems,
+                job.Id,
+                now);
+            if (selections.Count > 0)
+            {
+                _db.JobServiceSelections.AddRange(selections);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
         await tx.CommitAsync(ct);
 
         if (job.NeedsPo)
@@ -245,6 +272,103 @@ catch (Exception ex)
         return new List<string> { req.PartsDescription.Trim() };
     }
 
+    private async Task<SelectedServiceCatalogItems> ResolveSelectedServiceCatalogItemsAsync(NewJobRequest req, CancellationToken ct)
+    {
+        var requestedIds = req.RootServiceCatalogItemIds
+            .Concat(req.MechServiceCatalogItemIds)
+            .Concat(req.PaintServiceCatalogItemIds)
+            .Distinct()
+            .ToArray();
+
+        if (requestedIds.Length == 0)
+            return new SelectedServiceCatalogItems([], [], []);
+
+        var items = await _db.ServiceCatalogItems.AsNoTracking()
+            .Where(x => requestedIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, ct);
+
+        List<ServiceCatalogItem> MapIds(IEnumerable<long> ids, string category, string? serviceType, string label)
+        {
+            var mapped = new List<ServiceCatalogItem>();
+            foreach (var id in ids.Distinct())
+            {
+                if (!items.TryGetValue(id, out var item))
+                    throw new InvalidOperationException($"{label} '{id}' is invalid.");
+                if (!string.Equals(item.Category, category, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"{label} '{id}' has invalid category.");
+                if (!string.IsNullOrWhiteSpace(serviceType) &&
+                    !string.Equals(item.ServiceType, serviceType, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"{label} '{id}' has invalid service type.");
+                }
+
+                mapped.Add(item);
+            }
+
+            return mapped;
+        }
+
+        return new SelectedServiceCatalogItems(
+            MapIds(req.RootServiceCatalogItemIds, "root", null, "Root service"),
+            MapIds(req.MechServiceCatalogItemIds, "child", "mech", "Mech service"),
+            MapIds(req.PaintServiceCatalogItemIds, "child", "paint", "Paint service"));
+    }
+
+    private static List<JobServiceSelection> BuildJobServiceSelections(
+        bool hasMech,
+        bool hasPaint,
+        bool hasWof,
+        SelectedServiceCatalogItems selectedCatalogItems,
+        long jobId,
+        DateTime now)
+    {
+        var selections = new List<JobServiceSelection>();
+        var rootByType = selectedCatalogItems.RootItems
+            .GroupBy(x => x.ServiceType, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+
+        if (hasWof && rootByType.TryGetValue("wof", out var wofRoot))
+        {
+            selections.Add(BuildJobServiceSelection(jobId, wofRoot, now));
+        }
+
+        if (hasMech)
+        {
+            if (selectedCatalogItems.MechItems.Count > 0)
+            {
+                selections.AddRange(selectedCatalogItems.MechItems.Select(x => BuildJobServiceSelection(jobId, x, now)));
+            }
+            else if (rootByType.TryGetValue("mech", out var mechRoot))
+            {
+                selections.Add(BuildJobServiceSelection(jobId, mechRoot, now));
+            }
+        }
+
+        if (hasPaint)
+        {
+            if (selectedCatalogItems.PaintItems.Count > 0)
+            {
+                selections.AddRange(selectedCatalogItems.PaintItems.Select(x => BuildJobServiceSelection(jobId, x, now)));
+            }
+            else if (rootByType.TryGetValue("paint", out var paintRoot))
+            {
+                selections.Add(BuildJobServiceSelection(jobId, paintRoot, now));
+            }
+        }
+
+        return selections;
+    }
+
+    private static JobServiceSelection BuildJobServiceSelection(long jobId, ServiceCatalogItem item, DateTime now) =>
+        new()
+        {
+            JobId = jobId,
+            ServiceCatalogItemId = item.Id,
+            ServiceNameSnapshot = item.Name.Trim(),
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
     private async Task<Customer> UpsertCustomerAsync(NewJobRequest.CustomerInput input, CancellationToken ct)
     {
         // var isBusiness = string.Equals(input.Type, "Business", StringComparison.Ordinal);
@@ -276,6 +400,11 @@ catch (Exception ex)
 
     private static string NormalizePlate(string plate)
         => new string(plate.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+    private sealed record SelectedServiceCatalogItems(
+        IReadOnlyList<ServiceCatalogItem> RootItems,
+        IReadOnlyList<ServiceCatalogItem> MechItems,
+        IReadOnlyList<ServiceCatalogItem> PaintItems);
 
     private static string NormalizeCustomerType(string? type)
     {

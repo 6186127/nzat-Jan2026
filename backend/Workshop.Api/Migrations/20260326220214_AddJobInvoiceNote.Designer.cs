@@ -3,6 +3,7 @@ using System;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Workshop.Api.Data;
@@ -13,9 +14,11 @@ using Workshop.Api.Models;
 namespace Workshop.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260326220214_AddJobInvoiceNote")]
+    partial class AddJobInvoiceNote
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -535,12 +538,6 @@ namespace Workshop.Api.Migrations
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("date_trunc('milliseconds', now())");
 
-                    b.Property<bool>("UseServiceCatalogMapping")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("use_service_catalog_mapping");
-
                     b.Property<long?>("VehicleId")
                         .HasColumnType("bigint")
                         .HasColumnName("vehicle_id");
@@ -997,51 +994,6 @@ namespace Workshop.Api.Migrations
                         .HasDatabaseName("ix_job_po_state_status");
 
                     b.ToTable("job_po_state", (string)null);
-                });
-
-            modelBuilder.Entity("Workshop.Api.Models.JobServiceSelection", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
-
-                    b.Property<long>("JobId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("job_id");
-
-                    b.Property<long>("ServiceCatalogItemId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("service_catalog_item_id");
-
-                    b.Property<string>("ServiceNameSnapshot")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("service_name_snapshot");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at")
-                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("JobId")
-                        .HasDatabaseName("ix_job_service_selections_job_id");
-
-                    b.HasIndex("ServiceCatalogItemId")
-                        .HasDatabaseName("ix_job_service_selections_service_catalog_item_id");
-
-                    b.ToTable("job_service_selections", (string)null);
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.JobTag", b =>
@@ -1772,25 +1724,6 @@ namespace Workshop.Api.Migrations
                         .HasForeignKey("JobInvoiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("Workshop.Api.Models.JobServiceSelection", b =>
-                {
-                    b.HasOne("Workshop.Api.Models.Job", "Job")
-                        .WithMany()
-                        .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Workshop.Api.Models.ServiceCatalogItem", "ServiceCatalogItem")
-                        .WithMany()
-                        .HasForeignKey("ServiceCatalogItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Job");
-
-                    b.Navigation("ServiceCatalogItem");
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.WorklogEntry", b =>

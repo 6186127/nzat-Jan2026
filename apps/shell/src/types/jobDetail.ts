@@ -9,6 +9,7 @@ export type JobInvoiceData = {
   externalStatus?: string;
   reference?: string;
   contactName?: string;
+  invoiceNote?: string;
   invoiceDate?: string;
   lineAmountTypes?: string;
   tenantId?: string;

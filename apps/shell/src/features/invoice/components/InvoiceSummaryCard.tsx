@@ -1,9 +1,10 @@
 import { Check, ChevronDown, Pencil, Plus, RefreshCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Input } from "@/components/ui";
+import { Button, Card, Input, Textarea } from "@/components/ui";
 import { XeroButton } from "@/components/common/XeroButton";
 import { withApiBase } from "@/utils/api";
 import type { InvoiceDashboardState, ReferencePreviewSource, XeroStateOption } from "../types";
+import { InvoiceDisplayProvider } from "./InvoiceDisplayContext";
 import type React from "react";
 
 type Props = {
@@ -18,6 +19,7 @@ type Props = {
   onRefreshFromXero?: () => void;
   onOpenXero: () => void;
   onSaveReference?: (value: string) => Promise<boolean>;
+  onInvoiceNoteChange?: (value: string) => void;
   onUpdateXeroState?: (state: XeroStateOption, epostReferenceId?: string) => Promise<boolean>;
   isRefreshingFromXero?: boolean;
   isUpdatingXeroState?: boolean;
@@ -52,6 +54,7 @@ export function InvoiceSummaryCard({
   onRefreshFromXero,
   onOpenXero,
   onSaveReference,
+  onInvoiceNoteChange,
   onUpdateXeroState,
   isRefreshingFromXero = false,
   isUpdatingXeroState = false,
@@ -61,7 +64,7 @@ export function InvoiceSummaryCard({
   isCreatingInvoice = false,
   children,
 }: Props) {
-  const isReadOnly = invoice.xeroStatus === "PAID";
+  const isReadOnly = invoice.xeroStatus === "AUTHORISED" || invoice.xeroStatus === "PAID";
   const [isEditingReference, setIsEditingReference] = useState(false);
   const [referenceDraft, setReferenceDraft] = useState(invoice.reference);
   const [savingReference, setSavingReference] = useState(false);
@@ -192,7 +195,7 @@ export function InvoiceSummaryCard({
               leftIcon={<RefreshCcw className={["h-4 w-4", isRefreshingFromXero ? "animate-spin" : ""].join(" ")} />}
               className="h-11 px-5"
               onClick={onRefreshFromXero}
-              disabled={isReadOnly || !onRefreshFromXero || isRefreshingFromXero}
+              disabled={!onRefreshFromXero || isRefreshingFromXero}
             >
               {isRefreshingFromXero ? "Pulling..." : "Pull From Xero"}
             </Button>
@@ -261,10 +264,26 @@ export function InvoiceSummaryCard({
         </div>
         <SummaryField label="Last Sync Time" value={invoice.lastSyncTime} />
         <SummaryField label="Sync Direction" value={invoice.lastSyncDirection} className="text-[var(--ds-primary)]" />
+        <div className="md:col-span-3 xl:col-span-4">
+          <div className="text-sm text-[var(--ds-muted)]">Invoice Note (System Only)</div>
+          <div className="mt-2">
+            <Textarea
+              value={invoice.invoiceNote}
+              onChange={(event) => onInvoiceNoteChange?.(event.target.value)}
+              disabled={isReadOnly}
+              rows={4}
+              placeholder="Add an internal invoice note. This note stays in NZAT only and is not synced to Xero."
+              className="min-h-[108px] bg-white"
+            />
+          </div>
+          <div className="mt-2 text-xs text-[var(--ds-muted)]">System only. Not synced to Xero.</div>
+        </div>
       </div>
 
       {hasInvoice ? (
-        children
+        <InvoiceDisplayProvider isCashPaymentSelected={xeroState === "PAID_CASH"}>
+          {children}
+        </InvoiceDisplayProvider>
       ) : (
         <div className="mt-6 rounded-[14px] border border-dashed border-[var(--ds-border)] px-5 py-8 text-sm text-[var(--ds-muted)]">
           This job does not have a linked Xero draft invoice yet. Create one to load the saved draft from the database.
