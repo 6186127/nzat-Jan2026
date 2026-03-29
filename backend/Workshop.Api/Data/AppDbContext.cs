@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobInvoice> JobInvoices => Set<JobInvoice>();
     public DbSet<JobPayment> JobPayments => Set<JobPayment>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<XeroTokenRecord> XeroTokenRecords => Set<XeroTokenRecord>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
     public DbSet<ServiceCatalogItem> ServiceCatalogItems => Set<ServiceCatalogItem>();
@@ -269,6 +270,25 @@ public class AppDbContext : DbContext
         jpay.HasIndex(x => x.JobInvoiceId).IsUnique().HasDatabaseName("ux_job_payments_job_invoice_id");
         jpay.HasOne<Job>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
         jpay.HasOne<JobInvoice>().WithMany().HasForeignKey(x => x.JobInvoiceId).OnDelete(DeleteBehavior.Cascade);
+
+        var om = modelBuilder.Entity<OutboxMessage>();
+        om.ToTable("outbox_messages");
+        om.HasKey(x => x.Id);
+        om.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        om.Property(x => x.MessageType).HasColumnName("message_type").IsRequired();
+        om.Property(x => x.AggregateType).HasColumnName("aggregate_type").IsRequired();
+        om.Property(x => x.AggregateId).HasColumnName("aggregate_id").IsRequired();
+        om.Property(x => x.PayloadJson).HasColumnName("payload_json").IsRequired();
+        om.Property(x => x.Status).HasColumnName("status").IsRequired();
+        om.Property(x => x.AttemptCount).HasColumnName("attempt_count").HasDefaultValue(0);
+        om.Property(x => x.AvailableAt).HasColumnName("available_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.Property(x => x.LockedAt).HasColumnName("locked_at");
+        om.Property(x => x.ProcessedAt).HasColumnName("processed_at");
+        om.Property(x => x.LastError).HasColumnName("last_error");
+        om.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.HasIndex(x => new { x.Status, x.AvailableAt }).HasDatabaseName("ix_outbox_messages_status_available_at");
+        om.HasIndex(x => new { x.AggregateType, x.AggregateId, x.MessageType }).HasDatabaseName("ix_outbox_messages_aggregate_message_type");
 
         var xt = modelBuilder.Entity<XeroTokenRecord>();
         xt.ToTable("xero_tokens");

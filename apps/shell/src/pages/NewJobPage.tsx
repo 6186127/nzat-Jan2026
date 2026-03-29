@@ -553,6 +553,10 @@ export function NewJobPage() {
       setFormAlert({ variant: "error", message: "请输入车牌号" });
       return;
     }
+    if (customerType === "business" && (!businessId || !selectedBusiness)) {
+      setFormAlert({ variant: "error", message: "请选择有效的商户客户。" });
+      return;
+    }
     if (!createNewInvoice && !existingInvoiceNumber.trim()) {
       setFormAlert({ variant: "error", message: "关闭新建 Invoice 后，Invoice Number 为必填。" });
       return;
@@ -661,11 +665,25 @@ export function NewJobPage() {
      
       const invoiceCreated = data?.invoiceCreated === true;
       const invoiceLinked = data?.invoiceLinked === true;
+      const invoiceQueued = data?.invoiceQueued === true;
+      const invoiceMode = typeof data?.invoiceMode === "string" ? data.invoiceMode : "";
       const invoiceError = typeof data?.invoiceError === "string" ? data.invoiceError : "";
       const createdId = data?.jobId ? String(data.jobId) : "";
 
       if (invoiceCreated || invoiceLinked) {
         const successMessage = invoiceLinked ? "工单已创建，并已关联现有 Invoice！" : "工单和 Invoice 已创建成功！";
+        setFormAlert({ variant: "success", message: successMessage });
+        toast.success(successMessage);
+        if (createdId) {
+          navigate(`/jobs/${createdId}`);
+        } else {
+          navigate("/jobs");
+        }
+      } else if (invoiceQueued) {
+        const successMessage =
+          invoiceMode === "attach_existing"
+            ? "工单已创建，现有 Invoice 正在后台关联。"
+            : "工单已创建，Invoice 正在后台生成。";
         setFormAlert({ variant: "success", message: successMessage });
         toast.success(successMessage);
         if (createdId) {

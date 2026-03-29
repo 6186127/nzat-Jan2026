@@ -625,6 +625,18 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     }
   }, [jobId]);
 
+  useEffect(() => {
+    if (!jobData || jobData.invoice) return;
+    const processingStatus = jobData.invoiceProcessing?.status;
+    if (processingStatus !== "pending" && processingStatus !== "processing") return;
+
+    const timer = window.setInterval(() => {
+      void refreshJobSummary();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [jobData, refreshJobSummary]);
+
   const createJobXeroDraftInvoice = useCallback(async () => {
     if (!jobId || !jobData) {
       return { success: false, message: "缺少工单数据" };
@@ -640,9 +652,9 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
 
       await refreshJobSummary();
-
-      toast.success(res.data?.alreadyExists ? "Xero invoice 已存在" : "Xero invoice 已创建");
-      return { success: true, message: "Xero invoice 已创建" };
+      const message = res.data?.alreadyExists ? "Xero invoice 已存在或已在后台处理中" : "Xero invoice 已加入后台创建队列";
+      toast.success(message);
+      return { success: true, message };
     } finally {
       setCreatingXeroInvoice(false);
     }
@@ -668,8 +680,9 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       }
 
       await refreshJobSummary();
-      toast.success("已关联现有 Xero invoice");
-      return { success: true, message: "已关联现有 Xero invoice" };
+      const message = res.data?.alreadyExists ? "Xero invoice 已存在或已在后台处理中" : "已加入后台关联 Xero invoice 队列";
+      toast.success(message);
+      return { success: true, message };
     } finally {
       setAttachingXeroInvoice(false);
     }

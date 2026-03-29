@@ -6,7 +6,6 @@ using Workshop.Api.Data;
 using Workshop.Api.Models;
 using Workshop.Api.Services;
 using Workshop.Api.Utils;
-using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
 
@@ -195,6 +194,25 @@ public class JobsController : ControllerBase
             })
             .FirstOrDefaultAsync(ct);
 
+        var invoiceProcessing = await _db.OutboxMessages.AsNoTracking()
+            .Where(x => x.AggregateType == InvoiceOutboxService.JobAggregateType
+                && x.AggregateId == id
+                && (x.MessageType == InvoiceOutboxService.CreateDraftMessageType
+                    || x.MessageType == InvoiceOutboxService.AttachExistingMessageType))
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => new
+            {
+                id = x.Id.ToString(CultureInfo.InvariantCulture),
+                messageType = x.MessageType,
+                status = x.Status,
+                attemptCount = x.AttemptCount,
+                lastError = x.LastError,
+                createdAt = FormatDateTime(x.CreatedAt),
+                updatedAt = FormatDateTime(x.UpdatedAt),
+                processedAt = x.ProcessedAt.HasValue ? FormatDateTime(x.ProcessedAt.Value) : null,
+            })
+            .FirstOrDefaultAsync(ct);
+
         var job = new
         {
             id = row.Job.Id.ToString(CultureInfo.InvariantCulture),
@@ -248,6 +266,7 @@ public class JobsController : ControllerBase
                 notes = row.Customer.Notes
             },
             invoice,
+            invoiceProcessing,
         };
 
         return Ok(new { job, hasWofRecord });

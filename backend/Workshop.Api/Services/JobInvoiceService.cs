@@ -1505,12 +1505,15 @@ public sealed class JobInvoiceService
         if (string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
             return string.Empty;
 
-        var poNumber = string.IsNullOrWhiteSpace(job.PoNumber) ? "[PO]" : job.PoNumber.Trim();
+        var rego = string.IsNullOrWhiteSpace(vehicle.Plate) ? "[REGO]" : vehicle.Plate.Trim().ToUpperInvariant();
+        var poPrefix = string.IsNullOrWhiteSpace(job.PoNumber)
+            ? $"Po Pending {rego}"
+            : $"{job.PoNumber.Trim()} {rego}";
         var year = vehicle.Year.HasValue && vehicle.Year.Value > 0 ? vehicle.Year.Value.ToString() : "[YEAR]";
         var make = string.IsNullOrWhiteSpace(vehicle.Make) ? "[MAKE]" : vehicle.Make.Trim();
         var model = string.IsNullOrWhiteSpace(vehicle.Model) ? "[MODEL]" : vehicle.Model.Trim();
 
-        return $"{poNumber} {year} {make} {model}";
+        return $"{poPrefix} {year} {make} {model}";
     }
 
     private static string BuildContactName(Customer customer, Vehicle vehicle)

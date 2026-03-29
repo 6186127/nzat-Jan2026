@@ -208,4 +208,14 @@ export type JobDetailData = {
   vehicle: VehicleInfo;
   customer: CustomerInfo;
   invoice?: JobInvoiceData | null;
+  invoiceProcessing?: {
+    id: string;
+    messageType: string;
+    status: string;
+    attemptCount: number;
+    lastError?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    processedAt?: string | null;
+  } | null;
 };

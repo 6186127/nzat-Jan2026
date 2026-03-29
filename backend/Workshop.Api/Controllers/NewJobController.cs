@@ -13,19 +13,16 @@ namespace Workshop.Api.Controllers;
 public class NewJobController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly JobPoStateService _jobPoStateService;
-    private readonly JobInvoiceService _jobInvoiceService;
+    private readonly InvoiceOutboxService _invoiceOutboxService;
     private readonly ILogger<NewJobController> _logger;
 
     public NewJobController(
         AppDbContext db,
-        JobPoStateService jobPoStateService,
-        JobInvoiceService jobInvoiceService,
+        InvoiceOutboxService invoiceOutboxService,
         ILogger<NewJobController> logger)
     {
         _db = db;
-        _jobPoStateService = jobPoStateService;
-        _jobInvoiceService = jobInvoiceService;
+        _invoiceOutboxService = invoiceOutboxService;
         _logger = logger;
     }
 
@@ -82,17 +79,20 @@ public class NewJobController : ControllerBase
         {
             if (string.IsNullOrWhiteSpace(req.BusinessId) || !long.TryParse(req.BusinessId, out var businessCustomerId))
                 return BadRequest(new { error = "Business customer id is required." });
+
+            var businessCustomer = await _db.Customers.FirstOrDefaultAsync(x => x.Id == businessCustomerId, ct);
+            if (businessCustomer is null)
+                return BadRequest(new { error = "Selected business customer was not found." });
+
+            if (!string.Equals(businessCustomer.Type, "Business", StringComparison.Ordinal))
+            {
+                return BadRequest(new { error = "Selected customer is not a business customer. Please reselect the merchant." });
+            }
+
             jobCustomerId = businessCustomerId;
             if (!string.IsNullOrWhiteSpace(customerNotes))
             {
-                var businessCustomer = await _db.Customers.FirstOrDefaultAsync(
-                    x => x.Id == businessCustomerId,
-                    ct
-                );
-                if (businessCustomer is not null)
-                {
-                    businessCustomer.Notes = customerNotes;
-                }
+                businessCustomer.Notes = customerNotes;
             }
         }
         var plate = NormalizePlate(req.Plate);
@@ -236,6 +236,19 @@ public class NewJobController : ControllerBase
         if (hasPendingPostJobChanges)
             await _db.SaveChangesAsync(ct);
 
+        OutboxMessage? poOutboxMessage = null;
+        if (job.NeedsPo)
+        {
+            poOutboxMessage = _invoiceOutboxService.BuildSyncPoStateMessage(job.Id, DateTime.UtcNow);
+            _db.OutboxMessages.Add(poOutboxMessage);
+        }
+
+        var invoiceOutboxMessage = req.CreateNewInvoice
+            ? _invoiceOutboxService.BuildCreateDraftMessage(job.Id, DateTime.UtcNow)
+            : _invoiceOutboxService.BuildAttachExistingMessage(job.Id, req.ExistingInvoiceNumber!, DateTime.UtcNow);
+        _db.OutboxMessages.Add(invoiceOutboxMessage);
+        await _db.SaveChangesAsync(ct);
+
         await tx.CommitAsync(ct);
         transactionStopwatch.Stop();
         _logger.LogInformation(
@@ -244,30 +257,27 @@ public class NewJobController : ControllerBase
             transactionStopwatch.Elapsed.TotalMilliseconds,
             job.Id);
 
-        if (job.NeedsPo)
+        if (poOutboxMessage is not null)
         {
             var poSyncStopwatch = Stopwatch.StartNew();
-            await _jobPoStateService.SyncStateForJobAsync(job.Id, ct);
             poSyncStopwatch.Stop();
             _logger.LogInformation(
-                "New job segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
-                "po_state_sync",
+                "New job segment {Segment} completed in {ElapsedMs} ms for job {JobId} (messageId: {MessageId})",
+                "po_state_sync_enqueue",
                 poSyncStopwatch.Elapsed.TotalMilliseconds,
-                job.Id);
+                job.Id,
+                poOutboxMessage.Id);
         }
 
         var invoiceStopwatch = Stopwatch.StartNew();
-        var invoiceResult = req.CreateNewInvoice
-            ? await _jobInvoiceService.CreateDraftForJobAsync(job.Id, ct)
-            : await _jobInvoiceService.AttachExistingXeroInvoiceAsync(job.Id, req.ExistingInvoiceNumber!, ct);
         invoiceStopwatch.Stop();
         _logger.LogInformation(
-            "New job segment {Segment} completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
-            "invoice_draft_create",
+            "New job segment {Segment} completed in {ElapsedMs} ms for job {JobId} (messageId: {MessageId}, mode: {Mode})",
+            "invoice_outbox_enqueue",
             invoiceStopwatch.Elapsed.TotalMilliseconds,
             job.Id,
-            invoiceResult.Ok,
-            invoiceResult.AlreadyExists);
+            invoiceOutboxMessage.Id,
+            req.CreateNewInvoice ? "create_draft" : "attach_existing");
 
         totalStopwatch.Stop();
         _logger.LogInformation(
@@ -283,10 +293,12 @@ public class NewJobController : ControllerBase
             customerId = jobCustomerId,
             vehicleId = vehicle.Id,
             wofCreated,
-            invoiceCreated = req.CreateNewInvoice && invoiceResult.Ok,
-            invoiceLinked = !req.CreateNewInvoice && invoiceResult.Ok,
-            invoiceAlreadyExists = invoiceResult.AlreadyExists,
-            invoiceError = invoiceResult.Ok ? null : invoiceResult.Error,
+            invoiceQueued = true,
+            invoiceMode = req.CreateNewInvoice ? "create_draft" : "attach_existing",
+            invoiceCreated = false,
+            invoiceLinked = false,
+            invoiceAlreadyExists = false,
+            invoiceError = (string?)null,
         });
     }
 

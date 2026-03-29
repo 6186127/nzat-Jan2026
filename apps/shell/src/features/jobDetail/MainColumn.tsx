@@ -364,6 +364,7 @@ export function MainColumn({
           <InvoicePanel
             model={invoiceDashboard}
             hasInvoice={Boolean(jobData.invoice)}
+            invoiceProcessing={jobData.invoiceProcessing}
             onCreateInvoice={onCreateXeroInvoice}
             isCreatingInvoice={isCreatingXeroInvoice}
             onAttachInvoice={onAttachXeroInvoice}

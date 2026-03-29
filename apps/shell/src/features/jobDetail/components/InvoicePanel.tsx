@@ -7,6 +7,12 @@ import type { InvoiceDashboardModel } from "@/features/invoice/hooks/useInvoiceD
 type InvoicePanelProps = {
   model?: InvoiceDashboardModel;
   hasInvoice?: boolean;
+  invoiceProcessing?: {
+    status: string;
+    messageType: string;
+    attemptCount: number;
+    lastError?: string | null;
+  } | null;
   onCreateInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingInvoice?: boolean;
   onAttachInvoice?: (invoiceNumber: string) => Promise<{ success: boolean; message?: string }>;
@@ -19,6 +25,7 @@ type InvoicePanelProps = {
 export function InvoicePanel({
   model,
   hasInvoice,
+  invoiceProcessing,
   onCreateInvoice,
   isCreatingInvoice,
   onAttachInvoice,
@@ -137,6 +144,20 @@ export function InvoicePanel({
               </Button>
             </div>
           </div>
+          {invoiceProcessing ? (
+            <div
+              className={[
+                "mt-4 rounded-[12px] border px-4 py-3 text-sm",
+                invoiceProcessing.status === "failed"
+                  ? "border-[rgba(220,38,38,0.16)] bg-[rgba(254,242,242,0.95)] text-red-700"
+                  : "border-[rgba(37,99,235,0.14)] bg-[rgba(239,246,255,0.9)] text-blue-700",
+              ].join(" ")}
+            >
+              {invoiceProcessing.status === "failed"
+                ? `Invoice background processing failed${invoiceProcessing.lastError ? `: ${invoiceProcessing.lastError}` : "."}`
+                : `Invoice background processing is ${invoiceProcessing.status}.`}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mb-4 flex justify-end">

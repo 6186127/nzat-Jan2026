@@ -97,6 +97,7 @@ builder.Services.AddScoped<XeroTokenService>();
 builder.Services.AddScoped<XeroInvoiceService>();
 builder.Services.AddScoped<XeroPaymentService>();
 builder.Services.AddScoped<JobInvoiceService>();
+builder.Services.AddScoped<InvoiceOutboxService>();
 builder.Services.AddScoped<GmailAccountService>();
 builder.Services.AddScoped<GmailTokenService>();
 builder.Services.AddScoped<GmailThreadSyncService>();
@@ -106,6 +107,7 @@ builder.Services.AddScoped<GmailFollowUpSenderService>();
 builder.Services.AddScoped<PoAutoFollowUpService>();
 builder.Services.AddSingleton<AppleVisionImageOcrService>();
 builder.Services.AddHostedService<PoStateSchemaInitializerService>();
+builder.Services.AddHostedService<InvoiceOutboxBackgroundService>();
 builder.Services.AddHostedService<GmailBackgroundSyncService>();
 builder.Services.AddHostedService<PoAutoFollowUpBackgroundService>();
 

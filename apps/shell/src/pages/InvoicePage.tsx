@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button, Card, Input } from "@/components/ui";
+import { getXeroInvoiceUrl } from "@/components/common/XeroButton";
 import { requestJson } from "@/utils/api";
 
 type InvoicePaymentRow = {
@@ -296,12 +297,18 @@ export function InvoicePage() {
                               </Link>
                             </div>
                             <div className="font-medium">
-                              <Link
-                                to={`/jobs/${encodeURIComponent(row.jobId)}?tab=Invoice`}
-                                className="hover:text-blue-700 hover:underline"
-                              >
-                                {row.invoiceNumber || row.xeroInvoiceId || "-"}
-                              </Link>
+                              {row.xeroInvoiceId ? (
+                                <a
+                                  href={getXeroInvoiceUrl(row.xeroInvoiceId)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:text-blue-700 hover:underline"
+                                >
+                                  {row.invoiceNumber || row.xeroInvoiceId || "-"}
+                                </a>
+                              ) : (
+                                <span>{row.invoiceNumber || row.xeroInvoiceId || "-"}</span>
+                              )}
                             </div>
                             <div>{row.contact || "-"}</div>
                             <div>{row.issueDate || "-"}</div>
