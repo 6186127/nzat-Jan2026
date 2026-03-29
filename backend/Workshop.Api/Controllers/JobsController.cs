@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
 using Workshop.Api.Services;
@@ -12,13 +13,24 @@ namespace Workshop.Api.Controllers;
 [Route("api/jobs")]
 public class JobsController : ControllerBase
 {
+    private const string PoUnreadSummaryCacheKey = "jobs:po-unread-summary";
+    private static readonly TimeSpan PoUnreadSummaryCacheDuration = TimeSpan.FromSeconds(30);
+    private static readonly PoUnreadSummaryResponse EmptyPoUnreadSummary =
+        new(0, 0, Array.Empty<PoUnreadSummaryItemResponse>());
+
     private readonly AppDbContext _db;
+    private readonly IMemoryCache _cache;
     private readonly JobPoStateService _jobPoStateService;
     private readonly JobInvoiceService _jobInvoiceService;
 
-    public JobsController(AppDbContext db, JobPoStateService jobPoStateService, JobInvoiceService jobInvoiceService)
+    public JobsController(
+        AppDbContext db,
+        IMemoryCache cache,
+        JobPoStateService jobPoStateService,
+        JobInvoiceService jobInvoiceService)
     {
         _db = db;
+        _cache = cache;
         _jobPoStateService = jobPoStateService;
         _jobInvoiceService = jobInvoiceService;
     }
@@ -243,6 +255,17 @@ public class JobsController : ControllerBase
     [HttpGet("po-unread-summary")]
     public async Task<IActionResult> GetPoUnreadSummary(CancellationToken ct)
     {
+        var summary = await _cache.GetOrCreateAsync(PoUnreadSummaryCacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = PoUnreadSummaryCacheDuration;
+            return await BuildPoUnreadSummaryAsync(ct);
+        });
+
+        return Ok(summary ?? EmptyPoUnreadSummary);
+    }
+
+    private async Task<PoUnreadSummaryResponse> BuildPoUnreadSummaryAsync(CancellationToken ct)
+    {
         var inactiveCorrelations = await _db.InactiveGmailCorrelations.AsNoTracking()
             .Select(x => x.CorrelationId)
             .ToListAsync(ct);
@@ -279,14 +302,7 @@ public class JobsController : ControllerBase
             .ToList();
 
         if (grouped.Count == 0)
-        {
-            return Ok(new
-            {
-                totalUnreadReplies = 0,
-                affectedJobs = 0,
-                items = Array.Empty<object>(),
-            });
-        }
+            return EmptyPoUnreadSummary;
 
         var jobIds = grouped.Select(x => x.JobId).Distinct().ToArray();
         var activeJobs = await _db.Jobs.AsNoTracking()
@@ -299,21 +315,17 @@ public class JobsController : ControllerBase
 
         var items = grouped
             .Where(x => activeJobIds.Contains(x.JobId))
-            .Select(x => new
-            {
-                jobId = x.JobId.ToString(CultureInfo.InvariantCulture),
-                correlationId = x.CorrelationId,
-                unreadReplyCount = x.UnreadReplyCount,
-                latestReplyAt = NormalizeInternalDate(x.LatestReplyMs),
-            })
+            .Select(x => new PoUnreadSummaryItemResponse(
+                x.JobId.ToString(CultureInfo.InvariantCulture),
+                x.CorrelationId,
+                x.UnreadReplyCount,
+                NormalizeInternalDate(x.LatestReplyMs)))
             .ToList();
 
-        return Ok(new
-        {
-            totalUnreadReplies = items.Sum(x => x.unreadReplyCount),
-            affectedJobs = items.Count,
-            items,
-        });
+        return new PoUnreadSummaryResponse(
+            items.Sum(x => x.UnreadReplyCount),
+            items.Count,
+            items);
     }
 
     public record CreatePaintServiceRequest(string? Status, int? Panels);
@@ -764,6 +776,17 @@ public class JobsController : ControllerBase
             return "";
         }
     }
+
+    private sealed record PoUnreadSummaryResponse(
+        int TotalUnreadReplies,
+        int AffectedJobs,
+        IReadOnlyList<PoUnreadSummaryItemResponse> Items);
+
+    private sealed record PoUnreadSummaryItemResponse(
+        string JobId,
+        string CorrelationId,
+        int UnreadReplyCount,
+        string LatestReplyAt);
 
     public record UpdateJobTagsRequest(long[]? TagIds, string[]? TagNames);
 

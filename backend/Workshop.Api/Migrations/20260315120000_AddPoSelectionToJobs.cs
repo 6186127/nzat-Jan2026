@@ -8,28 +8,18 @@ namespace Workshop.Api.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "invoice_reference",
-                table: "jobs",
-                type: "text",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "po_number",
-                table: "jobs",
-                type: "text",
-                nullable: true);
+            migrationBuilder.Sql("""
+                ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_reference text;
+                ALTER TABLE jobs ADD COLUMN IF NOT EXISTS po_number text;
+                """);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "invoice_reference",
-                table: "jobs");
-
-            migrationBuilder.DropColumn(
-                name: "po_number",
-                table: "jobs");
+            migrationBuilder.Sql("""
+                ALTER TABLE jobs DROP COLUMN IF EXISTS invoice_reference;
+                ALTER TABLE jobs DROP COLUMN IF EXISTS po_number;
+                """);
         }
     }
 }

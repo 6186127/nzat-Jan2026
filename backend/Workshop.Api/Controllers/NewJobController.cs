@@ -128,6 +128,7 @@ public class NewJobController : ControllerBase
         var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
         var hasPaint = req.Services?.Any(s => string.Equals(s, "paint", StringComparison.OrdinalIgnoreCase)) == true;
         var partsDescriptions = ParsePartsDescriptions(req);
+        var hasPendingPostJobChanges = false;
 
 
         if (partsDescriptions.Count > 0)
@@ -146,18 +147,7 @@ public class NewJobController : ControllerBase
                 };
                 _db.JobPartsServices.Add(partsService);
             }
-            // await _db.SaveChangesAsync(ct);
-            try
-{
-    await _db.SaveChangesAsync(ct);
-    Console.WriteLine($"parts save ok, count={partsDescriptions.Count}");
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"parts save failed: {ex}");
-    throw;
-}
-
+            hasPendingPostJobChanges = true;
         }
 
         var mechDescriptions = selectedCatalogItems.MechItems.Count > 0
@@ -178,7 +168,7 @@ catch (Exception ex)
                 };
                 _db.JobMechServices.Add(mechService);
             }
-            await _db.SaveChangesAsync(ct);
+            hasPendingPostJobChanges = true;
         }
 
         if (hasPaint)
@@ -196,39 +186,33 @@ catch (Exception ex)
                 UpdatedAt = DateTime.UtcNow,
             };
             _db.JobPaintServices.Add(paintService);
-            await _db.SaveChangesAsync(ct);
+            hasPendingPostJobChanges = true;
         }
 
         if (wofCreated)
         {
-            var existingWofRecord = await _db.JobWofRecords.AsNoTracking()
-                .AnyAsync(x => x.JobId == job.Id, ct);
+            var makeModel = string.Join(' ', new[] { vehicle.Make, vehicle.Model }
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!.Trim()));
 
-            if (!existingWofRecord)
+            _db.JobWofRecords.Add(new JobWofRecord
             {
-                var makeModel = string.Join(' ', new[] { vehicle.Make, vehicle.Model }
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x!.Trim()));
-
-                _db.JobWofRecords.Add(new JobWofRecord
-                {
-                    JobId = job.Id,
-                    OccurredAt = now,
-                    Rego = vehicle.Plate,
-                    MakeModel = string.IsNullOrWhiteSpace(makeModel) ? null : makeModel,
-                    Odo = vehicle.Odometer?.ToString(),
-                    RecordState = WofRecordState.Pass,
-                    IsNewWof = true,
-                    OrganisationName = "Workshop",
-                    ExcelRowNo = 0,
-                    SourceFile = "new-job",
-                    Note = "Auto-created from new job WOF service selection.",
-                    WofUiState = WofUiState.Pass,
-                    ImportedAt = now,
-                    UpdatedAt = now,
-                });
-                await _db.SaveChangesAsync(ct);
-            }
+                JobId = job.Id,
+                OccurredAt = now,
+                Rego = vehicle.Plate,
+                MakeModel = string.IsNullOrWhiteSpace(makeModel) ? null : makeModel,
+                Odo = vehicle.Odometer?.ToString(),
+                RecordState = WofRecordState.Pass,
+                IsNewWof = true,
+                OrganisationName = "Workshop",
+                ExcelRowNo = 0,
+                SourceFile = "new-job",
+                Note = "Auto-created from new job WOF service selection.",
+                WofUiState = WofUiState.Pass,
+                ImportedAt = now,
+                UpdatedAt = now,
+            });
+            hasPendingPostJobChanges = true;
         }
 
         if (req.UseServiceCatalogMapping)
@@ -243,9 +227,12 @@ catch (Exception ex)
             if (selections.Count > 0)
             {
                 _db.JobServiceSelections.AddRange(selections);
-                await _db.SaveChangesAsync(ct);
+                hasPendingPostJobChanges = true;
             }
         }
+
+        if (hasPendingPostJobChanges)
+            await _db.SaveChangesAsync(ct);
 
         await tx.CommitAsync(ct);
         transactionStopwatch.Stop();

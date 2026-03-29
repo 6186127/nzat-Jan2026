@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Workshop.Api.Options;
 
 namespace Workshop.Api.Services;
 
@@ -7,17 +9,42 @@ public sealed class GmailBackgroundSyncService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GmailBackgroundSyncService> _logger;
+    private readonly GmailSyncOptions _options;
 
     public GmailBackgroundSyncService(
         IServiceScopeFactory scopeFactory,
+        IOptions<GmailSyncOptions> options,
         ILogger<GmailBackgroundSyncService> logger)
     {
         _scopeFactory = scopeFactory;
+        _options = options.Value;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!_options.Enabled)
+        {
+            _logger.LogInformation("Gmail background sync is disabled.");
+            return;
+        }
+
+        if (_options.EffectiveStartupDelay > TimeSpan.Zero)
+        {
+            _logger.LogInformation(
+                "Delaying Gmail background sync startup by {Delay}.",
+                _options.EffectiveStartupDelay);
+
+            try
+            {
+                await Task.Delay(_options.EffectiveStartupDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var delay = await RunCycleAsync(stoppingToken);

@@ -5,6 +5,7 @@ public sealed class PoFollowUpOptions
     public const string SectionName = "PoFollowUp";
 
     public bool Enabled { get; set; } = true;
+    public int StartupDelaySeconds { get; set; } = 180;
     public int CheckIntervalSeconds { get; set; } = 60;
     public int PollIntervalSeconds { get; set; } = 60;
     public int? FollowUpDelayMinutesOverride { get; set; }
@@ -18,6 +19,9 @@ public sealed class PoFollowUpOptions
 
     public int EffectiveCheckIntervalSeconds =>
         Math.Max(30, CheckIntervalSeconds > 0 ? CheckIntervalSeconds : PollIntervalSeconds);
+
+    public TimeSpan EffectiveStartupDelay =>
+        TimeSpan.FromSeconds(Math.Max(0, StartupDelaySeconds));
 
     public int? EffectiveFollowUpDelayMinutesOverride =>
         FollowUpDelayMinutesOverride.HasValue && FollowUpDelayMinutesOverride.Value > 0
