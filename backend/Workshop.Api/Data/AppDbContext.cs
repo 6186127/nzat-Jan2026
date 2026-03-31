@@ -92,6 +92,10 @@ public class AppDbContext : DbContext
         e.Property(x => x.Odometer).HasColumnName("odometer");
         e.Property(x => x.NzFirstRegistration).HasColumnName("nz_first_registration");
         e.Property(x => x.CustomerId).HasColumnName("customer_id");
+        e.HasOne(x => x.Customer)
+            .WithMany()
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // ✅ raw_json jsonb
         e.Property(x => x.RawJson).HasColumnName("raw_json").HasColumnType("jsonb");
@@ -223,6 +227,14 @@ public class AppDbContext : DbContext
         j.Property(x => x.Notes).HasColumnName("notes");
         j.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         j.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        j.HasOne(x => x.Vehicle)
+            .WithMany()
+            .HasForeignKey(x => x.VehicleId)
+            .OnDelete(DeleteBehavior.SetNull);
+        j.HasOne(x => x.Customer)
+            .WithMany()
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         var ji = modelBuilder.Entity<JobInvoice>();
         ji.ToTable("job_invoices");

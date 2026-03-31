@@ -103,11 +103,9 @@ public class NewJobController : ControllerBase
             vehicle = new Vehicle
             {
                 Plate = plate,
-                CustomerId = customer?.Id,
+                Customer = customer,
                 UpdatedAt = now,
             };
-            _db.Vehicles.Add(vehicle);
-            await _db.SaveChangesAsync(ct);
         }
 
         var job = new Job
@@ -116,8 +114,10 @@ public class NewJobController : ControllerBase
             IsUrgent = false,
             NeedsPo = req.NeedsPo ?? false,
             UseServiceCatalogMapping = req.UseServiceCatalogMapping,
-            VehicleId = vehicle.Id,
-            CustomerId = jobCustomerId,
+            Vehicle = vehicle.Id > 0 ? null : vehicle,
+            VehicleId = vehicle.Id > 0 ? vehicle.Id : null,
+            Customer = customer,
+            CustomerId = customer?.Id ?? jobCustomerId,
             Notes = req.Notes?.Trim(),
             CreatedAt = now,
             UpdatedAt = now,
@@ -125,6 +125,7 @@ public class NewJobController : ControllerBase
 
         _db.Jobs.Add(job);
         await _db.SaveChangesAsync(ct);
+        jobCustomerId = job.CustomerId;
 
         var wofCreated = req.Services?.Any(s => string.Equals(s, "wof", StringComparison.OrdinalIgnoreCase)) == true;
         var hasMech = req.Services?.Any(s => string.Equals(s, "mech", StringComparison.OrdinalIgnoreCase)) == true;
@@ -436,18 +437,27 @@ public class NewJobController : ControllerBase
 
     private async Task<Customer> UpsertCustomerAsync(NewJobRequest.CustomerInput input, CancellationToken ct)
     {
-        // var isBusiness = string.Equals(input.Type, "Business", StringComparison.Ordinal);
         Customer? existing = null;
         if (!string.IsNullOrWhiteSpace(input.Phone))
         {
             existing = await _db.Customers.FirstOrDefaultAsync(x => x.Phone == input.Phone, ct);
-            
         }
 
-     
-            existing = new Customer
-            {
-                Type = input.Type,
+        if (existing is not null)
+        {
+            existing.Type = input.Type;
+            existing.Name = string.IsNullOrWhiteSpace(input.Name) ? (input.Notes ?? "") : input.Name;
+            existing.Phone = input.Phone;
+            existing.Email = input.Email;
+            existing.Address = input.Address;
+            existing.BusinessCode = "WI";
+            existing.Notes = input.Notes?.Trim();
+            return existing;
+        }
+
+        existing = new Customer
+        {
+            Type = input.Type,
             Name = string.IsNullOrWhiteSpace(input.Name) ? (input.Notes ?? "") : input.Name,
             Phone = input.Phone,
             Email = input.Email,
@@ -455,11 +465,8 @@ public class NewJobController : ControllerBase
             BusinessCode = "WI",
             Notes = input.Notes?.Trim(),
         };
-           _db.Customers.Add(existing);
-        
+        _db.Customers.Add(existing);
 
-        await _db.SaveChangesAsync(ct);
-        
         return existing;
     }
 
