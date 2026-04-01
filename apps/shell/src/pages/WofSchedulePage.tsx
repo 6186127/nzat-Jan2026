@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
@@ -44,6 +45,40 @@ type WorkingDay = {
   label: string;
   shortDate: string;
 };
+
+function enforceSingleCheckedPerSlot(
+  placements: PlacementMap,
+  jobs: WofScheduleJob[],
+  preferredCheckedJobId?: string
+) {
+  const next = { ...placements };
+  const jobMap = new Map(jobs.map((job) => [job.jobId, job]));
+  const checkedBySlot = new Map<string, string[]>();
+
+  for (const [jobId, placement] of Object.entries(next)) {
+    if (placement.kind !== "slot") continue;
+    const job = jobMap.get(jobId);
+    if (!job || job.wofStatus !== "Checked") continue;
+    const list = checkedBySlot.get(placement.slotKey) ?? [];
+    list.push(jobId);
+    checkedBySlot.set(placement.slotKey, list);
+  }
+
+  for (const [, checkedJobIds] of checkedBySlot.entries()) {
+    if (checkedJobIds.length <= 1) continue;
+
+    const keepId = preferredCheckedJobId && checkedJobIds.includes(preferredCheckedJobId)
+      ? preferredCheckedJobId
+      : checkedJobIds[checkedJobIds.length - 1];
+
+    for (const jobId of checkedJobIds) {
+      if (jobId === keepId) continue;
+      next[jobId] = { kind: "backlog" };
+    }
+  }
+
+  return next;
+}
 
 function loadPlacements(): PlacementMap {
   if (typeof window === "undefined") return {};
@@ -204,6 +239,20 @@ function getCardTone(status?: WofScheduleJob["wofStatus"]) {
   return "border-slate-200 bg-white hover:border-slate-300";
 }
 
+function getCompactRowTone(status?: WofScheduleJob["wofStatus"]) {
+  if (status === "Checked") {
+    return {
+      row: "bg-amber-50/80 hover:bg-amber-100",
+      dot: "bg-amber-400",
+    };
+  }
+
+  return {
+    row: "bg-transparent hover:bg-slate-200/90",
+    dot: "bg-sky-500",
+  };
+}
+
 function WofStatusSelect({
   value,
   onChange,
@@ -228,6 +277,69 @@ function WofStatusSelect({
   );
 }
 
+function WofDetailedCardContent({
+  job,
+  onNzta,
+  onStatusChange,
+  statusUpdating = false,
+}: {
+  job: WofScheduleJob;
+  onNzta?: () => void;
+  onStatusChange?: (next: "Todo" | "Checked") => void;
+  statusUpdating?: boolean;
+}) {
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate text-base font-semibold text-slate-900">{job.plate}</div>
+              <Link
+                to={`/jobs/${job.jobId}?tab=WOF`}
+                className="shrink-0 text-xs font-medium text-[var(--ds-primary)] underline-offset-2 hover:underline"
+              >
+                #{job.jobId}
+              </Link>
+              <WofStatusBadge status={job.wofStatus} />
+            </div>
+            <div className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+              {getInShopDaysLabel(job.inShopDateTime)}
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">{formatVehicleLabel(job)}</div>
+        </div>
+        <GripVertical className="mt-0.5 h-4 w-4 text-slate-400" />
+      </div>
+      <dl className="grid gap-2 text-xs text-slate-600">
+        <div className="flex items-start justify-between gap-3">
+          <dt className="font-medium text-slate-500">VIN</dt>
+          <dd className="max-w-[180px] text-right font-mono text-[11px] text-slate-800">{job.vin || "—"}</dd>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <dt className="font-medium text-slate-500">WOF Expiry</dt>
+          <dd className="text-right text-slate-800">{job.wofExpiry || "—"}</dd>
+        </div>
+      </dl>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {onStatusChange ? (
+          <WofStatusSelect value={job.wofStatus} onChange={onStatusChange} disabled={statusUpdating} />
+        ) : null}
+        {onNzta ? (
+          <Button
+            variant="ghost"
+            className="h-8 border-slate-200 px-2 text-xs"
+            leftIcon={<ExternalLink className="h-3.5 w-3.5" />}
+            onClick={onNzta}
+          >
+            NZTA
+          </Button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 function WofJobCard({
   job,
   compact = false,
@@ -244,6 +356,9 @@ function WofJobCard({
   statusUpdating?: boolean;
 }) {
   const dragRef = useRef<HTMLDivElement | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [overlayPosition, setOverlayPosition] = useState<{ top: number; left: number } | null>(null);
   const [{ isDragging }, drag] = useDrag(() => ({
     type: DRAG_TYPE,
     item: { jobId: job.jobId } satisfies DragItem,
@@ -253,130 +368,119 @@ function WofJobCard({
   }), [job.jobId]);
   drag(dragRef);
   const tone = getCardTone(job.wofStatus);
+  const compactTone = getCompactRowTone(job.wofStatus);
+
+  const updateOverlayPosition = useCallback(() => {
+    if (!compact || !dragRef.current || typeof window === "undefined") return;
+    const rect = dragRef.current.getBoundingClientRect();
+    const overlayWidth = 420;
+    const overlayHeight = 320;
+    const gutter = 12;
+    const left = rect.right + gutter + overlayWidth <= window.innerWidth
+      ? rect.right + gutter
+      : Math.max(16, rect.left - overlayWidth - gutter);
+    const top = Math.min(
+      Math.max(16, rect.top - 8),
+      Math.max(16, window.innerHeight - overlayHeight - 16)
+    );
+    setOverlayPosition({ top, left });
+  }, [compact]);
+
+  const openOverlay = useCallback(() => {
+    if (!compact) return;
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    updateOverlayPosition();
+    setOverlayOpen(true);
+  }, [compact, updateOverlayPosition]);
+
+  const scheduleCloseOverlay = useCallback(() => {
+    if (!compact) return;
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      setOverlayOpen(false);
+      closeTimerRef.current = null;
+    }, 120);
+  }, [compact]);
+
+  useEffect(() => {
+    if (!overlayOpen || !compact) return;
+    const handleViewportChange = () => updateOverlayPosition();
+    window.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+    return () => {
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [compact, overlayOpen, updateOverlayPosition]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+  }, []);
 
   return (
     <div
       ref={dragRef}
-      title={
-        compact
-          ? `${job.plate}\n${formatVehicleLabel(job)}\nVIN: ${job.vin || "—"}\nWOF Expiry: ${job.wofExpiry || "—"}\nIn Shop: ${formatNzDateTime(parseTimestamp(job.inShopDateTime))}`
-          : undefined
-      }
+      onMouseEnter={compact ? openOverlay : undefined}
+      onMouseLeave={compact ? scheduleCloseOverlay : undefined}
       className={[
-        "group relative rounded-xl border shadow-sm transition",
-        "cursor-grab active:cursor-grabbing",
-        compact ? "space-y-1 p-2" : "space-y-3 p-3",
-        tone,
+        compact
+          ? "group relative cursor-grab active:cursor-grabbing"
+          : "group relative rounded-xl border shadow-sm transition cursor-grab active:cursor-grabbing",
+        compact ? "space-y-1" : "space-y-3 p-3",
+        compact ? "" : tone,
         isDragging ? "opacity-45" : "opacity-100",
       ].join(" ")}
     >
       {compact ? (
         <>
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="truncate text-sm font-semibold text-slate-900">{job.plate}</div>
-                  <Link
-                    to={`/jobs/${job.jobId}?tab=WOF`}
-                    className="pointer-events-auto shrink-0 text-[10px] font-medium text-[var(--ds-primary)] underline-offset-2 hover:underline"
-                  >
-                    #{job.jobId}
-                  </Link>
-                  <WofStatusBadge status={job.wofStatus} />
-                </div>
-                <div className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                  {getInShopDaysLabel(job.inShopDateTime)}
-                </div>
-              </div>
-              <div className="mt-0.5 text-[11px] text-slate-500">WOF {job.wofExpiry || "—"}</div>
+          <div
+            className={[
+              "flex items-center gap-2 rounded-lg px-2 py-0.5 transition",
+              compactTone.row,
+            ].join(" ")}
+          >
+            <span className={["h-3 w-3 shrink-0 rounded-full", compactTone.dot].join(" ")} />
+            <div className="min-w-0 flex-1 truncate text-[14px] font-medium leading-5 text-slate-900">{job.plate}</div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <GripVertical className="h-3 w-3 text-slate-400" />
             </div>
-            <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
           </div>
-          <div className="pointer-events-none absolute left-0 top-full z-20 hidden w-[240px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl group-hover:block">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="truncate text-sm font-semibold text-slate-900">{job.plate}</div>
-                <Link
-                  to={`/jobs/${job.jobId}?tab=WOF`}
-                  className="pointer-events-auto shrink-0 text-[10px] font-medium text-[var(--ds-primary)] underline-offset-2 hover:underline"
+          {overlayOpen && overlayPosition && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  onMouseEnter={openOverlay}
+                  onMouseLeave={scheduleCloseOverlay}
+                  className={[
+                    "fixed z-[200] w-[360px] rounded-xl border p-3 shadow-2xl",
+                    tone,
+                  ].join(" ")}
+                  style={{ top: overlayPosition.top, left: overlayPosition.left }}
                 >
-                  #{job.jobId}
-                </Link>
-                <WofStatusBadge status={job.wofStatus} />
-              </div>
-              <div className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                {getInShopDaysLabel(job.inShopDateTime)}
-              </div>
-            </div>
-            <div className="mt-0.5 text-xs text-slate-500">{formatVehicleLabel(job)}</div>
-            {onStatusChange ? (
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-[11px] font-medium text-slate-500">状态</div>
-                <WofStatusSelect value={job.wofStatus} onChange={onStatusChange} disabled={statusUpdating} />
-              </div>
-            ) : null}
-            <dl className="mt-3 grid gap-2 text-xs text-slate-600">
-              <div className="flex items-start justify-between gap-3">
-                <dt className="font-medium text-slate-500">VIN</dt>
-                <dd className="max-w-[140px] text-right font-mono text-[11px] text-slate-800">{job.vin || "—"}</dd>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <dt className="font-medium text-slate-500">WOF Expiry</dt>
-                <dd className="text-right text-slate-800">{job.wofExpiry || "—"}</dd>
-              </div>
-            </dl>
-          </div>
+                  <WofDetailedCardContent
+                    job={job}
+                    onNzta={onNzta}
+                    onStatusChange={onStatusChange}
+                    statusUpdating={statusUpdating}
+                  />
+                </div>,
+                document.body
+              )
+            : null}
         </>
       ) : (
-        <>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="truncate text-base font-semibold text-slate-900">{job.plate}</div>
-                  <Link
-                    to={`/jobs/${job.jobId}?tab=WOF`}
-                    className="shrink-0 text-xs font-medium text-[var(--ds-primary)] underline-offset-2 hover:underline"
-                  >
-                    #{job.jobId}
-                  </Link>
-                  <WofStatusBadge status={job.wofStatus} />
-                </div>
-                <div className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
-                  {getInShopDaysLabel(job.inShopDateTime)}
-                </div>
-              </div>
-              <div className="text-xs text-slate-500">{formatVehicleLabel(job)}</div>
-            </div>
-            <GripVertical className="mt-0.5 h-4 w-4 text-slate-400" />
-          </div>
-          <dl className="grid gap-2 text-xs text-slate-600">
-            <div className="flex items-start justify-between gap-3">
-              <dt className="font-medium text-slate-500">VIN</dt>
-              <dd className="max-w-[180px] text-right font-mono text-[11px] text-slate-800">{job.vin || "—"}</dd>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <dt className="font-medium text-slate-500">WOF Expiry</dt>
-              <dd className="text-right text-slate-800">{job.wofExpiry || "—"}</dd>
-            </div>
-          </dl>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            {onStatusChange ? (
-              <WofStatusSelect value={job.wofStatus} onChange={onStatusChange} disabled={statusUpdating} />
-            ) : null}
-            {showNztaAction ? (
-              <Button
-                variant="ghost"
-                className="h-8 border-slate-200 px-2 text-xs"
-                leftIcon={<ExternalLink className="h-3.5 w-3.5" />}
-                onClick={onNzta}
-              >
-                NZTA
-              </Button>
-            ) : null}
-          </div>
-        </>
+        <WofDetailedCardContent
+          job={job}
+          onNzta={showNztaAction ? onNzta : undefined}
+          onStatusChange={onStatusChange}
+          statusUpdating={statusUpdating}
+        />
       )}
     </div>
   );
@@ -478,7 +582,7 @@ function ScheduleSlot({
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
         {getSlotLabel(hour)}
       </div>
-      <div className="h-[calc(100%-24px)] space-y-1 overflow-y-auto pr-1">
+      <div className="h-[calc(100%-24px)] space-y-1 overflow-x-visible overflow-y-auto pr-1">
         {jobs.map((job) => (
           <WofJobCard
             key={job.jobId}
@@ -589,16 +693,24 @@ export function WofSchedulePage() {
       if (!res.ok) {
         throw new Error(res.error || "Failed to update WOF status.");
       }
-      setJobs((prev) =>
-        prev.map((job) =>
+      let nextJobsSnapshot: WofScheduleJob[] = [];
+      setJobs((prev) => {
+        const updated = prev.map((job) =>
           job.jobId === jobId
             ? {
                 ...job,
                 wofStatus: next,
               }
             : job
-        )
-      );
+        );
+        nextJobsSnapshot = updated;
+        return updated;
+      });
+      setPlacements((prev) => {
+        const normalized = enforceSingleCheckedPerSlot(prev, nextJobsSnapshot, next === "Checked" ? jobId : undefined);
+        savePlacements(normalized);
+        return normalized;
+      });
       toast.success(next === "Checked" ? "WOF 状态已改为检查完成" : "WOF 状态已改为待查");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update WOF status.");
@@ -615,27 +727,34 @@ export function WofSchedulePage() {
     });
   }, []);
 
-  const moveToSlot = useCallback((jobId: string, slotKey: string) => {
-    setPlacements((prev) => {
-      const next = { ...prev };
-
-      for (const [existingJobId, placement] of Object.entries(prev)) {
-        if (existingJobId === jobId) continue;
-        if (placement.kind === "slot" && placement.slotKey === slotKey) {
-          next[existingJobId] = { kind: "backlog" };
-        }
-      }
-
-      next[jobId] = { kind: "slot", slotKey } as Placement;
-      savePlacements(next);
-      return next;
-    });
-  }, []);
-
   const jobMap = useMemo(
     () => new Map(jobs.map((job) => [job.jobId, job])),
     [jobs]
   );
+
+  const moveToSlot = useCallback((jobId: string, slotKey: string) => {
+    setPlacements((prev) => {
+      const next = { ...prev };
+      const movingJob = jobMap.get(jobId);
+      const movingStatus = movingJob?.wofStatus ?? "Todo";
+
+      if (movingStatus === "Checked") {
+        for (const [existingJobId, placement] of Object.entries(prev)) {
+          if (existingJobId === jobId) continue;
+          if (placement.kind !== "slot" || placement.slotKey !== slotKey) continue;
+          const existingJob = jobMap.get(existingJobId);
+          if (existingJob?.wofStatus === "Checked") {
+            next[existingJobId] = { kind: "backlog" };
+          }
+        }
+      }
+
+      next[jobId] = { kind: "slot", slotKey } as Placement;
+      const normalized = enforceSingleCheckedPerSlot(next, jobs, movingStatus === "Checked" ? jobId : undefined);
+      savePlacements(normalized);
+      return normalized;
+    });
+  }, [jobMap, jobs]);
 
   const backlogJobs = useMemo(
     () =>
@@ -658,8 +777,20 @@ export function WofSchedulePage() {
       if (!visibleSlotKeys.has(placement.slotKey)) continue;
       const job = jobMap.get(jobId);
       if (!job) continue;
-      map.set(placement.slotKey, [job]);
+      const list = map.get(placement.slotKey) ?? [];
+      list.push(job);
+      map.set(placement.slotKey, list);
     }
+
+    for (const [slotKey, list] of map.entries()) {
+      list.sort((a, b) => {
+        if (a.wofStatus === "Checked" && b.wofStatus !== "Checked") return -1;
+        if (a.wofStatus !== "Checked" && b.wofStatus === "Checked") return 1;
+        return a.jobId.localeCompare(b.jobId);
+      });
+      map.set(slotKey, list);
+    }
+
     return map;
   }, [jobMap, placements, visibleSlotKeys]);
 
