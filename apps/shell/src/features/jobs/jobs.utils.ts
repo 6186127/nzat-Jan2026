@@ -1,4 +1,5 @@
 import type { JobsFilters, JobRow } from "@/types/JobType";
+import { mapStageKey } from "@/features/paint/paintBoard.utils";
 import { parseTimestamp } from "@/utils/date";
 
 export function parseJobCreatedAt(createdAt: string): Date | null {
@@ -104,6 +105,14 @@ export function filterJobs(rows: JobRow[], filters: JobsFilters): JobRow[] {
 
     // WOF 状态
     if (filters.wofStatus && r.wofStatus !== filters.wofStatus) return false;
+
+    // 喷漆状态
+    if (filters.paintStatus) {
+      const hasPaintService = Boolean(r.paintStatus) || typeof r.paintCurrentStage === "number";
+      if (!hasPaintService) return false;
+      const paintStage = mapStageKey(r.paintStatus, r.paintCurrentStage);
+      if (paintStage !== filters.paintStatus) return false;
+    }
 
     // 日期范围
     if (dateRange) {

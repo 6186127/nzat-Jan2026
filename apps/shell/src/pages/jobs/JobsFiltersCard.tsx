@@ -2,8 +2,7 @@ import { RotateCcw, Search } from "lucide-react";
 import { Card, Input, Select, Button } from "@/components/ui";
 import { MultiTagSelect, type TagOption } from "@/components/MultiTagSelect";
 import type { JobsFilters, JobStatus } from "@/types/JobType";
-
-
+import { PAINT_STAGE_OPTIONS } from "@/features/paint/paintBoard.utils";
 
 type Props = {
   value: JobsFilters;
@@ -46,6 +45,21 @@ export function JobsFiltersCard({ value, onChange, onReset, tagOptions }: Props)
               <option value="Todo">待查</option>
               <option value="Checked">检查完成</option>
               <option value="Recorded">已录入</option>
+            </Select>
+          </div>
+
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
+            <div className="mb-1 text-xs text-[rgba(0,0,0,0.55)]">喷漆状态</div>
+            <Select
+              value={value.paintStatus}
+              onChange={(e) => onChange({ ...value, paintStatus: e.target.value as JobsFilters["paintStatus"] })}
+            >
+              <option value="">全部</option>
+              {PAINT_STAGE_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
             </Select>
           </div>
 

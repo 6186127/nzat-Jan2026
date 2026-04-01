@@ -30,11 +30,23 @@ export type JobRow = {
 };
 
 export type TimeRange = "" | "week" | "lastWeek" | "month" | "custom";
+export type PaintFilterStatus =
+  | ""
+  | "on_hold"
+  | "waiting"
+  | "sheet"
+  | "undercoat"
+  | "sanding"
+  | "painting"
+  | "assembly"
+  | "done"
+  | "delivered";
 
 export type JobsFilters = {
   search: string;
   jobType: "" | JobStatus;
   wofStatus: "" | "Todo" | "Checked" | "Recorded";
+  paintStatus: PaintFilterStatus;
   timeRange: TimeRange;
   startDate: string; // yyyy-mm-dd (input date)
   endDate: string;   // yyyy-mm-dd

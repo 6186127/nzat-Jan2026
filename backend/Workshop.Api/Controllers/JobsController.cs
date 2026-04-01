@@ -532,7 +532,11 @@ public class JobsController : ControllerBase
             if (!string.Equals(existing.Status, nextStatus, StringComparison.Ordinal))
             {
                 existing.Status = nextStatus;
-                if (string.Equals(nextStatus, "not_started", StringComparison.Ordinal))
+                if (string.Equals(nextStatus, "on_hold", StringComparison.Ordinal))
+                {
+                    existing.CurrentStage = -2;
+                }
+                else if (string.Equals(nextStatus, "not_started", StringComparison.Ordinal))
                 {
                     existing.CurrentStage = -1;
                 }
@@ -563,11 +567,21 @@ public class JobsController : ControllerBase
 
         var status = string.IsNullOrWhiteSpace(req?.Status) ? "pending" : req!.Status!.Trim();
         var panels = req?.Panels is > 0 ? req!.Panels!.Value : 1;
+        var normalized = string.Equals(status, "on_hold", StringComparison.Ordinal)
+            ? ("on_hold", -2)
+            : string.Equals(status, "not_started", StringComparison.Ordinal)
+                ? ("not_started", -1)
+                : string.Equals(status, "delivered", StringComparison.Ordinal)
+                    ? ("delivered", 6)
+                    : string.Equals(status, "done", StringComparison.Ordinal)
+                        ? ("done", 5)
+                        : ("pending", -1);
+
         var service = new JobPaintService
         {
             JobId = id,
-            Status = status,
-            CurrentStage = -1,
+            Status = normalized.Item1,
+            CurrentStage = normalized.Item2,
             Panels = panels,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -635,11 +649,14 @@ public class JobsController : ControllerBase
 
     private static (string Status, int CurrentStage) NormalizePaintStage(int stageIndex)
     {
-        const int lastStageIndex = 4;
-        if (stageIndex <= -1)
+        if (stageIndex <= -2)
+            return ("on_hold", -2);
+        if (stageIndex == -1)
             return ("not_started", -1);
-        if (stageIndex >= lastStageIndex + 1)
-            return ("done", lastStageIndex);
+        if (stageIndex >= 6)
+            return ("delivered", 6);
+        if (stageIndex == 5)
+            return ("done", 5);
         return ("in_progress", stageIndex);
     }
 

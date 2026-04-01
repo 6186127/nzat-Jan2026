@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { PaintService } from "@/types";
 import { Button, Select } from "@/components/ui";
 import { Trash2 } from "lucide-react";
+import { mapStageKey, PAINT_STAGE_OPTIONS, PAINT_STAGE_PROGRESS_ORDER, type StageKey } from "@/features/paint/paintBoard.utils";
 import { notifyPaintBoardRefresh } from "@/utils/refreshSignals";
 
 type PaintPanelProps = {
@@ -15,21 +16,76 @@ type PaintPanelProps = {
 };
 
 type StageItem = {
-  key: string;
+  key: StageKey;
   label: string;
   description?: string;
   stageIndex: number;
 };
 
-const PAINT_STAGES: StageItem[] = [
-  { key: "not_started", label: "等待处理", stageIndex: -1 },
-  { key: "panel_primer", label: "钣金/底漆", description: "钣金修复与底层处理", stageIndex: 0 },
-  { key: "primer", label: "打底漆", description: "喷涂打底漆", stageIndex: 1 },
-  { key: "sanding", label: "底漆打磨", description: "底漆打磨处理", stageIndex: 2 },
-  { key: "paint", label: "喷漆", description: "喷涂面漆", stageIndex: 3 },
-  { key: "assembly", label: "组装抛光", description: "配件安装与抛光", stageIndex: 4 },
-  { key: "done", label: "完成喷漆", stageIndex: 5 },
-];
+const PAINT_STAGE_DESCRIPTIONS: Partial<Record<StageKey, string>> = {
+  on_hold: "订单暂停，暂不进入喷漆排程",
+  sheet: "钣金修复与底层处理",
+  undercoat: "喷涂打底漆",
+  sanding: "底漆打磨处理",
+  painting: "喷涂面漆",
+  assembly: "配件安装与抛光",
+  delivered: "车辆已交付客户",
+};
+
+const PAINT_STAGES: StageItem[] = PAINT_STAGE_OPTIONS.map((stage) => ({
+  key: stage.key,
+  label: stage.label,
+  description: PAINT_STAGE_DESCRIPTIONS[stage.key],
+  stageIndex: stage.stageIndex,
+}));
+
+const CURRENT_STAGE_TONE: Record<StageKey, { dot: string; card: string; badge: string }> = {
+  on_hold: {
+    dot: "bg-amber-500 border-amber-500",
+    card: "bg-amber-50 border-amber-200 text-amber-800",
+    badge: "bg-amber-100 text-amber-700",
+  },
+  waiting: {
+    dot: "bg-slate-500 border-slate-500",
+    card: "bg-slate-50 border-slate-200 text-slate-800",
+    badge: "bg-slate-200 text-slate-700",
+  },
+  sheet: {
+    dot: "bg-sky-500 border-sky-500",
+    card: "bg-sky-50 border-sky-200 text-sky-800",
+    badge: "bg-sky-100 text-sky-700",
+  },
+  undercoat: {
+    dot: "bg-amber-500 border-amber-500",
+    card: "bg-amber-50 border-amber-200 text-amber-800",
+    badge: "bg-amber-100 text-amber-700",
+  },
+  sanding: {
+    dot: "bg-fuchsia-500 border-fuchsia-500",
+    card: "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-800",
+    badge: "bg-fuchsia-100 text-fuchsia-700",
+  },
+  painting: {
+    dot: "bg-rose-500 border-rose-500",
+    card: "bg-rose-50 border-rose-200 text-rose-800",
+    badge: "bg-rose-100 text-rose-700",
+  },
+  assembly: {
+    dot: "bg-teal-500 border-teal-500",
+    card: "bg-teal-50 border-teal-200 text-teal-800",
+    badge: "bg-teal-100 text-teal-700",
+  },
+  done: {
+    dot: "bg-emerald-500 border-emerald-500",
+    card: "bg-emerald-50 border-emerald-200 text-emerald-800",
+    badge: "bg-emerald-100 text-emerald-700",
+  },
+  delivered: {
+    dot: "bg-green-500 border-green-500",
+    card: "bg-green-50 border-green-200 text-green-800",
+    badge: "bg-green-100 text-green-700",
+  },
+};
 
 export function PaintPanel({
   service,
@@ -45,24 +101,25 @@ export function PaintPanel({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const status = service?.status ?? "pending";
   const currentStage = typeof service?.currentStage === "number" ? service.currentStage : -1;
+  const currentStageKey = mapStageKey(status, currentStage);
   const panelsValue = service?.panels ?? 1;
 
   const stageStates = useMemo(() => {
     return PAINT_STAGES.map((stage) => {
-      if (stage.key === "not_started") {
-        if (status === "done") return "done";
-        if (currentStage < 0) return "current";
-        return "done";
+      if (stage.key === "on_hold") {
+        return currentStageKey === "on_hold" ? "current" : "not_started";
       }
-      if (stage.key === "done") {
-        return status === "done" ? "current" : "not_started";
+      if (currentStageKey === "on_hold") {
+        return "not_started";
       }
-      if (status === "done") return "done";
-      if (currentStage > stage.stageIndex) return "done";
-      if (currentStage === stage.stageIndex) return "current";
+      const currentProgressIndex = PAINT_STAGE_PROGRESS_ORDER.indexOf(currentStageKey);
+      const stageProgressIndex = PAINT_STAGE_PROGRESS_ORDER.indexOf(stage.key);
+      if (currentProgressIndex < 0 || stageProgressIndex < 0) return "not_started";
+      if (stage.key === currentStageKey) return "current";
+      if (stageProgressIndex < currentProgressIndex) return "done";
       return "not_started";
     });
-  }, [status, currentStage]);
+  }, [currentStageKey]);
 
   const handleStageClick = async (stageIndex: number) => {
     if (!onUpdateStage) return;
@@ -147,20 +204,21 @@ export function PaintPanel({
           const state = stageStates[index];
           const isDone = state === "done";
           const isCurrent = state === "current";
+          const currentTone = CURRENT_STAGE_TONE[stage.key];
           const dotClass = isDone
             ? "bg-emerald-500 border-emerald-500"
             : isCurrent
-              ? "bg-indigo-500 border-indigo-500"
+              ? currentTone.dot
               : "bg-white border-[rgba(0,0,0,0.25)]";
           const lineClass = isDone ? "bg-emerald-200" : "bg-[rgba(0,0,0,0.08)]";
           const cardClass = isDone
             ? "bg-emerald-50 border-emerald-200 text-emerald-800"
             : isCurrent
-              ? "bg-indigo-50 border-indigo-200 text-indigo-800"
+              ? currentTone.card
               : "bg-white border-[rgba(0,0,0,0.08)] text-[var(--ds-text)]";
 
           const badge =
-            stage.key === "done"
+            stage.key === "done" || stage.key === "delivered"
               ? "完成"
               : isDone
                 ? "完成"
@@ -188,7 +246,7 @@ export function PaintPanel({
                       isDone
                         ? "bg-emerald-100 text-emerald-700"
                         : isCurrent
-                          ? "bg-indigo-100 text-indigo-700"
+                          ? currentTone.badge
                           : "bg-gray-100 text-gray-600",
                     ].join(" ")}
                   >
