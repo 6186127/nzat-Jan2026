@@ -519,6 +519,10 @@ export function WofSchedulePage() {
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
   const workingDays = useMemo(() => buildWorkingDays(weekOffset), [weekOffset]);
+  const visibleSlotKeys = useMemo(
+    () => new Set(workingDays.flatMap((day) => SLOT_HOURS.map((hour) => `${day.key}-${hour}`))),
+    [workingDays]
+  );
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -637,21 +641,27 @@ export function WofSchedulePage() {
     () =>
       jobs.filter((job) => {
         const placement = placements[job.jobId];
-        return !placement || placement.kind === "backlog" || placement.kind === "completed";
+        return (
+          !placement ||
+          placement.kind === "backlog" ||
+          placement.kind === "completed" ||
+          (placement.kind === "slot" && !visibleSlotKeys.has(placement.slotKey))
+        );
       }),
-    [jobs, placements]
+    [jobs, placements, visibleSlotKeys]
   );
 
   const jobsBySlot = useMemo(() => {
     const map = new Map<string, WofScheduleJob[]>();
     for (const [jobId, placement] of Object.entries(placements)) {
       if (placement.kind !== "slot") continue;
+      if (!visibleSlotKeys.has(placement.slotKey)) continue;
       const job = jobMap.get(jobId);
       if (!job) continue;
       map.set(placement.slotKey, [job]);
     }
     return map;
-  }, [jobMap, placements]);
+  }, [jobMap, placements, visibleSlotKeys]);
 
   const currentDayKey = useMemo(() => {
     const parts = new Intl.DateTimeFormat("en-NZ", {

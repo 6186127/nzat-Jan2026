@@ -280,7 +280,10 @@ public class WofRecordsService
         }
 
         if (inserted > 0 || updated > 0)
+        {
+            await SetWofStateRecordedAsync(latestJobByPlate.Values, now, ct);
             await _db.SaveChangesAsync(ct);
+        }
 
         await tx.CommitAsync(ct);
 
@@ -676,7 +679,10 @@ public class WofRecordsService
         }
 
         if (inserted > 0)
+        {
+            await SetWofStateRecordedAsync(new[] { id }, now, ct);
             await _db.SaveChangesAsync(ct);
+        }
 
         await tx.CommitAsync(ct);
 
@@ -781,6 +787,7 @@ public class WofRecordsService
             record.ImportedAt = importedAt.Value;
         record.UpdatedAt = DateTime.UtcNow;
 
+        await SetWofStateRecordedAsync(new[] { jobId }, DateTime.UtcNow, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new { success = true });
@@ -859,6 +866,20 @@ public class WofRecordsService
 
         if (deleted == 0)
             return WofServiceResult.NotFound("WOF record not found.");
+
+        var hasRemainingRecords = await _db.JobWofRecords.AsNoTracking()
+            .AnyAsync(x => x.JobId == jobId, ct);
+
+        if (!hasRemainingRecords)
+        {
+            var state = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+            if (state is not null)
+            {
+                state.ManualStatus = null;
+                state.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
 
         return WofServiceResult.Ok(new { success = true, deleted });
     }
@@ -943,6 +964,7 @@ public class WofRecordsService
         };
 
         _db.JobWofRecords.Add(record);
+        await SetWofStateRecordedAsync(new[] { jobId }, now, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new
@@ -1030,6 +1052,7 @@ public class WofRecordsService
         };
 
         _db.JobWofRecords.Add(record);
+        await SetWofStateRecordedAsync(new[] { id }, now, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new
@@ -1276,6 +1299,35 @@ public class WofRecordsService
 
     private static string FormatDateTime(DateTime dateTime)
         => DateTimeHelper.FormatUtc(dateTime);
+
+    private async Task SetWofStateRecordedAsync(IEnumerable<long> jobIds, DateTime now, CancellationToken ct)
+    {
+        var ids = jobIds.Distinct().ToArray();
+        if (ids.Length == 0)
+            return;
+
+        var existingStates = await _db.JobWofStates
+            .Where(x => ids.Contains(x.JobId))
+            .ToDictionaryAsync(x => x.JobId, ct);
+
+        foreach (var jobId in ids)
+        {
+            if (existingStates.TryGetValue(jobId, out var state))
+            {
+                state.ManualStatus = "Recorded";
+                state.UpdatedAt = now;
+                continue;
+            }
+
+            _db.JobWofStates.Add(new JobWofState
+            {
+                JobId = jobId,
+                ManualStatus = "Recorded",
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+    }
 }
 
 public record WofServiceResult(int StatusCode, object? Payload, string? Error)

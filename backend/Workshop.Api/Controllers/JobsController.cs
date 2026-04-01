@@ -448,23 +448,11 @@ public class JobsController : ControllerBase
     public async Task<IActionResult> GetWofSchedule(CancellationToken ct)
     {
         var rows = await (
-                from j in _db.Jobs.AsNoTracking()
+                from state in _db.JobWofStates.AsNoTracking()
+                join j in _db.Jobs.AsNoTracking() on state.JobId equals j.Id
                 join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
                 where !EF.Functions.ILike(j.Status, "archived")
-                let hasWofService = (
-                    from selection in _db.JobServiceSelections.AsNoTracking()
-                    join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
-                    where selection.JobId == j.Id && catalogItem.ServiceType == "wof"
-                    select selection.Id
-                ).Any()
-                let latestWofUiState = _db.JobWofRecords.AsNoTracking()
-                    .Where(x => x.JobId == j.Id)
-                    .OrderByDescending(x => x.OccurredAt)
-                    .ThenByDescending(x => x.Id)
-                    .Select(x => (WofUiState?)x.WofUiState)
-                    .FirstOrDefault()
-                let hasWofRecord = latestWofUiState.HasValue
-                where hasWofService && !hasWofRecord
+                where state.ManualStatus == null || !EF.Functions.ILike(state.ManualStatus, "Recorded")
                 orderby j.CreatedAt descending
                 select new
                 {
@@ -477,20 +465,12 @@ public class JobsController : ControllerBase
                     v.Year,
                     v.Vin,
                     v.WofExpiry,
-                    LatestWofManualStatus = _db.JobWofStates.AsNoTracking()
-                        .Where(x => x.JobId == j.Id)
-                        .OrderByDescending(x => x.UpdatedAt)
-                        .ThenByDescending(x => x.Id)
-                        .Select(x => x.ManualStatus)
-                        .FirstOrDefault(),
+                    state.ManualStatus,
                 }
             )
             .ToListAsync(ct);
 
         var jobs = rows
-            .Where(row =>
-                string.Equals(MapWofStatus(true, row.LatestWofManualStatus, null), "Todo", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(MapWofStatus(true, row.LatestWofManualStatus, null), "Checked", StringComparison.OrdinalIgnoreCase))
             .Select(row => new
             {
                 jobId = row.Id.ToString(CultureInfo.InvariantCulture),
@@ -502,7 +482,9 @@ public class JobsController : ControllerBase
                 wofExpiry = FormatDate(row.WofExpiry),
                 inShopDateTime = FormatDateTime(row.CreatedAt),
                 status = MapDetailStatus(row.Status),
-                wofStatus = MapWofStatus(true, row.LatestWofManualStatus, null),
+                wofStatus = string.Equals(row.ManualStatus, "Checked", StringComparison.OrdinalIgnoreCase)
+                    ? "Checked"
+                    : "Todo",
             });
 
         return Ok(new { jobs });
@@ -1104,6 +1086,9 @@ public class JobsController : ControllerBase
 
         if (!hasWofService)
             return null;
+
+        if (string.Equals(wofManualStatus, "Recorded", StringComparison.OrdinalIgnoreCase))
+            return "Recorded";
 
         return string.Equals(wofManualStatus, "Checked", StringComparison.OrdinalIgnoreCase)
             ? "Checked"
