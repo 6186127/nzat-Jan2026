@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { AlertCircle, ArrowLeft, Boxes, FileText, Loader2, Plus, ReceiptText, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Button, SectionCard, Textarea, useToast } from "@/components/ui";
+import { Alert, Button, Input, SectionCard, Textarea, useToast } from "@/components/ui";
 import {
   type ChildServiceOption,
   CustomerSection,
   NotesSection,
   ServicesSection,
   VehicleSection,
-  type ServiceCatalogItem,
   type ServiceOption,
   extractVehicleInfo,
   normalizePlateInput,
@@ -19,16 +18,25 @@ import {
   type ServiceType,
   type VehicleInfo,
 } from "@/features/newJob";
-import { requestJson, withApiBase } from "@/utils/api";
+import {
+  getCachedBusinessCustomers,
+  getCachedCustomerProfile,
+  getCachedInventoryItems,
+  getCachedPersonalCustomers,
+  getCachedServiceCatalog,
+  loadBusinessCustomersCacheFirst,
+  loadCustomerProfileCacheFirst,
+  loadInventoryItemsCacheFirst,
+  loadPersonalCustomersCacheFirst,
+  loadServiceCatalogCacheFirst,
+  type CachedPersonalCustomer,
+  type CachedServiceCatalog,
+} from "@/features/lookups/lookupCache";
+import { withApiBase } from "@/utils/api";
 
 export function NewJobPage() {
-  type PersonalCustomerOption = {
-    id: string;
-    name: string;
-    phone: string;
-    email: string;
-    address: string;
-  };
+  const requiredRootServiceTypes: ServiceType[] = ["wof", "mech", "paint"];
+  type PersonalCustomerOption = CachedPersonalCustomer;
   type CustomerMatchHint = {
     message: string;
   };
@@ -59,7 +67,12 @@ export function NewJobPage() {
   const [importError, setImportError] = useState("");
   const [lastRequestedPlate, setLastRequestedPlate] = useState("");
   const [serviceOptions, setServiceOptions] = useState<ServiceOption[]>(defaultServiceOptions);
+  const [loadedServiceCatalog, setLoadedServiceCatalog] = useState<CachedServiceCatalog | null>(null);
+  const [serviceCatalogReady, setServiceCatalogReady] = useState(false);
+  const [serviceCatalogLoading, setServiceCatalogLoading] = useState(true);
   const [selectedServices, setSelectedServices] = useState<ServiceType[]>([]);
+  const [wofOptionChoices, setWofOptionChoices] = useState<ChildServiceOption[]>([]);
+  const [wofOptions, setWofOptions] = useState<string[]>([]);
   const [mechOptionChoices, setMechOptionChoices] = useState<ChildServiceOption[]>([]);
   const [paintOptionChoices, setPaintOptionChoices] = useState<ChildServiceOption[]>([]);
   const [customerType, setCustomerType] = useState<CustomerType>("personal");
@@ -74,6 +87,8 @@ export function NewJobPage() {
   const [customerMatchHint, setCustomerMatchHint] = useState<CustomerMatchHint | null>(null);
   const [notes, setNotes] = useState("");
   const [needsPo, setNeedsPo] = useState(true);
+  const [createNewInvoice, setCreateNewInvoice] = useState(true);
+  const [existingInvoiceNumber, setExistingInvoiceNumber] = useState("");
   const [paintPanels, setPaintPanels] = useState("1");
   const [partsDescriptions, setPartsDescriptions] = useState<string[]>([""]);
   const [mechOptions, setMechOptions] = useState<string[]>([]);
@@ -110,6 +125,13 @@ export function NewJobPage() {
     });
     return map;
   }, [serviceOptions]);
+  const selectedWofOptionLabels = useMemo(
+    () =>
+      wofOptions
+        .map((id) => wofOptionChoices.find((item) => item.id === id)?.label)
+        .filter((value): value is string => Boolean(value)),
+    [wofOptions, wofOptionChoices]
+  );
   const selectedMechOptionLabels = useMemo(
     () =>
       mechOptions
@@ -139,7 +161,11 @@ export function NewJobPage() {
   const selectedServiceSummaries = useMemo(() => {
     const rows: string[] = [];
     if (selectedServices.includes("wof")) {
-      rows.push(serviceLabelMap.wof || "WOF");
+      rows.push(
+        selectedWofOptionLabels.length
+          ? `WOF（${selectedWofOptionLabels.join("，")}）`
+          : (serviceLabelMap.wof || "WOF")
+      );
     }
     if (selectedServices.includes("mech")) {
       rows.push(
@@ -156,7 +182,7 @@ export function NewJobPage() {
       );
     }
     return rows;
-  }, [selectedServices, serviceLabelMap, selectedMechOptionLabels, selectedPaintOptionLabels, paintPanels]);
+  }, [selectedServices, serviceLabelMap, selectedWofOptionLabels, selectedMechOptionLabels, selectedPaintOptionLabels, paintPanels]);
   const customerTypeLabel = customerType === "business" ? "商户客户" : "个人客户";
   const customerDisplayName =
     customerType === "business"
@@ -172,7 +198,9 @@ export function NewJobPage() {
 
   const autoNotes = useMemo(() => {
     const items: string[] = [];
-    if (selectedServices.includes("wof")) items.push(serviceLabelMap.wof || "WOF");
+    if (selectedServices.includes("wof")) {
+      items.push(selectedWofOptionLabels.length ? selectedWofOptionLabels.join("，") : (serviceLabelMap.wof || "WOF"));
+    }
     if (selectedServices.includes("mech") && selectedMechOptionLabels.length) {
       items.push(selectedMechOptionLabels.join("，"));
     }
@@ -184,50 +212,109 @@ export function NewJobPage() {
   }, [
     selectedServices,
     serviceLabelMap,
+    selectedWofOptionLabels,
     selectedMechOptionLabels,
     selectedPaintOptionLabels,
   ]);
 
+  const applyServiceCatalog = (catalog: CachedServiceCatalog) => {
+    setLoadedServiceCatalog(catalog);
+    const roots = Array.isArray(catalog.rootServices) ? catalog.rootServices : [];
+    const children = Array.isArray(catalog.childServices) ? catalog.childServices : [];
+
+    const nextRootOptions = roots
+      .filter((item) => item.isActive)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map<ServiceOption | null>((item) => {
+        const fallback = defaultServiceOptions.find((opt) => opt.id === item.serviceType);
+        return fallback
+          ? {
+              ...fallback,
+              label: item.name,
+              catalogItemId: String(item.id),
+            }
+          : null;
+      })
+      .filter((item): item is ServiceOption => Boolean(item));
+
+    if (nextRootOptions.length) {
+      setServiceOptions(nextRootOptions);
+    }
+
+    setWofOptionChoices(
+      children
+        .filter((item) => item.isActive && item.serviceType === "wof")
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((item) => ({
+          id: String(item.id),
+          label: item.name,
+          personalLinkCode: item.personalLinkCode,
+          dealershipLinkCode: item.dealershipLinkCode,
+        }))
+    );
+
+    setMechOptionChoices(
+      children
+        .filter((item) => item.isActive && item.serviceType === "mech")
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((item) => ({
+          id: String(item.id),
+          label: item.name,
+          personalLinkCode: item.personalLinkCode,
+          dealershipLinkCode: item.dealershipLinkCode,
+        }))
+    );
+
+    setPaintOptionChoices(
+      children
+        .filter((item) => item.isActive && item.serviceType === "paint")
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((item) => ({
+          id: String(item.id),
+          label: item.name,
+          personalLinkCode: item.personalLinkCode,
+          dealershipLinkCode: item.dealershipLinkCode,
+        }))
+    );
+
+    const loadedRootTypes = new Set(nextRootOptions.map((item) => item.id));
+    return requiredRootServiceTypes.every((serviceType) => loadedRootTypes.has(serviceType));
+  };
+
   useEffect(() => {
     let cancelled = false;
-    const loadBusinesses = async () => {
+    const loadCustomers = async () => {
+      const cachedBusinesses = getCachedBusinessCustomers();
+      const cachedPersonals = getCachedPersonalCustomers();
+
+      if (!cancelled) {
+        setBusinessOptions(cachedBusinesses ?? []);
+        setPersonalCustomerOptions(cachedPersonals ?? []);
+      }
+
+      if (cachedBusinesses && cachedPersonals) {
+        return;
+      }
+
       try {
-        const res = await fetch(withApiBase("/api/customers"));
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(data?.error || "加载商户失败");
-        }
+        const [businesses, personals] = await Promise.all([
+          loadBusinessCustomersCacheFirst(),
+          loadPersonalCustomersCacheFirst(),
+        ]);
+
         if (!cancelled) {
-          const list = Array.isArray(data) ? data : [];
-          const personalCustomers = list
-            .filter((item) => String(item?.type || "").toLowerCase() === "personal")
-            .map((item) => ({
-              id: String(item.id),
-              name: String(item.name || "").trim(),
-              phone: String(item.phone || ""),
-              email: String(item.email || ""),
-              address: String(item.address || ""),
-            }))
-            .filter((item) => item.name);
-          setPersonalCustomerOptions(personalCustomers);
-          const businesses = list
-            .filter((item) => String(item?.type || "").toLowerCase() === "business")
-            .map((item) => ({
-              id: String(item.id),
-              label: String(item.name || ""),
-              businessCode: item.businessCode ? String(item.businessCode) : undefined,
-            }))
-            .filter((item) => item.label);
           setBusinessOptions(businesses);
+          setPersonalCustomerOptions(personals);
         }
       } catch {
         if (!cancelled) {
-          setPersonalCustomerOptions([]);
-          setBusinessOptions([]);
+          setPersonalCustomerOptions(cachedPersonals ?? []);
+          setBusinessOptions(cachedBusinesses ?? []);
         }
       }
     };
-    loadBusinesses();
+
+    void loadCustomers();
     return () => {
       cancelled = true;
     };
@@ -236,57 +323,32 @@ export function NewJobPage() {
   useEffect(() => {
     let cancelled = false;
     const loadServiceCatalog = async () => {
-      const res = await requestJson<{
-        rootServices?: ServiceCatalogItem[];
-        childServices?: ServiceCatalogItem[];
-      }>("/api/service-catalog");
-
-      if (!res.ok || !res.data || cancelled) return;
-
-      const roots = Array.isArray(res.data.rootServices) ? res.data.rootServices : [];
-      const children = Array.isArray(res.data.childServices) ? res.data.childServices : [];
-
-      const nextRootOptions = roots
-        .filter((item) => item.isActive)
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-        .map((item) => {
-          const fallback = defaultServiceOptions.find((opt) => opt.id === item.serviceType);
-          return fallback
-            ? {
-                ...fallback,
-                label: item.name,
-              }
-            : null;
-        })
-        .filter((item): item is ServiceOption => Boolean(item));
-
-      if (nextRootOptions.length) {
-        setServiceOptions(nextRootOptions);
+      if (!cancelled) {
+        setServiceCatalogLoading(true);
+      }
+      const cachedCatalog = getCachedServiceCatalog();
+      if (cachedCatalog && !cancelled) {
+        const isReady = applyServiceCatalog(cachedCatalog);
+        setServiceCatalogReady(isReady);
+        setServiceCatalogLoading(false);
+        return;
       }
 
-      setMechOptionChoices(
-        children
-          .filter((item) => item.isActive && item.serviceType === "mech")
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map((item) => ({
-            id: String(item.id),
-            label: item.name,
-            personalLinkCode: item.personalLinkCode,
-            dealershipLinkCode: item.dealershipLinkCode,
-          }))
-      );
-
-      setPaintOptionChoices(
-        children
-          .filter((item) => item.isActive && item.serviceType === "paint")
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map((item) => ({
-            id: String(item.id),
-            label: item.name,
-            personalLinkCode: item.personalLinkCode,
-            dealershipLinkCode: item.dealershipLinkCode,
-          }))
-      );
+      try {
+        const catalog = await loadServiceCatalogCacheFirst();
+        if (!cancelled) {
+          const isReady = applyServiceCatalog(catalog);
+          setServiceCatalogReady(isReady);
+        }
+      } catch {
+        if (!cancelled) {
+          setServiceCatalogReady(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setServiceCatalogLoading(false);
+        }
+      }
     };
 
     void loadServiceCatalog();
@@ -294,6 +356,26 @@ export function NewJobPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (getCachedInventoryItems()) {
+      return;
+    }
+
+    void loadInventoryItemsCacheFirst().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (customerType !== "business" || !businessId) {
+      return;
+    }
+
+    if (getCachedCustomerProfile(businessId)) {
+      return;
+    }
+
+    void loadCustomerProfileCacheFirst(businessId).catch(() => undefined);
+  }, [customerType, businessId]);
 
   useEffect(() => {
     if (showNeedsPo) {
@@ -310,6 +392,20 @@ export function NewJobPage() {
       setPaintPanels("1");
     }
   }, [showPaintPanels]);
+
+  useEffect(() => {
+    if (!selectedServices.includes("wof")) {
+      setWofOptions([]);
+      return;
+    }
+
+    if (wofOptionChoices.length === 1) {
+      const defaultWofChildId = wofOptionChoices[0]?.id;
+      if (defaultWofChildId) {
+        setWofOptions((prev) => (prev.includes(defaultWofChildId) ? prev : [defaultWofChildId]));
+      }
+    }
+  }, [selectedServices, wofOptionChoices]);
 
   useEffect(() => {
     if (!selectedServices.includes("mech")) {
@@ -467,7 +563,7 @@ export function NewJobPage() {
         throw new Error("已导入，但未在数据库中找到车辆");
       }
 
-      console.log("vehicle from db", dbData?.vehicle ?? dbData);
+      // console.log("vehicle from db", dbData?.vehicle ?? dbData);
       setVehicleInfo(extractVehicleInfo(dbData));
       applyLinkedCustomer((dbData as VehicleLookupPayload | null)?.linkedCustomer);
       setImportState("success");
@@ -488,7 +584,7 @@ export function NewJobPage() {
 
       const dbData = await fetchVehicleFromDb(normalized);
       if (dbData) {
-        console.log("vehicle from db", dbData?.vehicle ?? dbData);
+        // console.log("vehicle from db", dbData?.vehicle ?? dbData);
         setVehicleInfo(extractVehicleInfo(dbData));
         applyLinkedCustomer((dbData as VehicleLookupPayload | null)?.linkedCustomer);
         setImportState("success");
@@ -517,6 +613,18 @@ export function NewJobPage() {
     setFormAlert(null);
     if (!rego) {
       setFormAlert({ variant: "error", message: "请输入车牌号" });
+      return;
+    }
+    if (customerType === "business" && (!businessId || !selectedBusiness)) {
+      setFormAlert({ variant: "error", message: "请选择有效的商户客户。" });
+      return;
+    }
+    if (!createNewInvoice && !existingInvoiceNumber.trim()) {
+      setFormAlert({ variant: "error", message: "关闭新建 Invoice 后，Invoice Number 为必填。" });
+      return;
+    }
+    if (serviceCatalogLoading || !serviceCatalogReady) {
+      setFormAlert({ variant: "error", message: "服务目录仍在加载，请稍后再保存。" });
       return;
     }
 
@@ -572,29 +680,123 @@ export function NewJobPage() {
       }
     }
 
- console.log("===========save body============");
-  console.log(" plate:", rego);
-  console.log(" services:", selectedServices);
-  console.log(" notesPayload:", notesPayload);
-  console.log(" partsDescriptions:", normalizedPartsDescriptions.length ? normalizedPartsDescriptions : undefined);
-  console.log(" businessId:", customerType === "business" ? businessId : undefined);
-  console.log(" customer:", customerPayload);
+//  console.log("===========save body============");
+//   console.log(" plate:", rego);
+//   console.log(" services:", selectedServices);
+//   console.log(" notesPayload:", notesPayload);
+//   console.log(" partsDescriptions:", normalizedPartsDescriptions.length ? normalizedPartsDescriptions : undefined);
+//   console.log(" businessId:", customerType === "business" ? businessId : undefined);
+//   console.log(" customer:", customerPayload);
 
 
 
     try {
       setSaving(true);
+      const missingRootCatalogIds = selectedServices.filter(
+        (serviceType) => !serviceOptions.find((option) => option.id === serviceType)?.catalogItemId
+      );
+      if (missingRootCatalogIds.length) {
+        const missingLabels = missingRootCatalogIds
+          .map((serviceType) => serviceLabelMap[serviceType] || serviceType)
+          .join("、");
+        throw new Error(`服务目录映射尚未准备好：${missingLabels}。请刷新后重试。`);
+      }
+
+      const rootServiceCatalogItemIds = selectedServices
+        .map((serviceType) => serviceOptions.find((option) => option.id === serviceType)?.catalogItemId)
+        .filter((value): value is string => Boolean(value))
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+
+      const resolveDefaultXeroCode = (personalLinkCode?: string | null, dealershipLinkCode?: string | null) =>
+        customerType === "personal" ? personalLinkCode ?? null : dealershipLinkCode ?? null;
+
+      const rootDebugRows = (["wof", "mech", "paint"] as const).map((serviceType) => {
+        const rootCatalogItemId = serviceOptions.find((option) => option.id === serviceType)?.catalogItemId ?? null;
+        const rootCatalogItem = loadedServiceCatalog?.rootServices.find(
+          (item) => String(item.id) === String(rootCatalogItemId ?? "")
+        );
+
+        return {
+          serviceType,
+          serviceCatalogItemId: rootCatalogItemId,
+          defaultXeroCode: resolveDefaultXeroCode(
+            rootCatalogItem?.personalLinkCode,
+            rootCatalogItem?.dealershipLinkCode
+          ),
+          rootCatalogItem: rootCatalogItem ?? null,
+        };
+      });
+
+      const wofChildDebugRows = wofOptions.map((id) => {
+        const catalogItem = loadedServiceCatalog?.childServices.find((item) => String(item.id) === id);
+        return {
+          serviceType: "wof-child",
+          serviceCatalogItemId: id,
+          defaultXeroCode: resolveDefaultXeroCode(
+            catalogItem?.personalLinkCode,
+            catalogItem?.dealershipLinkCode
+          ),
+          catalogItem: catalogItem ?? null,
+        };
+      });
+
+      const mechChildDebugRows = mechOptions.map((id) => {
+        const catalogItem = loadedServiceCatalog?.childServices.find((item) => String(item.id) === id);
+        return {
+          serviceType: "mech-child",
+          serviceCatalogItemId: id,
+          defaultXeroCode: resolveDefaultXeroCode(
+            catalogItem?.personalLinkCode,
+            catalogItem?.dealershipLinkCode
+          ),
+          catalogItem: catalogItem ?? null,
+        };
+      });
+
+      const paintChildDebugRows = paintOptions.map((id) => {
+        const catalogItem = loadedServiceCatalog?.childServices.find((item) => String(item.id) === id);
+        return {
+          serviceType: "paint-child",
+          serviceCatalogItemId: id,
+          defaultXeroCode: resolveDefaultXeroCode(
+            catalogItem?.personalLinkCode,
+            catalogItem?.dealershipLinkCode
+          ),
+          catalogItem: catalogItem ?? null,
+        };
+      });
+
+      console.log("===========service mapping debug============");
+      console.log(" customerType:", customerType);
+      console.log(" rootServiceCatalogItemIds:", rootServiceCatalogItemIds);
+      console.log(" rootMappings:", rootDebugRows);
+      console.log(" wofChildMappings:", wofChildDebugRows);
+      console.log(" mechChildMappings:", mechChildDebugRows);
+      console.log(" paintChildMappings:", paintChildDebugRows);
+
       const res = await fetch(withApiBase("/api/newJob"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plate: rego,
+          createNewInvoice,
+          existingInvoiceNumber: createNewInvoice ? undefined : existingInvoiceNumber.trim(),
+          useServiceCatalogMapping: true,
           services: selectedServices,
+          rootServiceCatalogItemIds,
+          wofServiceCatalogItemIds: selectedServices.includes("wof")
+            ? wofOptions.map((id) => Number(id)).filter((value) => Number.isFinite(value))
+            : [],
           needsPo: showNeedsPo ? needsPo : false,
           notes: notesPayload,
           // partsDescription: normalizedPartsDescriptions[0],
           partsDescriptions: normalizedPartsDescriptions,
+          mechServiceCatalogItemIds: hasMech ? mechOptions.map((id) => Number(id)).filter((value) => Number.isFinite(value)) : [],
           mechItems: hasMech ? selectedMechOptionLabels : [],
+          paintServiceCatalogItemIds: selectedServices.includes("paint")
+            ? paintOptions.map((id) => Number(id)).filter((value) => Number.isFinite(value))
+            : [],
           paintPanels: showPaintPanels ? Number(paintPanels) || 1 : undefined,
           businessId: customerType === "business" ? businessId : undefined,
           customer: customerPayload,
@@ -608,12 +810,28 @@ export function NewJobPage() {
 
      
       const invoiceCreated = data?.invoiceCreated === true;
+      const invoiceLinked = data?.invoiceLinked === true;
+      const invoiceQueued = data?.invoiceQueued === true;
+      const invoiceMode = typeof data?.invoiceMode === "string" ? data.invoiceMode : "";
       const invoiceError = typeof data?.invoiceError === "string" ? data.invoiceError : "";
       const createdId = data?.jobId ? String(data.jobId) : "";
 
-      if (invoiceCreated) {
-        setFormAlert({ variant: "success", message: "工单和 Invoice 已创建成功！" });
-        toast.success("工单和 Invoice 已创建成功！");
+      if (invoiceCreated || invoiceLinked) {
+        const successMessage = invoiceLinked ? "工单已创建，并已关联现有 Invoice！" : "工单和 Invoice 已创建成功！";
+        setFormAlert({ variant: "success", message: successMessage });
+        toast.success(successMessage);
+        if (createdId) {
+          navigate(`/jobs/${createdId}`);
+        } else {
+          navigate("/jobs");
+        }
+      } else if (invoiceQueued) {
+        const successMessage =
+          invoiceMode === "attach_existing"
+            ? "工单已创建，现有 Invoice 正在后台关联。"
+            : "工单已创建，Invoice 正在后台生成。";
+        setFormAlert({ variant: "success", message: successMessage });
+        toast.success(successMessage);
         if (createdId) {
           navigate(`/jobs/${createdId}`);
         } else {
@@ -808,6 +1026,45 @@ export function NewJobPage() {
                   {null}
                 </SectionCard>
               ) : null}
+
+              <SectionCard
+                title="Invoice"
+                titleIcon={<ReceiptText size={18} />}
+                titleClassName="text-lg font-semibold"
+                actions={
+                  <label className="inline-flex cursor-pointer items-center gap-3 text-sm text-[rgba(0,0,0,0.70)]">
+                    <span>{createNewInvoice ? "Create New Invoice" : "Use Existing Invoice"}</span>
+                    <input
+                      type="checkbox"
+                      checked={createNewInvoice}
+                      onChange={(event) => setCreateNewInvoice(event.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span className="relative h-7 w-12 rounded-full bg-[rgba(0,0,0,0.20)] transition peer-checked:bg-[#dc2626]">
+                      <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
+                    </span>
+                  </label>
+                }
+              >
+                <div className="mt-3 space-y-3">
+                  {!createNewInvoice ? (
+                    <>
+                      <Input
+                        value={existingInvoiceNumber}
+                        onChange={(event) => setExistingInvoiceNumber(event.target.value)}
+                        placeholder="e.g. INV-00123"
+                      />
+                      <div className="text-sm text-[rgba(0,0,0,0.55)]">
+                        The system will find this invoice in Xero and link it to the new job.
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-[rgba(0,0,0,0.55)]">
+                      A new draft invoice will be created in Xero after the job is saved.
+                    </div>
+                  )}
+                </div>
+              </SectionCard>
             </div>
           </div>
 
@@ -859,6 +1116,12 @@ export function NewJobPage() {
                 </div>
               </div>
               <div>
+                <div className="text-base text-[rgba(0,0,0,0.50)]">Invoice 模式</div>
+                <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
+                  {createNewInvoice ? "新建 Invoice" : `关联已有 Invoice${existingInvoiceNumber.trim() ? ` (${existingInvoiceNumber.trim()})` : ""}`}
+                </div>
+              </div>
+              <div>
                 <div className="text-base text-[rgba(0,0,0,0.50)]">PO 信息</div>
                 <div className="text-base font-semibold text-[rgba(0,0,0,0.80)]">
                   {showNeedsPo ? (needsPo ? "需要 PO" : "不需要 PO") : "不适用"}
@@ -884,10 +1147,10 @@ export function NewJobPage() {
               variant="primary"
               className="w-full justify-center gap-2 text-center disabled:cursor-not-allowed disabled:bg-[rgba(0,0,0,0.18)] disabled:text-white/80"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || serviceCatalogLoading || !serviceCatalogReady}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {saving ? "保存中" : "保存"}
+              {saving ? "保存中" : serviceCatalogLoading || !serviceCatalogReady ? "加载服务配置中..." : "保存"}
             </Button>
           </div>
         </div>

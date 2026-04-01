@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
@@ -15,104 +16,203 @@ public sealed class JobInvoiceService
     private readonly XeroInvoiceService _xeroInvoiceService;
     private readonly XeroPaymentService _xeroPaymentService;
     private readonly XeroPaymentOptions _xeroPaymentOptions;
+    private readonly ILogger<JobInvoiceService> _logger;
 
     public JobInvoiceService(
         AppDbContext db,
         XeroInvoiceService xeroInvoiceService,
         XeroPaymentService xeroPaymentService,
-        Microsoft.Extensions.Options.IOptions<XeroPaymentOptions> xeroPaymentOptions)
+        Microsoft.Extensions.Options.IOptions<XeroPaymentOptions> xeroPaymentOptions,
+        ILogger<JobInvoiceService> logger)
     {
         _db = db;
         _xeroInvoiceService = xeroInvoiceService;
         _xeroPaymentService = xeroPaymentService;
         _xeroPaymentOptions = xeroPaymentOptions.Value;
+        _logger = logger;
     }
+
+    public sealed record ServiceSelectionSnapshot(long ServiceCatalogItemId, string ServiceNameSnapshot);
 
     public async Task<JobInvoiceCreateResult> CreateDraftForJobAsync(long jobId, CancellationToken ct)
     {
-        var existing = await _db.JobInvoices.AsNoTracking().FirstOrDefaultAsync(x => x.JobId == jobId, ct);
-        if (existing is not null)
-        {
-            return JobInvoiceCreateResult.Success(existing, alreadyExists: true);
-        }
-
-        var row = await (
-                from j in _db.Jobs.AsNoTracking()
-                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
-                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
-                where j.Id == jobId
-                select new
-                {
-                    Job = j,
-                    Vehicle = v,
-                    Customer = c,
-                }
-            )
-            .FirstOrDefaultAsync(ct);
-
-        if (row is null)
-            return JobInvoiceCreateResult.Fail(404, "Job not found.");
-
-        var mechServices = await _db.JobMechServices.AsNoTracking()
-            .Where(x => x.JobId == jobId)
-            .OrderBy(x => x.CreatedAt)
-            .ToListAsync(ct);
-        var partsServices = await _db.JobPartsServices.AsNoTracking()
-            .Where(x => x.JobId == jobId)
-            .OrderBy(x => x.CreatedAt)
-            .ToListAsync(ct);
-        var paintService = await _db.JobPaintServices.AsNoTracking()
-            .Where(x => x.JobId == jobId)
-            .OrderBy(x => x.CreatedAt)
-            .FirstOrDefaultAsync(ct);
-        var hasWofRecord = await _db.JobWofRecords.AsNoTracking()
-            .AnyAsync(x => x.JobId == jobId, ct);
-
-        CreateXeroInvoiceRequest request;
         try
         {
-            request = await BuildCreateRequestAsync(row.Job, row.Customer, row.Vehicle, mechServices, partsServices, paintService, hasWofRecord, ct);
-            request.LineItems = await SanitizeLineItemsAsync(request.LineItems, ct);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return JobInvoiceCreateResult.Fail(400, ex.Message);
-        }
+            var totalStopwatch = Stopwatch.StartNew();
 
-        var createResult = await _xeroInvoiceService.CreateInvoiceAsync(
-            request,
-            new XeroInvoiceCreateOptions
+            var existingLookupStopwatch = Stopwatch.StartNew();
+            var existing = await _db.JobInvoices.AsNoTracking().FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+            existingLookupStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
+                "existing_lookup",
+                existingLookupStopwatch.Elapsed.TotalMilliseconds,
+                jobId);
+            if (existing is not null)
             {
-                SummarizeErrors = true,
-            },
-            ct);
+                totalStopwatch.Stop();
+                _logger.LogInformation(
+                    "Job invoice draft creation completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
+                    totalStopwatch.Elapsed.TotalMilliseconds,
+                    jobId,
+                    true,
+                    true);
+                return JobInvoiceCreateResult.Success(existing, alreadyExists: true);
+            }
 
-        if (!createResult.Ok)
-        {
-            return JobInvoiceCreateResult.Fail(
-                createResult.StatusCode,
-                createResult.Error ?? "Failed to create Xero draft invoice.",
-                createResult.Payload,
+            var dataLoadStopwatch = Stopwatch.StartNew();
+            var row = await (
+                    from j in _db.Jobs.AsNoTracking()
+                    join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
+                    join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
+                    where j.Id == jobId
+                    select new
+                    {
+                        Job = j,
+                        Vehicle = v,
+                        Customer = c,
+                    }
+                )
+                .FirstOrDefaultAsync(ct);
+
+            if (row is null)
+            {
+                totalStopwatch.Stop();
+                _logger.LogInformation(
+                    "Job invoice draft creation completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
+                    totalStopwatch.Elapsed.TotalMilliseconds,
+                    jobId,
+                    false,
+                    false);
+                return JobInvoiceCreateResult.Fail(404, "Job not found.");
+            }
+
+            var partsServices = await _db.JobPartsServices.AsNoTracking()
+                .Where(x => x.JobId == jobId)
+                .OrderBy(x => x.CreatedAt)
+                .ToListAsync(ct);
+            var paintService = await _db.JobPaintServices.AsNoTracking()
+                .Where(x => x.JobId == jobId)
+                .OrderBy(x => x.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+            var serviceSelections = await _db.JobServiceSelections.AsNoTracking()
+                .Where(x => x.JobId == jobId)
+                .OrderBy(x => x.CreatedAt)
+                .ThenBy(x => x.Id)
+                .ToListAsync(ct);
+            dataLoadStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
+                "load_job_data",
+                dataLoadStopwatch.Elapsed.TotalMilliseconds,
+                jobId);
+
+            CreateXeroInvoiceRequest request;
+            var requestBuildStopwatch = Stopwatch.StartNew();
+            try
+            {
+                request = await BuildCatalogMappedCreateRequestAsync(
+                    row.Job,
+                    row.Customer,
+                    row.Vehicle,
+                    serviceSelections,
+                    partsServices,
+                    paintService,
+                    ct);
+                request.LineItems = await SanitizeLineItemsAsync(request.LineItems, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                totalStopwatch.Stop();
+                _logger.LogInformation(
+                    "Job invoice draft creation completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
+                    totalStopwatch.Elapsed.TotalMilliseconds,
+                    jobId,
+                    false,
+                    false);
+                return JobInvoiceCreateResult.Fail(400, ex.Message);
+            }
+
+            requestBuildStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
+                "build_request",
+                requestBuildStopwatch.Elapsed.TotalMilliseconds,
+                jobId);
+
+            var xeroCreateStopwatch = Stopwatch.StartNew();
+            var createResult = await _xeroInvoiceService.CreateInvoiceAsync(
                 request,
-                createResult.RefreshToken,
-                createResult.RefreshTokenUpdated,
-                createResult.Scope,
-                createResult.ExpiresIn);
+                new XeroInvoiceCreateOptions
+                {
+                    SummarizeErrors = true,
+                },
+                ct);
+            xeroCreateStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice segment {Segment} completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, statusCode: {StatusCode})",
+                "xero_create_invoice",
+                xeroCreateStopwatch.Elapsed.TotalMilliseconds,
+                jobId,
+                createResult.Ok,
+                createResult.StatusCode);
+
+            if (!createResult.Ok)
+            {
+                totalStopwatch.Stop();
+                _logger.LogInformation(
+                    "Job invoice draft creation completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
+                    totalStopwatch.Elapsed.TotalMilliseconds,
+                    jobId,
+                    false,
+                    false);
+                return JobInvoiceCreateResult.Fail(
+                    createResult.StatusCode,
+                    createResult.Error ?? "Failed to create Xero draft invoice.",
+                    createResult.Payload,
+                    request,
+                    createResult.RefreshToken,
+                    createResult.RefreshTokenUpdated,
+                    createResult.Scope,
+                    createResult.ExpiresIn);
+            }
+
+            var persistStopwatch = Stopwatch.StartNew();
+            var jobInvoice = BuildJobInvoice(jobId, request, createResult.Payload, createResult.TenantId);
+            _db.JobInvoices.Add(jobInvoice);
+            await _db.SaveChangesAsync(ct);
+            persistStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
+                "persist_invoice",
+                persistStopwatch.Elapsed.TotalMilliseconds,
+                jobId);
+
+            totalStopwatch.Stop();
+            _logger.LogInformation(
+                "Job invoice draft creation completed in {ElapsedMs} ms for job {JobId} (ok: {Ok}, alreadyExists: {AlreadyExists})",
+                totalStopwatch.Elapsed.TotalMilliseconds,
+                jobId,
+                true,
+                false);
+
+            return JobInvoiceCreateResult.Success(
+                jobInvoice,
+                alreadyExists: false,
+                payload: createResult.Payload,
+                requestBody: request,
+                refreshToken: createResult.RefreshToken,
+                refreshTokenUpdated: createResult.RefreshTokenUpdated,
+                scope: createResult.Scope,
+                expiresIn: createResult.ExpiresIn);
         }
-
-        var jobInvoice = BuildJobInvoice(jobId, request, createResult.Payload, createResult.TenantId);
-        _db.JobInvoices.Add(jobInvoice);
-        await _db.SaveChangesAsync(ct);
-
-        return JobInvoiceCreateResult.Success(
-            jobInvoice,
-            alreadyExists: false,
-            payload: createResult.Payload,
-            requestBody: request,
-            refreshToken: createResult.RefreshToken,
-            refreshTokenUpdated: createResult.RefreshTokenUpdated,
-            scope: createResult.Scope,
-            expiresIn: createResult.ExpiresIn);
+        catch
+        {
+            _logger.LogWarning(
+                "Job invoice draft creation threw an exception for job {JobId}",
+                jobId);
+            throw;
+        }
     }
 
     public async Task<JobInvoiceCreateResult> SyncDraftForJobAsync(long jobId, SyncJobInvoiceDraftRequest payload, CancellationToken ct)
@@ -145,6 +245,7 @@ public sealed class JobInvoiceService
             },
             LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
+        var normalizedInvoiceNote = string.IsNullOrWhiteSpace(payload.InvoiceNote) ? null : payload.InvoiceNote.Trim();
 
         if (request.LineItems.Count == 0)
             return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
@@ -171,6 +272,7 @@ public sealed class JobInvoiceService
         }
 
         ApplyInvoiceUpdate(jobInvoice, request, syncResult.Payload, syncResult.TenantId);
+        jobInvoice.InvoiceNote = normalizedInvoiceNote;
         job.InvoiceReference = request.Reference;
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -213,12 +315,14 @@ public sealed class JobInvoiceService
             },
             LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
         };
+        var normalizedInvoiceNote = string.IsNullOrWhiteSpace(payload.InvoiceNote) ? null : payload.InvoiceNote.Trim();
 
         if (request.LineItems.Count == 0)
             return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
 
         jobInvoice.Reference = request.Reference;
         jobInvoice.ContactName = request.Contact.Name;
+        jobInvoice.InvoiceNote = normalizedInvoiceNote;
         jobInvoice.InvoiceDate = request.Date;
         jobInvoice.LineAmountTypes = request.LineAmountTypes;
         jobInvoice.RequestPayloadJson = JsonSerializer.Serialize(request, JsonOptions);
@@ -230,6 +334,85 @@ public sealed class JobInvoiceService
         await _db.SaveChangesAsync(ct);
 
         return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true, requestBody: request);
+    }
+
+    public async Task<JobInvoiceCreateResult> AttachExistingXeroInvoiceAsync(long jobId, string invoiceNumber, CancellationToken ct)
+    {
+        var normalizedInvoiceNumber = invoiceNumber?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedInvoiceNumber))
+            return JobInvoiceCreateResult.Fail(400, "Invoice number is required.");
+
+        var existing = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (existing is not null)
+            return JobInvoiceCreateResult.Fail(409, "This job already has a linked invoice.");
+
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == jobId, ct);
+        if (!jobExists)
+            return JobInvoiceCreateResult.Fail(404, "Job not found.");
+
+        var xeroLookup = await _xeroInvoiceService.GetInvoicesByNumberAsync(normalizedInvoiceNumber, ct);
+        if (!xeroLookup.Ok)
+        {
+            return JobInvoiceCreateResult.Fail(
+                xeroLookup.StatusCode,
+                xeroLookup.Error ?? "Failed to find invoice in Xero.",
+                xeroLookup.Payload);
+        }
+
+        var matchedInvoices = ExtractInvoiceSummaries(xeroLookup.Payload)
+            .Where(x => string.Equals(x.InvoiceNumber, normalizedInvoiceNumber, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matchedInvoices.Count == 0)
+            return JobInvoiceCreateResult.Fail(404, $"Invoice '{normalizedInvoiceNumber}' was not found in Xero.");
+
+        if (matchedInvoices.Count > 1)
+            return JobInvoiceCreateResult.Fail(409, $"Multiple Xero invoices matched '{normalizedInvoiceNumber}'.");
+
+        var matchedInvoice = matchedInvoices[0];
+        if (string.IsNullOrWhiteSpace(matchedInvoice.InvoiceId) || !Guid.TryParse(matchedInvoice.InvoiceId, out var invoiceId))
+        {
+            return JobInvoiceCreateResult.Fail(502, "Xero returned an invoice without a valid InvoiceID.", xeroLookup.Payload);
+        }
+
+        var linkedInvoice = await _db.JobInvoices.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ExternalInvoiceId == invoiceId.ToString(), ct);
+        if (linkedInvoice is not null && linkedInvoice.JobId != jobId)
+        {
+            return JobInvoiceCreateResult.Fail(
+                409,
+                $"Invoice '{normalizedInvoiceNumber}' is already linked to job {linkedInvoice.JobId}.");
+        }
+
+        var now = DateTime.UtcNow;
+        var jobInvoice = new JobInvoice
+        {
+            JobId = jobId,
+            Provider = "xero",
+            ExternalInvoiceId = invoiceId.ToString(),
+            ExternalInvoiceNumber = matchedInvoice.InvoiceNumber,
+            ExternalStatus = matchedInvoice.Status,
+            Reference = matchedInvoice.Reference,
+            ContactName = matchedInvoice.ContactName,
+            InvoiceDate = matchedInvoice.Date,
+            LineAmountTypes = "Exclusive",
+            TenantId = xeroLookup.TenantId,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+
+        _db.JobInvoices.Add(jobInvoice);
+        await _db.SaveChangesAsync(ct);
+
+        var syncResult = await SyncFromXeroInvoiceIdAsync(invoiceId, ct);
+        if (!syncResult.Ok)
+        {
+            _db.JobInvoices.Remove(jobInvoice);
+            await _db.SaveChangesAsync(ct);
+            return syncResult;
+        }
+
+        return syncResult;
     }
 
     public async Task<JobInvoiceCreateResult> SyncFromXeroAsync(long jobId, CancellationToken ct)
@@ -270,6 +453,252 @@ public sealed class JobInvoiceService
         await _db.SaveChangesAsync(ct);
 
         return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true, payload: xeroResult.Payload, requestBody: request);
+    }
+
+    public async Task<JobInvoiceCreateResult> SyncWofItemsToDraftAsync(long jobId, CancellationToken ct)
+    {
+        var synced = await SyncFromXeroAsync(jobId, ct);
+        if (!synced.Ok)
+            return synced;
+
+        var jobInvoice = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (jobInvoice is null)
+            return JobInvoiceCreateResult.Fail(404, "Job invoice not found.");
+
+        if (!string.Equals(jobInvoice.Provider, "xero", StringComparison.OrdinalIgnoreCase))
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        if (!string.Equals(jobInvoice.ExternalStatus, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        var row = await (
+                from j in _db.Jobs.AsNoTracking()
+                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
+                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
+                where j.Id == jobId
+                select new
+                {
+                    Job = j,
+                    Vehicle = v,
+                    Customer = c,
+                }
+            )
+            .FirstOrDefaultAsync(ct);
+
+        if (row is null)
+            return JobInvoiceCreateResult.Fail(404, "Job not found.");
+
+        var job = await _db.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job is null)
+            return JobInvoiceCreateResult.Fail(404, "Job not found.");
+
+        var serviceSelections = await _db.JobServiceSelections.AsNoTracking()
+            .Where(x => x.JobId == jobId)
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct);
+
+        var wofSelectionIds = await _db.ServiceCatalogItems.AsNoTracking()
+            .Where(x => x.ServiceType == "wof")
+            .Select(x => x.Id)
+            .ToListAsync(ct);
+
+        var wofSelections = serviceSelections
+            .Where(x => wofSelectionIds.Contains(x.ServiceCatalogItemId))
+            .ToList();
+
+        if (wofSelections.Count == 0)
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        var wofLineItems = await BuildCatalogMappedServiceLineItemsAsync(
+            row.Customer,
+            wofSelections,
+            paintService: null,
+            ct);
+
+        if (wofLineItems.Count == 0)
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        var request = BuildRequestFromPayload(jobInvoice.ResponsePayloadJson, jobInvoice);
+        var existingKeys = new HashSet<string>(
+            request.LineItems.Select(BuildLineItemIdentity),
+            StringComparer.OrdinalIgnoreCase);
+
+        var appended = false;
+        foreach (var lineItem in wofLineItems)
+        {
+            var key = BuildLineItemIdentity(lineItem);
+            if (existingKeys.Contains(key))
+                continue;
+
+            request.LineItems.Add(lineItem);
+            existingKeys.Add(key);
+            appended = true;
+        }
+
+        if (!appended)
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        request.Status = "DRAFT";
+        request.LineItems = await SanitizeLineItemsAsync(request.LineItems, ct);
+
+        var syncResult = await _xeroInvoiceService.CreateInvoiceAsync(
+            request,
+            new XeroInvoiceCreateOptions
+            {
+                SummarizeErrors = true,
+            },
+            ct);
+
+        if (!syncResult.Ok)
+        {
+            return JobInvoiceCreateResult.Fail(
+                syncResult.StatusCode,
+                syncResult.Error ?? "Failed to sync WOF item to Xero draft invoice.",
+                syncResult.Payload,
+                request,
+                syncResult.RefreshToken,
+                syncResult.RefreshTokenUpdated,
+                syncResult.Scope,
+                syncResult.ExpiresIn);
+        }
+
+        ApplyInvoiceUpdate(jobInvoice, request, syncResult.Payload, syncResult.TenantId);
+        job.InvoiceReference = jobInvoice.Reference;
+        job.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return JobInvoiceCreateResult.Success(
+            jobInvoice,
+            alreadyExists: true,
+            payload: syncResult.Payload,
+            requestBody: request,
+            refreshToken: syncResult.RefreshToken,
+            refreshTokenUpdated: syncResult.RefreshTokenUpdated,
+            scope: syncResult.Scope,
+            expiresIn: syncResult.ExpiresIn);
+    }
+
+    public async Task<JobInvoiceCreateResult> RemoveServiceItemsFromDraftAsync(
+        long jobId,
+        IReadOnlyList<ServiceSelectionSnapshot> selections,
+        CancellationToken ct)
+    {
+        if (selections.Count == 0)
+            return JobInvoiceCreateResult.Success(null, alreadyExists: true);
+
+        var synced = await SyncFromXeroAsync(jobId, ct);
+        if (!synced.Ok)
+            return synced;
+
+        var jobInvoice = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (jobInvoice is null)
+            return JobInvoiceCreateResult.Fail(404, "Job invoice not found.");
+
+        if (!string.Equals(jobInvoice.Provider, "xero", StringComparison.OrdinalIgnoreCase))
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        if (!string.Equals(jobInvoice.ExternalStatus, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        var customer = await (
+                from j in _db.Jobs.AsNoTracking()
+                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
+                where j.Id == jobId
+                select c
+            )
+            .FirstOrDefaultAsync(ct);
+
+        if (customer is null)
+            return JobInvoiceCreateResult.Fail(404, "Job customer not found.");
+
+        var transientSelections = selections
+            .Where(x => x.ServiceCatalogItemId > 0)
+            .Select(x => new JobServiceSelection
+            {
+                JobId = jobId,
+                ServiceCatalogItemId = x.ServiceCatalogItemId,
+                ServiceNameSnapshot = x.ServiceNameSnapshot ?? "",
+            })
+            .ToList();
+
+        var removalLineItems = await BuildCatalogMappedServiceLineItemsAsync(customer, transientSelections, paintService: null, ct);
+        if (removalLineItems.Count == 0)
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        var removalKeys = new HashSet<string>(removalLineItems.Select(BuildLineItemIdentity), StringComparer.OrdinalIgnoreCase);
+        var request = BuildRequestFromPayload(jobInvoice.ResponsePayloadJson, jobInvoice);
+        var filteredLineItems = request.LineItems
+            .Where(x => !removalKeys.Contains(BuildLineItemIdentity(x)))
+            .ToList();
+
+        if (filteredLineItems.Count == request.LineItems.Count)
+            return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true);
+
+        if (filteredLineItems.Count == 0)
+        {
+            filteredLineItems.Add(new XeroInvoiceLineItemInput
+            {
+                Description = "Job draft",
+                Quantity = 1m,
+                UnitAmount = 0m,
+            });
+        }
+
+        request.Status = "DRAFT";
+        request.LineItems = await SanitizeLineItemsAsync(filteredLineItems, ct);
+
+        var syncResult = await _xeroInvoiceService.CreateInvoiceAsync(
+            request,
+            new XeroInvoiceCreateOptions
+            {
+                SummarizeErrors = true,
+            },
+            ct);
+
+        if (!syncResult.Ok)
+        {
+            return JobInvoiceCreateResult.Fail(
+                syncResult.StatusCode,
+                syncResult.Error ?? "Failed to remove service item from Xero draft invoice.",
+                syncResult.Payload,
+                request,
+                syncResult.RefreshToken,
+                syncResult.RefreshTokenUpdated,
+                syncResult.Scope,
+                syncResult.ExpiresIn);
+        }
+
+        ApplyInvoiceUpdate(jobInvoice, request, syncResult.Payload, syncResult.TenantId);
+        await _db.SaveChangesAsync(ct);
+
+        return JobInvoiceCreateResult.Success(
+            jobInvoice,
+            alreadyExists: true,
+            payload: syncResult.Payload,
+            requestBody: request,
+            refreshToken: syncResult.RefreshToken,
+            refreshTokenUpdated: syncResult.RefreshTokenUpdated,
+            scope: syncResult.Scope,
+            expiresIn: syncResult.ExpiresIn);
+    }
+
+    public async Task<JobInvoiceUnlinkResult> UnlinkInvoiceAsync(long jobId, CancellationToken ct)
+    {
+        var jobInvoice = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (jobInvoice is null)
+            return JobInvoiceUnlinkResult.Fail(404, "Job invoice not found.");
+
+        var job = await _db.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
+        if (job is null)
+            return JobInvoiceUnlinkResult.Fail(404, "Job not found.");
+
+        _db.JobInvoices.Remove(jobInvoice);
+        job.InvoiceReference = null;
+        job.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return JobInvoiceUnlinkResult.Success();
     }
 
     public async Task<JobInvoiceStateUpdateResult> UpdateXeroStateAsync(long jobId, UpdateJobInvoiceXeroStateRequest payload, CancellationToken ct)
@@ -330,13 +759,22 @@ public sealed class JobInvoiceService
             };
 
             var paymentDate = payload.PaymentDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
-            var amount = ExtractAmountDue(jobInvoice.ResponsePayloadJson)
+            var amount = payload.Amount is > 0
+                ? payload.Amount.Value
+                : ExtractAmountDue(jobInvoice.ResponsePayloadJson)
                 ?? ExtractInvoiceTotal(jobInvoice.ResponsePayloadJson)
                 ?? ExtractInvoiceTotal(jobInvoice.RequestPayloadJson);
             if (amount is null || amount <= 0)
                 return JobInvoiceStateUpdateResult.Fail(400, "Unable to determine invoice payment amount.");
 
             var targetInvoiceStatus = paymentMethod == "cash" ? "DELETED" : "AUTHORISED";
+            if (paymentMethod == "cash"
+                && !string.Equals(jobInvoice.ExternalStatus, "DRAFT", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(jobInvoice.ExternalStatus, "DELETED", StringComparison.OrdinalIgnoreCase))
+            {
+                return JobInvoiceStateUpdateResult.Fail(409, "Cash can only be saved while the Xero invoice is still Draft.");
+            }
+
             if (!string.Equals(jobInvoice.ExternalStatus, targetInvoiceStatus, StringComparison.OrdinalIgnoreCase))
             {
                 var statusSyncResult = await SyncInvoiceStatusAsync(jobInvoice, targetInvoiceStatus, ct);
@@ -352,14 +790,33 @@ public sealed class JobInvoiceService
                 job.UpdatedAt = DateTime.UtcNow;
             }
 
-            var jobPayment = BuildJobPayment(
-                jobInvoice,
-                paymentMethod,
-                amount.Value,
-                paymentDate,
-                paymentMethod == "epost" ? payload.EpostReferenceId?.Trim() : null,
-                paymentMethod == "cash" ? "DELETED" : "AUTHORISED");
-            _db.JobPayments.Add(jobPayment);
+            var latestExistingPayment = await _db.JobPayments
+                .Where(x => x.JobInvoiceId == jobInvoice.Id)
+                .OrderByDescending(x => x.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+
+            var paymentReference = FirstNonEmpty(payload.Reference, paymentMethod == "epost" ? payload.EpostReferenceId : null);
+            if (latestExistingPayment is null)
+            {
+                var jobPayment = BuildJobPayment(
+                    jobInvoice,
+                    paymentMethod,
+                    amount.Value,
+                    paymentDate,
+                    paymentReference,
+                    paymentMethod == "cash" ? "DELETED" : "AUTHORISED");
+                _db.JobPayments.Add(jobPayment);
+            }
+            else
+            {
+                latestExistingPayment.Method = paymentMethod;
+                latestExistingPayment.Amount = amount.Value;
+                latestExistingPayment.PaymentDate = paymentDate;
+                latestExistingPayment.Reference = paymentReference;
+                latestExistingPayment.ExternalStatus = paymentMethod == "cash" ? "DELETED" : "AUTHORISED";
+                latestExistingPayment.UpdatedAt = DateTime.UtcNow;
+            }
+
             await _db.SaveChangesAsync(ct);
 
             return await BuildStateUpdateResultAsync(jobInvoice, ct);
@@ -517,14 +974,13 @@ public sealed class JobInvoiceService
         }
     }
 
-    private async Task<CreateXeroInvoiceRequest> BuildCreateRequestAsync(
+    private async Task<CreateXeroInvoiceRequest> BuildCatalogMappedCreateRequestAsync(
         Job job,
         Customer customer,
         Vehicle vehicle,
-        IReadOnlyList<JobMechService> mechServices,
+        IReadOnlyList<JobServiceSelection> serviceSelections,
         IReadOnlyList<JobPartsService> partsServices,
         JobPaintService? paintService,
-        bool hasWofRecord,
         CancellationToken ct)
     {
         var reference = BuildReference(job, customer, vehicle);
@@ -532,82 +988,22 @@ public sealed class JobInvoiceService
         if (string.IsNullOrWhiteSpace(contactName))
             throw new InvalidOperationException("Unable to derive contact name for invoice.");
 
-        var lineItems = new List<XeroInvoiceLineItemInput>();
+        var lineItems = await BuildCatalogMappedServiceLineItemsAsync(customer, serviceSelections, paintService, ct);
 
-        var wofItem = await BuildWofLineItemAsync(hasWofRecord, customer, ct);
-        if (wofItem is not null)
-            lineItems.Add(wofItem);
+        var requestedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (partsServices.Any(x => !string.IsNullOrWhiteSpace(x.Description)))
+            requestedCodes.Add(JobInvoicePartsLineItemBuilder.DefaultItemCode);
 
-        var oilServiceItem = await BuildOilServiceLineItemAsync(customer, vehicle, mechServices, ct);
-        if (oilServiceItem is not null)
-            lineItems.Add(oilServiceItem);
+        var inventoryByCode = requestedCodes.Count == 0
+            ? new Dictionary<string, InventoryItem>(StringComparer.OrdinalIgnoreCase)
+            : await _db.InventoryItems.AsNoTracking()
+                .Where(x => requestedCodes.Contains(x.ItemCode))
+                .ToDictionaryAsync(x => x.ItemCode, x => x, StringComparer.OrdinalIgnoreCase, ct);
 
-        var brakeServiceItem = await BuildBrakeServiceLineItemAsync(mechServices, ct);
-        if (brakeServiceItem is not null)
-            lineItems.Add(brakeServiceItem);
+        inventoryByCode.TryGetValue(JobInvoicePartsLineItemBuilder.DefaultItemCode, out var partsInventoryItem);
+        lineItems.AddRange(JobInvoicePartsLineItemBuilder.Build(partsServices, partsInventoryItem));
 
-        var batteryServiceItem = await BuildBatteryServiceLineItemAsync(mechServices, ct);
-        if (batteryServiceItem is not null)
-            lineItems.Add(batteryServiceItem);
-
-        var tireServiceItem = await BuildTireServiceLineItemAsync(mechServices, ct);
-        if (tireServiceItem is not null)
-            lineItems.Add(tireServiceItem);
-
-        var filterServiceItem = await BuildFilterServiceLineItemAsync(vehicle, mechServices, ct);
-        if (filterServiceItem is not null)
-            lineItems.Add(filterServiceItem);
-
-        var otherServiceItem = await BuildOtherMechServiceLineItemAsync(mechServices, ct);
-        if (otherServiceItem is not null)
-            lineItems.Add(otherServiceItem);
-
-        lineItems.AddRange(mechServices
-            .Where(x => !string.IsNullOrWhiteSpace(x.Description) &&
-                        !IsOilServiceDescription(x.Description) &&
-                        !IsBrakeServiceDescription(x.Description) &&
-                        !IsBatteryServiceDescription(x.Description) &&
-                        !IsTireServiceDescription(x.Description) &&
-                        !IsFilterServiceDescription(x.Description) &&
-                        !IsOtherMechServiceDescription(x.Description))
-            .Select(x => new XeroInvoiceLineItemInput
-            {
-                Description = x.Description.Trim(),
-                Quantity = 1m,
-                UnitAmount = x.Cost ?? 0m,
-            }));
-
-        lineItems.AddRange(partsServices
-            .Where(x => !string.IsNullOrWhiteSpace(x.Description))
-            .Select(x => new XeroInvoiceLineItemInput
-            {
-                Description = x.Description.Trim(),
-                Quantity = 1m,
-                UnitAmount = 0m,
-            }));
-
-        if (paintService is not null)
-        {
-            lineItems.Add(new XeroInvoiceLineItemInput
-            {
-                Description = paintService.Panels > 0
-                    ? $"Paint service - {paintService.Panels} panel(s)"
-                    : "Paint service",
-                Quantity = 1m,
-                UnitAmount = 0m,
-            });
-        }
-
-        var jobNote = job.Notes?.Trim();
-        if (!string.IsNullOrWhiteSpace(jobNote))
-        {
-            lineItems.Add(new XeroInvoiceLineItemInput
-            {
-                Description = jobNote,
-                Quantity = 1m,
-                UnitAmount = 0m,
-            });
-        }
+        AppendJobNoteLineItem(lineItems, job.Notes);
 
         if (lineItems.Count == 0)
         {
@@ -632,6 +1028,79 @@ public sealed class JobInvoiceService
             },
             LineItems = lineItems,
         };
+    }
+
+    private async Task<List<XeroInvoiceLineItemInput>> BuildCatalogMappedServiceLineItemsAsync(
+        Customer customer,
+        IReadOnlyList<JobServiceSelection> serviceSelections,
+        JobPaintService? paintService,
+        CancellationToken ct)
+    {
+        var selectionIds = serviceSelections
+            .Select(x => x.ServiceCatalogItemId)
+            .Distinct()
+            .ToArray();
+
+        var catalogItemsById = selectionIds.Length == 0
+            ? new Dictionary<long, ServiceCatalogItem>()
+            : await _db.ServiceCatalogItems.AsNoTracking()
+                .Where(x => selectionIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, ct);
+
+        var overrideByServiceId = selectionIds.Length == 0
+            ? new Dictionary<long, string>()
+            : (await _db.CustomerServicePrices.AsNoTracking()
+                .Where(x => x.CustomerId == customer.Id && x.IsActive && selectionIds.Contains(x.ServiceCatalogItemId))
+                .OrderByDescending(x => x.UpdatedAt)
+                .ThenByDescending(x => x.Id)
+                .ToListAsync(ct))
+                .GroupBy(x => x.ServiceCatalogItemId)
+                .ToDictionary(x => x.Key, x => x.First().XeroItemCode.Trim());
+
+        var requestedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var selection in serviceSelections)
+        {
+            if (!catalogItemsById.TryGetValue(selection.ServiceCatalogItemId, out var catalogItem))
+                continue;
+
+            var resolvedCode = ResolveCatalogItemCode(customer, catalogItem, overrideByServiceId);
+            if (!string.IsNullOrWhiteSpace(resolvedCode))
+                requestedCodes.Add(resolvedCode);
+        }
+
+        var inventoryByCode = requestedCodes.Count == 0
+            ? new Dictionary<string, InventoryItem>(StringComparer.OrdinalIgnoreCase)
+            : await _db.InventoryItems.AsNoTracking()
+                .Where(x => requestedCodes.Contains(x.ItemCode))
+                .ToDictionaryAsync(x => x.ItemCode, x => x, StringComparer.OrdinalIgnoreCase, ct);
+
+        var lineItems = new List<XeroInvoiceLineItemInput>();
+        foreach (var selection in serviceSelections)
+        {
+            if (!catalogItemsById.TryGetValue(selection.ServiceCatalogItemId, out var catalogItem))
+                continue;
+
+            var itemCode = ResolveCatalogItemCode(customer, catalogItem, overrideByServiceId);
+            var description = ResolveSelectionDescription(selection, catalogItem, paintService);
+            inventoryByCode.TryGetValue(itemCode ?? "", out var inventoryItem);
+            lineItems.Add(BuildConfiguredLineItem(itemCode, description, inventoryItem, fallbackUnitAmount: 0m, useInventoryPrice: true));
+        }
+
+        return lineItems;
+    }
+
+    private static void AppendJobNoteLineItem(List<XeroInvoiceLineItemInput> lineItems, string? jobNotes)
+    {
+        var jobNote = jobNotes?.Trim();
+        if (string.IsNullOrWhiteSpace(jobNote))
+            return;
+
+        lineItems.Add(new XeroInvoiceLineItemInput
+        {
+            Description = jobNote,
+            Quantity = 1m,
+            UnitAmount = 0m,
+        });
     }
 
     private async Task<List<XeroInvoiceLineItemInput>> SanitizeLineItemsAsync(
@@ -694,50 +1163,52 @@ public sealed class JobInvoiceService
             .ToList();
     }
 
-    private sealed record OilServiceRule(
-        string? MakeContains,
-        string ModelContains,
-        string? FuelType,
-        string ItemCode);
-
-    private static readonly IReadOnlyList<OilServiceRule> ExplicitOilServiceRules =
-    [
-        new(null, "xtrail", null, "Xtrail-fasst-services"),
-        new("ford", "ranger", "Diesel", "C3 Fasst 4L-4.9L Services"),
-        new("mitsubishi", "outlander", "Diesel", "C3 Fasst 4L-4.9L Services"),
-        new("kia", "stinger", "Petrol", "SN Fasst 5.6L-6L Services"),
-        new("volkswagen", "golf", "Petrol", "SN Fasst 4.1L-4.3L Services"),
-        new("audi", "q2", "Petrol", "SN Fasst 4L Services"),
-        new("mitsubishi", "eclipse cross", "Petrol", "SN Fasst 4L Services"),
-        new("suzuki", "swift", "Petrol", "SN Fasst 4L Services"),
-    ];
-
-    private async Task<XeroInvoiceLineItemInput?> BuildOilServiceLineItemAsync(
+    private static string? ResolveCatalogItemCode(
         Customer customer,
-        Vehicle vehicle,
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
+        ServiceCatalogItem catalogItem,
+        IReadOnlyDictionary<long, string> overrideByServiceId)
     {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsOilServiceDescription(x.Description)))
-            return null;
+        overrideByServiceId.TryGetValue(catalogItem.Id, out var overrideCode);
+        return JobInvoiceItemCodeResolver.Resolve(customer, catalogItem, overrideCode);
+    }
 
-        var itemCode = ResolveOilServiceItemCode(customer, vehicle);
-        if (string.IsNullOrWhiteSpace(itemCode))
-            return null;
+    private static string ResolveSelectionDescription(
+        JobServiceSelection selection,
+        ServiceCatalogItem catalogItem,
+        JobPaintService? paintService)
+    {
+        var description = string.IsNullOrWhiteSpace(selection.ServiceNameSnapshot)
+            ? catalogItem.Name.Trim()
+            : selection.ServiceNameSnapshot.Trim();
 
-        var inventoryItem = await _db.InventoryItems.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
+        if (catalogItem.ServiceType == "paint" &&
+            string.Equals(catalogItem.Category, "root", StringComparison.OrdinalIgnoreCase) &&
+            paintService is not null &&
+            paintService.Panels > 0)
+        {
+            return $"{description} - {paintService.Panels} panel(s)";
+        }
 
+        return description;
+    }
+
+    private static XeroInvoiceLineItemInput BuildConfiguredLineItem(
+        string? itemCode,
+        string description,
+        InventoryItem? inventoryItem,
+        decimal fallbackUnitAmount,
+        bool useInventoryPrice)
+    {
         if (inventoryItem is not null)
         {
             return new XeroInvoiceLineItemInput
             {
-                ItemCode = inventoryItem.ItemCode,
-                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
-                    ? inventoryItem.ItemName
-                    : inventoryItem.SalesDescription,
+                ItemCode = string.IsNullOrWhiteSpace(itemCode) ? inventoryItem.ItemCode : itemCode.Trim(),
+                Description = description,
                 Quantity = 1m,
-                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
+                UnitAmount = useInventoryPrice
+                    ? inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? fallbackUnitAmount
+                    : fallbackUnitAmount,
                 AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
                 TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
             };
@@ -745,271 +1216,11 @@ public sealed class JobInvoiceService
 
         return new XeroInvoiceLineItemInput
         {
-            ItemCode = itemCode,
-            Description = "Services",
+            ItemCode = string.IsNullOrWhiteSpace(itemCode) ? null : itemCode.Trim(),
+            Description = description,
             Quantity = 1m,
+            UnitAmount = fallbackUnitAmount,
         };
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildBrakeServiceLineItemAsync(
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
-    {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsBrakeServiceDescription(x.Description)))
-            return null;
-
-        const string itemCode = "BRAKE";
-        var inventoryItem = await _db.InventoryItems.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
-
-        if (inventoryItem is not null)
-        {
-            return new XeroInvoiceLineItemInput
-            {
-                ItemCode = inventoryItem.ItemCode,
-                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
-                    ? inventoryItem.ItemName
-                    : inventoryItem.SalesDescription,
-                Quantity = 1m,
-                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
-                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
-                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
-            };
-        }
-
-        return new XeroInvoiceLineItemInput
-        {
-            ItemCode = itemCode,
-            Description = "FRONT/REAR BRAKE PADS &REPLACEMENT",
-            Quantity = 1m,
-        };
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildBatteryServiceLineItemAsync(
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
-    {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsBatteryServiceDescription(x.Description)))
-            return null;
-
-        const string itemCode = "BATTERY CHANGE / WARNING LIGHT";
-        var inventoryItem = await _db.InventoryItems.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
-
-        if (inventoryItem is not null)
-        {
-            return new XeroInvoiceLineItemInput
-            {
-                ItemCode = inventoryItem.ItemCode,
-                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
-                    ? inventoryItem.ItemName
-                    : inventoryItem.SalesDescription,
-                Quantity = 1m,
-                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
-                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
-                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
-            };
-        }
-
-        return new XeroInvoiceLineItemInput
-        {
-            ItemCode = itemCode,
-            Description = "WARNING LIGHTS ON/ BATTERY REPLACEMENT",
-            Quantity = 1m,
-        };
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildTireServiceLineItemAsync(
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
-    {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsTireServiceDescription(x.Description)))
-            return null;
-
-        const string itemCode = "Swap Wheel";
-        return await BuildInventoryBackedLineItemAsync(itemCode, "Swap all four wheels from another car", ct);
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildFilterServiceLineItemAsync(
-        Vehicle vehicle,
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
-    {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsFilterServiceDescription(x.Description)))
-            return null;
-
-        var itemCode = ResolveFilterItemCode(vehicle);
-        if (string.IsNullOrWhiteSpace(itemCode))
-            return null;
-
-        return await BuildInventoryBackedLineItemAsync(itemCode, "Air filter replacement", ct);
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildOtherMechServiceLineItemAsync(
-        IReadOnlyList<JobMechService> mechServices,
-        CancellationToken ct)
-    {
-        if (!mechServices.Any(x => !string.IsNullOrWhiteSpace(x.Description) && IsOtherMechServiceDescription(x.Description)))
-            return null;
-
-        const string itemCode = "999";
-        return await BuildInventoryBackedLineItemAsync(itemCode, "Labour:", ct);
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildWofLineItemAsync(bool hasWofRecord, Customer customer, CancellationToken ct)
-    {
-        if (!hasWofRecord)
-            return null;
-
-        var itemCode = ResolveWofItemCode(customer);
-        var inventoryItem = await _db.InventoryItems.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
-
-        if (inventoryItem is not null)
-        {
-            return new XeroInvoiceLineItemInput
-            {
-                ItemCode = inventoryItem.ItemCode,
-                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
-                    ? inventoryItem.ItemName
-                    : inventoryItem.SalesDescription,
-                Quantity = 1m,
-                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
-                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
-                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
-            };
-        }
-
-        return itemCode switch
-        {
-            "WOF" => new XeroInvoiceLineItemInput
-            {
-                ItemCode = "WOF",
-                Description = "WOF Inspection",
-                Quantity = 1m,
-                UnitAmount = 60.00m,
-                AccountCode = "208",
-                TaxType = "OUTPUT2",
-            },
-            "WOF-FASST" => new XeroInvoiceLineItemInput
-            {
-                ItemCode = "WOF-FASST",
-                Description = "WOF Inspection",
-                Quantity = 1m,
-                UnitAmount = 43.48m,
-                AccountCode = "208",
-                TaxType = "OUTPUT2",
-            },
-            _ => new XeroInvoiceLineItemInput
-            {
-                ItemCode = "WOF-DEALERSHIP",
-                Description = "WOF Inspection",
-                Quantity = 1m,
-                UnitAmount = 43.48m,
-                AccountCode = "208",
-                TaxType = "OUTPUT2",
-            },
-        };
-    }
-
-    private async Task<XeroInvoiceLineItemInput?> BuildInventoryBackedLineItemAsync(
-        string itemCode,
-        string fallbackDescription,
-        CancellationToken ct)
-    {
-        var inventoryItem = await _db.InventoryItems.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ItemCode == itemCode, ct);
-
-        if (inventoryItem is not null)
-        {
-            return new XeroInvoiceLineItemInput
-            {
-                ItemCode = inventoryItem.ItemCode,
-                Description = string.IsNullOrWhiteSpace(inventoryItem.SalesDescription)
-                    ? inventoryItem.ItemName
-                    : inventoryItem.SalesDescription,
-                Quantity = 1m,
-                UnitAmount = inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? 0m,
-                AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
-                TaxType = NormalizeXeroTaxType(inventoryItem.SalesTaxRate ?? inventoryItem.PurchasesTaxRate),
-            };
-        }
-
-        return new XeroInvoiceLineItemInput
-        {
-            ItemCode = itemCode,
-            Description = fallbackDescription,
-            Quantity = 1m,
-        };
-    }
-
-    private static bool IsOilServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("换机油", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("engine oil", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("oil service", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalized, "oil", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalized, "service", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsBrakeServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("刹车", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("brake", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("brake pad", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("pads", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsBatteryServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("电池", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("battery", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("warning light", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("warning lights", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsTireServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("补胎", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("tire", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("tyre", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("wheel", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsFilterServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("滤芯", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Contains("filter", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsOtherMechServiceDescription(string description)
-    {
-        var normalized = description.Trim();
-        if (string.IsNullOrWhiteSpace(normalized))
-            return false;
-
-        return normalized.Contains("其他机修", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalized, "other", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeXeroTaxType(string? value)
@@ -1028,110 +1239,29 @@ public sealed class JobInvoiceService
         };
     }
 
-    private static string? ResolveOilServiceItemCode(Customer customer, Vehicle vehicle)
+    private static string BuildLineItemIdentity(XeroInvoiceLineItemInput item)
     {
-        var make = (vehicle.Make ?? "").Trim();
-        var model = (vehicle.Model ?? "").Trim();
-        var fuelType = vehicle.FuelType?.Trim();
-
-        if (string.Equals(fuelType, "Electric", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        foreach (var rule in ExplicitOilServiceRules)
-        {
-            if (!string.IsNullOrWhiteSpace(rule.MakeContains) &&
-                !make.Contains(rule.MakeContains, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!model.Contains(rule.ModelContains, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!string.IsNullOrWhiteSpace(rule.FuelType) &&
-                !string.Equals(fuelType, rule.FuelType, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            return rule.ItemCode;
-        }
-
-        var businessCode = customer.BusinessCode?.Trim();
-        if (!string.Equals(businessCode, "FAS", StringComparison.OrdinalIgnoreCase))
-        {
-            return "203-Services";
-        }
-
-        var isC3 = string.Equals(fuelType, "Diesel", StringComparison.OrdinalIgnoreCase);
-        var cc = vehicle.CcRating ?? 0;
-
-        if (cc <= 0)
-            return isC3 ? "C3 Fasst 4L-4.9L Services" : "SN Fasst 4L Services";
-
-        if (isC3)
-        {
-            return cc switch
-            {
-                > 5900 => "C3 Fasst 6L-6.9L Services",
-                > 4900 => "C3 Fasst 5L-5.9L Services",
-                _ => "C3 Fasst 4L-4.9L Services",
-            };
-        }
-
-        return cc switch
-        {
-            <= 1800 => "SN Fasst 4L Services",
-            <= 2200 => "SN Fasst 4.1L-4.3L Services",
-            <= 2600 => "SN Fasst 4.5L Services",
-            <= 3200 => "SN Fasst 5L-5.5L Services",
-            <= 4000 => "SN Fasst 5.6L-6L Services",
-            <= 5000 => "SN Fasst 6L-7L Services",
-            _ => "SN Fasst 7L-8L Services",
-        };
-    }
-
-    private static string? ResolveFilterItemCode(Vehicle vehicle)
-    {
-        var model = (vehicle.Model ?? "").Trim();
-        if (model.Contains("xtrail", StringComparison.OrdinalIgnoreCase) ||
-            model.Contains("x-trail", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Xtrail-fasst-services";
-        }
-
-        if (model.Contains("note", StringComparison.OrdinalIgnoreCase))
-            return "A1913";
-
-        return null;
-    }
-
-    private static string ResolveWofItemCode(Customer customer)
-    {
-        if (string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
-            return "WOF";
-
-        return string.Equals(customer.BusinessCode?.Trim(), "FAS", StringComparison.OrdinalIgnoreCase)
-            ? "WOF-FASST"
-            : "WOF-DEALERSHIP";
+        var itemCode = item.ItemCode?.Trim().ToUpperInvariant() ?? "";
+        var description = item.Description.Trim().ToUpperInvariant();
+        var quantity = (item.Quantity ?? 0m).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+        var unitAmount = (item.UnitAmount ?? 0m).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+        return $"{itemCode}|{description}|{quantity}|{unitAmount}";
     }
 
     private static string BuildReference(Job job, Customer customer, Vehicle vehicle)
     {
         if (string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
-        {
-            var parts = new[] { customer.Name, customer.Phone }
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x!.Trim());
-            return string.Join(' ', parts);
-        }
+            return string.Empty;
 
-        var poNumber = string.IsNullOrWhiteSpace(job.PoNumber) ? "[PO]" : job.PoNumber.Trim();
+        var rego = string.IsNullOrWhiteSpace(vehicle.Plate) ? "[REGO]" : vehicle.Plate.Trim().ToUpperInvariant();
+        var poPrefix = string.IsNullOrWhiteSpace(job.PoNumber)
+            ? $"Po Pending {rego}"
+            : $"{job.PoNumber.Trim()} {rego}";
         var year = vehicle.Year.HasValue && vehicle.Year.Value > 0 ? vehicle.Year.Value.ToString() : "[YEAR]";
         var make = string.IsNullOrWhiteSpace(vehicle.Make) ? "[MAKE]" : vehicle.Make.Trim();
         var model = string.IsNullOrWhiteSpace(vehicle.Model) ? "[MODEL]" : vehicle.Model.Trim();
 
-        return $"{poNumber} {year} {make} {model}";
+        return $"{poPrefix} {year} {make} {model}";
     }
 
     private static string BuildContactName(Customer customer, Vehicle vehicle)
@@ -1139,22 +1269,26 @@ public sealed class JobInvoiceService
         if (!string.Equals(customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
             return customer.Name.Trim();
 
-        var vehicleSummary = new[]
+        var rego = vehicle.Plate?.Trim().ToUpperInvariant();
+        var vehicleSummary = string.Join(
+            ' ',
+            new[]
             {
                 vehicle.Year > 0 ? vehicle.Year.ToString() : null,
                 vehicle.Make,
                 vehicle.Model,
             }
             .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!.Trim().ToUpperInvariant())
-            .ToList();
+            .Select(x => x!.Trim().ToUpperInvariant()));
 
-        var rego = vehicle.Plate?.Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(rego) && !string.IsNullOrWhiteSpace(vehicleSummary))
+            return $"{rego}-{vehicleSummary}";
+
         if (!string.IsNullOrWhiteSpace(rego))
-            vehicleSummary.Insert(0, rego);
+            return rego;
 
-        return vehicleSummary.Count > 0
-            ? string.Join(' ', vehicleSummary)
+        return !string.IsNullOrWhiteSpace(vehicleSummary)
+            ? vehicleSummary
             : customer.Name.Trim();
     }
 
@@ -1372,55 +1506,59 @@ public sealed class JobInvoiceService
         jobInvoice.UpdatedAt = DateTime.UtcNow;
     }
 
-    private static ExtractedInvoiceSummary ExtractInvoiceSummary(object? payload)
+    private static ExtractedInvoiceSummary ExtractInvoiceSummary(object? payload) =>
+        ExtractInvoiceSummaries(payload).FirstOrDefault() ?? new ExtractedInvoiceSummary();
+
+    private static List<ExtractedInvoiceSummary> ExtractInvoiceSummaries(object? payload)
     {
         if (payload is null)
-            return new ExtractedInvoiceSummary();
+            return [];
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         if (string.IsNullOrWhiteSpace(json))
-            return new ExtractedInvoiceSummary();
+            return [];
 
         try
         {
             using var document = JsonDocument.Parse(json);
             if (!document.RootElement.TryGetProperty("Invoices", out var invoices) || invoices.ValueKind != JsonValueKind.Array)
-                return new ExtractedInvoiceSummary();
+                return [];
 
-            var invoice = invoices.EnumerateArray().FirstOrDefault();
-            if (invoice.ValueKind == JsonValueKind.Undefined)
-                return new ExtractedInvoiceSummary();
+            return invoices.EnumerateArray()
+                .Select(invoice =>
+                {
+                    var contactName = invoice.TryGetProperty("Contact", out var contact) && contact.ValueKind == JsonValueKind.Object &&
+                                      contact.TryGetProperty("Name", out var nameElement)
+                        ? nameElement.GetString()
+                        : null;
 
-            var contactName = invoice.TryGetProperty("Contact", out var contact) && contact.ValueKind == JsonValueKind.Object &&
-                              contact.TryGetProperty("Name", out var nameElement)
-                ? nameElement.GetString()
-                : null;
+                    DateOnly? date = null;
+                    if (invoice.TryGetProperty("DateString", out var dateStringElement) && dateStringElement.ValueKind == JsonValueKind.String &&
+                        DateOnly.TryParse(dateStringElement.GetString(), out var parsedDateString))
+                    {
+                        date = parsedDateString;
+                    }
+                    else if (invoice.TryGetProperty("Date", out var dateElement) && dateElement.ValueKind == JsonValueKind.String &&
+                             DateTime.TryParse(dateElement.GetString(), out var parsedDateTime))
+                    {
+                        date = DateOnly.FromDateTime(parsedDateTime);
+                    }
 
-            DateOnly? date = null;
-            if (invoice.TryGetProperty("DateString", out var dateStringElement) && dateStringElement.ValueKind == JsonValueKind.String &&
-                DateOnly.TryParse(dateStringElement.GetString(), out var parsedDateString))
-            {
-                date = parsedDateString;
-            }
-            else if (invoice.TryGetProperty("Date", out var dateElement) && dateElement.ValueKind == JsonValueKind.String &&
-                     DateTime.TryParse(dateElement.GetString(), out var parsedDateTime))
-            {
-                date = DateOnly.FromDateTime(parsedDateTime);
-            }
-
-            return new ExtractedInvoiceSummary
-            {
-                InvoiceId = TryGetString(invoice, "InvoiceID"),
-                InvoiceNumber = TryGetString(invoice, "InvoiceNumber"),
-                Status = TryGetString(invoice, "Status"),
-                Reference = TryGetString(invoice, "Reference"),
-                ContactName = contactName,
-                Date = date,
-            };
+                    return new ExtractedInvoiceSummary
+                    {
+                        InvoiceId = TryGetString(invoice, "InvoiceID"),
+                        InvoiceNumber = TryGetString(invoice, "InvoiceNumber"),
+                        Status = TryGetString(invoice, "Status"),
+                        Reference = TryGetString(invoice, "Reference"),
+                        ContactName = contactName,
+                        Date = date,
+                    };
+                })
+                .ToList();
         }
         catch (JsonException)
         {
-            return new ExtractedInvoiceSummary();
+            return [];
         }
     }
 
@@ -1458,7 +1596,7 @@ public sealed class JobInvoiceCreateResult
     public bool RefreshTokenUpdated { get; private init; }
 
     public static JobInvoiceCreateResult Success(
-        JobInvoice invoice,
+        JobInvoice? invoice,
         bool alreadyExists,
         object? payload = null,
         CreateXeroInvoiceRequest? requestBody = null,
@@ -1554,5 +1692,27 @@ public sealed class JobInvoiceDeleteResult
             StatusCode = statusCode,
             Error = error,
             Payload = payload,
+        };
+}
+
+public sealed class JobInvoiceUnlinkResult
+{
+    public bool Ok { get; private init; }
+    public int StatusCode { get; private init; }
+    public string? Error { get; private init; }
+
+    public static JobInvoiceUnlinkResult Success() =>
+        new()
+        {
+            Ok = true,
+            StatusCode = 200,
+        };
+
+    public static JobInvoiceUnlinkResult Fail(int statusCode, string error) =>
+        new()
+        {
+            Ok = false,
+            StatusCode = statusCode,
+            Error = error,
         };
 }

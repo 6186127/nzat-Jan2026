@@ -30,6 +30,7 @@ public class Vehicle
     public DateOnly? NzFirstRegistration { get; set; }
 
     public long? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
 
     public JsonDocument? RawJson { get; set; }         // ✅ 新增 raw_json
     public DateTime UpdatedAt { get; set; }            // timestamptz

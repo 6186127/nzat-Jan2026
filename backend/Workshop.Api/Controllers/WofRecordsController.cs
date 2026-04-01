@@ -50,6 +50,13 @@ public class WofRecordsController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpDelete("wof-records/{recordId:long}")]
+    public async Task<IActionResult> DeleteWofRecord(long id, long recordId, CancellationToken ct)
+    {
+        var result = await _wofService.DeleteWofRecord(id, recordId, ct);
+        return ToActionResult(result);
+    }
+
     [HttpGet("wof-records/{recordId:long}/print")]
     public async Task<IActionResult> PrintWofRecord(long id, long recordId, CancellationToken ct)
     {
@@ -66,7 +73,7 @@ public class WofRecordsController : ControllerBase
     [HttpPost("wof-server")]
     public async Task<IActionResult> CreateWofRecord(long id, CancellationToken ct)
     {
-        var result = await _wofService.ImportWofRecords(id, ct);
+        var result = await _wofService.CreateWofService(id, ct);
         return ToActionResult(result);
     }
 
@@ -74,6 +81,15 @@ public class WofRecordsController : ControllerBase
     public async Task<IActionResult> DeleteWofServer(long id, CancellationToken ct)
     {
         var result = await _wofService.DeleteWofServer(id, ct);
+        return ToActionResult(result);
+    }
+
+    public record UpdateWofStatusRequest(string? Status);
+
+    [HttpPut("wof-status")]
+    public async Task<IActionResult> UpdateWofStatus(long id, [FromBody] UpdateWofStatusRequest? request, CancellationToken ct)
+    {
+        var result = await _wofService.UpdateWofStatus(id, request?.Status, ct);
         return ToActionResult(result);
     }
 

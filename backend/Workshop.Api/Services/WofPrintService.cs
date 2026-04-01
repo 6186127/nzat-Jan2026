@@ -19,7 +19,7 @@ public class WofPrintService
     public async Task<WofPrintPdfResult> BuildPrintPdf(long jobId, long recordId, CancellationToken ct)
     {
         var data = await (
-                from w in _db.JobWofRecords.AsNoTracking()
+                from w in _db.JobWofRecords
                 join j in _db.Jobs.AsNoTracking() on w.JobId equals j.Id
                 join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id into vj
                 from v in vj.DefaultIfEmpty()

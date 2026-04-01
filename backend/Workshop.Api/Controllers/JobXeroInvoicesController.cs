@@ -9,35 +9,32 @@ namespace Workshop.Api.Controllers;
 public class JobXeroInvoicesController : ControllerBase
 {
     private readonly JobInvoiceService _jobInvoiceService;
+    private readonly InvoiceOutboxService _invoiceOutboxService;
 
-    public JobXeroInvoicesController(JobInvoiceService jobInvoiceService)
+    public JobXeroInvoicesController(JobInvoiceService jobInvoiceService, InvoiceOutboxService invoiceOutboxService)
     {
         _jobInvoiceService = jobInvoiceService;
+        _invoiceOutboxService = invoiceOutboxService;
+    }
+
+    public sealed class AttachExistingInvoiceRequest
+    {
+        public string InvoiceNumber { get; set; } = "";
     }
 
     [HttpPost]
     public async Task<IActionResult> CreateDraftInvoice(long id, CancellationToken ct)
     {
-        var result = await _jobInvoiceService.CreateDraftForJobAsync(id, ct);
+        var result = await _invoiceOutboxService.EnqueueCreateDraftAsync(id, ct);
         if (!result.Ok)
-        {
-            return StatusCode(result.StatusCode, new
-            {
-                error = result.Error,
-                request = result.RequestBody,
-                xero = result.Payload,
-            });
-        }
+            return BadRequest(new { error = result.Error });
 
-        return StatusCode(result.StatusCode, new
+        return Ok(new
         {
-            alreadyExists = result.AlreadyExists,
-            invoice = MapInvoice(result.Invoice),
-            scope = result.Scope,
-            accessTokenExpiresIn = result.AccessTokenExpiresIn,
-            latestRefreshToken = result.LatestRefreshToken,
-            refreshTokenUpdated = result.RefreshTokenUpdated,
-            xero = result.Payload,
+            queued = true,
+            alreadyExists = result.AlreadyHandled,
+            messageId = result.MessageId,
+            status = result.Status,
         });
     }
 
@@ -84,6 +81,32 @@ public class JobXeroInvoicesController : ControllerBase
             invoice = MapInvoice(result.Invoice),
             xero = result.Payload,
         });
+    }
+
+    [HttpPost("attach")]
+    public async Task<IActionResult> AttachExistingInvoice(long id, [FromBody] AttachExistingInvoiceRequest request, CancellationToken ct)
+    {
+        var result = await _invoiceOutboxService.EnqueueAttachExistingAsync(id, request.InvoiceNumber, ct);
+        if (!result.Ok)
+            return BadRequest(new { error = result.Error });
+
+        return Ok(new
+        {
+            queued = true,
+            alreadyExists = result.AlreadyHandled,
+            messageId = result.MessageId,
+            status = result.Status,
+        });
+    }
+
+    [HttpDelete]
+    public async Task<IActionResult> UnlinkInvoice(long id, CancellationToken ct)
+    {
+        var result = await _jobInvoiceService.UnlinkInvoiceAsync(id, ct);
+        if (!result.Ok)
+            return StatusCode(result.StatusCode, new { error = result.Error });
+
+        return Ok(new { ok = true });
     }
 
     [HttpPut("/api/jobs/{id:long}/invoice-draft")]
@@ -138,6 +161,7 @@ public class JobXeroInvoicesController : ControllerBase
             externalStatus = invoice.ExternalStatus,
             reference = invoice.Reference,
             contactName = invoice.ContactName,
+            invoiceNote = invoice.InvoiceNote,
             invoiceDate = invoice.InvoiceDate,
             lineAmountTypes = invoice.LineAmountTypes,
             tenantId = invoice.TenantId,

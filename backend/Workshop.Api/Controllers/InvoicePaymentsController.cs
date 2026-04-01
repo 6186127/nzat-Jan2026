@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
+using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
 
@@ -37,7 +39,10 @@ public class InvoicePaymentsController : ControllerBase
                     paymentDate = payment.PaymentDate,
                     paymentDateTime = payment.CreatedAt,
                     amount = payment.Amount,
+                    note = payment.Reference ?? "",
                     externalStatus = payment.ExternalStatus ?? "",
+                    responsePayloadJson = invoice.ResponsePayloadJson,
+                    requestPayloadJson = invoice.RequestPayloadJson,
                     createdAt = payment.CreatedAt,
                 }
             )
@@ -57,11 +62,43 @@ public class InvoicePaymentsController : ControllerBase
                 row.reference,
                 row.paymentWay,
                 paymentDate = row.paymentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                paymentDateTime = row.paymentDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                paymentDateTime = DateTimeHelper.FormatNz(row.paymentDateTime),
+                xeroTotal = ExtractInvoiceTotal(FirstNonEmpty(row.responsePayloadJson, row.requestPayloadJson)),
                 row.amount,
+                paymentTotal = row.amount,
+                row.note,
                 row.externalStatus,
-                createdAt = row.createdAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                createdAt = DateTimeHelper.FormatNz(row.createdAt),
             }),
         });
     }
+
+    private static decimal? ExtractInvoiceTotal(string? invoicePayloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(invoicePayloadJson))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(invoicePayloadJson);
+            if (!document.RootElement.TryGetProperty("Invoices", out var invoices) || invoices.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var invoice = invoices.EnumerateArray().FirstOrDefault();
+            if (invoice.ValueKind == JsonValueKind.Undefined)
+                return null;
+
+            if (!invoice.TryGetProperty("Total", out var total))
+                return null;
+
+            return total.TryGetDecimal(out var value) ? value : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 }

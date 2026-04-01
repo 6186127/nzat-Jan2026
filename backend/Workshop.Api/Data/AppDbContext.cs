@@ -16,11 +16,13 @@ public class AppDbContext : DbContext
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobInvoice> JobInvoices => Set<JobInvoice>();
     public DbSet<JobPayment> JobPayments => Set<JobPayment>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<XeroTokenRecord> XeroTokenRecords => Set<XeroTokenRecord>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
     public DbSet<ServiceCatalogItem> ServiceCatalogItems => Set<ServiceCatalogItem>();
     public DbSet<SystemSyncState> SystemSyncStates => Set<SystemSyncState>();
     public DbSet<JobPoState> JobPoStates => Set<JobPoState>();
+    public DbSet<JobWofState> JobWofStates => Set<JobWofState>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<JobTag> JobTags => Set<JobTag>();
 
@@ -34,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<JobPartsNote> JobPartsNotes => Set<JobPartsNote>();
     public DbSet<JobMechService> JobMechServices => Set<JobMechService>();
     public DbSet<JobPaintService> JobPaintServices => Set<JobPaintService>();
+    public DbSet<JobServiceSelection> JobServiceSelections => Set<JobServiceSelection>();
     public DbSet<Staff> Staff => Set<Staff>();
     public DbSet<WorklogEntry> WorklogEntries => Set<WorklogEntry>();
     
@@ -90,6 +93,10 @@ public class AppDbContext : DbContext
         e.Property(x => x.Odometer).HasColumnName("odometer");
         e.Property(x => x.NzFirstRegistration).HasColumnName("nz_first_registration");
         e.Property(x => x.CustomerId).HasColumnName("customer_id");
+        e.HasOne(x => x.Customer)
+            .WithMany()
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         // ✅ raw_json jsonb
         e.Property(x => x.RawJson).HasColumnName("raw_json").HasColumnType("jsonb");
@@ -213,6 +220,7 @@ public class AppDbContext : DbContext
         j.Property(x => x.Status).HasColumnName("status").IsRequired();
         j.Property(x => x.IsUrgent).HasColumnName("is_urgent");
         j.Property(x => x.NeedsPo).HasColumnName("needs_po");
+        j.Property(x => x.UseServiceCatalogMapping).HasColumnName("use_service_catalog_mapping").HasDefaultValue(false);
         j.Property(x => x.PoNumber).HasColumnName("po_number");
         j.Property(x => x.InvoiceReference).HasColumnName("invoice_reference");
         j.Property(x => x.VehicleId).HasColumnName("vehicle_id");
@@ -220,6 +228,25 @@ public class AppDbContext : DbContext
         j.Property(x => x.Notes).HasColumnName("notes");
         j.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         j.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        j.HasOne(x => x.Vehicle)
+            .WithMany()
+            .HasForeignKey(x => x.VehicleId)
+            .OnDelete(DeleteBehavior.SetNull);
+        j.HasOne(x => x.Customer)
+            .WithMany()
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        var jws = modelBuilder.Entity<JobWofState>();
+        jws.ToTable("job_wof_state");
+        jws.HasKey(x => x.Id);
+        jws.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        jws.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+        jws.Property(x => x.ManualStatus).HasColumnName("manual_status");
+        jws.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        jws.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        jws.HasIndex(x => x.JobId).IsUnique().HasDatabaseName("ux_job_wof_state_job_id");
+        jws.HasOne<Job>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
 
         var ji = modelBuilder.Entity<JobInvoice>();
         ji.ToTable("job_invoices");
@@ -232,6 +259,7 @@ public class AppDbContext : DbContext
         ji.Property(x => x.ExternalStatus).HasColumnName("external_status");
         ji.Property(x => x.Reference).HasColumnName("reference");
         ji.Property(x => x.ContactName).HasColumnName("contact_name");
+        ji.Property(x => x.InvoiceNote).HasColumnName("invoice_note");
         ji.Property(x => x.InvoiceDate).HasColumnName("invoice_date");
         ji.Property(x => x.LineAmountTypes).HasColumnName("line_amount_types").IsRequired();
         ji.Property(x => x.TenantId).HasColumnName("tenant_id");
@@ -263,9 +291,28 @@ public class AppDbContext : DbContext
         jpay.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         jpay.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         jpay.HasIndex(x => x.JobId).HasDatabaseName("ix_job_payments_job_id");
-        jpay.HasIndex(x => x.JobInvoiceId).HasDatabaseName("ix_job_payments_job_invoice_id");
+        jpay.HasIndex(x => x.JobInvoiceId).IsUnique().HasDatabaseName("ux_job_payments_job_invoice_id");
         jpay.HasOne<Job>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
         jpay.HasOne<JobInvoice>().WithMany().HasForeignKey(x => x.JobInvoiceId).OnDelete(DeleteBehavior.Cascade);
+
+        var om = modelBuilder.Entity<OutboxMessage>();
+        om.ToTable("outbox_messages");
+        om.HasKey(x => x.Id);
+        om.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        om.Property(x => x.MessageType).HasColumnName("message_type").IsRequired();
+        om.Property(x => x.AggregateType).HasColumnName("aggregate_type").IsRequired();
+        om.Property(x => x.AggregateId).HasColumnName("aggregate_id").IsRequired();
+        om.Property(x => x.PayloadJson).HasColumnName("payload_json").IsRequired();
+        om.Property(x => x.Status).HasColumnName("status").IsRequired();
+        om.Property(x => x.AttemptCount).HasColumnName("attempt_count").HasDefaultValue(0);
+        om.Property(x => x.AvailableAt).HasColumnName("available_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.Property(x => x.LockedAt).HasColumnName("locked_at");
+        om.Property(x => x.ProcessedAt).HasColumnName("processed_at");
+        om.Property(x => x.LastError).HasColumnName("last_error");
+        om.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        om.HasIndex(x => new { x.Status, x.AvailableAt }).HasDatabaseName("ix_outbox_messages_status_available_at");
+        om.HasIndex(x => new { x.AggregateType, x.AggregateId, x.MessageType }).HasDatabaseName("ix_outbox_messages_aggregate_message_type");
 
         var xt = modelBuilder.Entity<XeroTokenRecord>();
         xt.ToTable("xero_tokens");
@@ -519,6 +566,26 @@ public class AppDbContext : DbContext
         jpt.Property(x => x.Panels).HasColumnName("panels").HasDefaultValue(1);
         jpt.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
         jpt.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+        var jss = modelBuilder.Entity<JobServiceSelection>();
+        jss.ToTable("job_service_selections");
+        jss.HasKey(x => x.Id);
+        jss.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        jss.Property(x => x.JobId).HasColumnName("job_id").IsRequired();
+        jss.Property(x => x.ServiceCatalogItemId).HasColumnName("service_catalog_item_id").IsRequired();
+        jss.Property(x => x.ServiceNameSnapshot).HasColumnName("service_name_snapshot").IsRequired();
+        jss.Property(x => x.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        jss.Property(x => x.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("date_trunc('milliseconds', now())");
+        jss.HasIndex(x => x.JobId).HasDatabaseName("ix_job_service_selections_job_id");
+        jss.HasIndex(x => x.ServiceCatalogItemId).HasDatabaseName("ix_job_service_selections_service_catalog_item_id");
+        jss.HasOne(x => x.Job)
+            .WithMany()
+            .HasForeignKey(x => x.JobId)
+            .OnDelete(DeleteBehavior.Cascade);
+        jss.HasOne(x => x.ServiceCatalogItem)
+            .WithMany()
+            .HasForeignKey(x => x.ServiceCatalogItemId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private void NormalizeDateTimes()

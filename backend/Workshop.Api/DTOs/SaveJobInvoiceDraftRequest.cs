@@ -8,6 +8,7 @@ public sealed class SaveJobInvoiceDraftRequest
     public DateOnly? Date { get; set; }
     public string? Reference { get; set; }
     public string? ContactName { get; set; }
+    public string? InvoiceNote { get; set; }
 
     [MinLength(1)]
     public List<XeroInvoiceLineItemInput> LineItems { get; set; } = new();

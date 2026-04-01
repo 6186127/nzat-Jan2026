@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useBlocker } from "react-router-dom";
 import { useToast } from "@/components/ui";
 import { requestJson } from "@/utils/api";
 import { notifyPoDashboardRefresh } from "@/utils/refreshSignals";
 import { pullJobXeroDraftInvoice, saveJobInvoiceDraft, syncJobXeroDraftInvoice, updateJobInvoiceXeroState, updateJobPoSelection } from "@/features/jobDetail/api/jobDetailApi";
 import type {
+  AmountsAre,
   EmailState,
   EmailTimelineEvent,
   InvoiceDashboardState,
@@ -34,6 +34,51 @@ function normalizeTaxRate(value?: string | null): TaxRateOption {
   return normalized && normalized in TAX_RATE_PERCENTAGE ? normalized : "No GST";
 }
 
+function mapLineAmountTypes(value?: string | null): AmountsAre {
+  switch ((value ?? "").trim().toUpperCase()) {
+    case "INCLUSIVE":
+      return "Tax Inclusive";
+    case "NOTAX":
+    case "NO TAX":
+      return "No Tax";
+    default:
+      return "Tax Exclusive";
+  }
+}
+
+function mapAmountsAreToLineAmountTypes(value: AmountsAre): "Exclusive" | "Inclusive" | "NoTax" {
+  switch (value) {
+    case "Tax Inclusive":
+      return "Inclusive";
+    case "No Tax":
+      return "NoTax";
+    default:
+      return "Exclusive";
+  }
+}
+
+function mapXeroTaxType(value?: string | null): TaxRateOption {
+  switch ((value ?? "").trim().toUpperCase()) {
+    case "INPUT":
+    case "INPUT2":
+      return "15% GST on Expenses";
+    case "GSTONIMPORTS":
+      return "GST on Imports";
+    case "OUTPUT":
+    case "OUTPUT2":
+      return "15% GST on Income";
+    case "ZERORATEDINPUT":
+      return "Zero Rated - Exp";
+    case "ZERORATEDOUTPUT":
+    case "ZERORATED":
+      return "Zero Rated";
+    case "NONE":
+      return "No GST";
+    default:
+      return normalizeTaxRate(value);
+  }
+}
+
 function createNewItem(nextId: number): InvoiceItem {
   return {
     id: `line-${nextId}`,
@@ -47,18 +92,66 @@ function createNewItem(nextId: number): InvoiceItem {
   };
 }
 
-function getBaseAmount(item: InvoiceItem) {
-  return getLineAmount(item);
+function getEffectiveRate(item: InvoiceItem) {
+  return TAX_RATE_PERCENTAGE[item.taxRate];
 }
 
-function getTaxAmount(item: InvoiceItem) {
-  const rate = TAX_RATE_PERCENTAGE[item.taxRate];
-  if (rate <= 0) return 0;
-  return getLineAmount(item) * (rate / 100);
-}
-
-function getLineAmount(item: InvoiceItem) {
+function getEnteredAmount(item: InvoiceItem) {
   return item.quantity * item.unitPrice * (1 - item.discount / 100);
+}
+
+function getBaseAmount(item: InvoiceItem, amountsAre: AmountsAre) {
+  if (typeof item.xeroLineAmount === "number" && Number.isFinite(item.xeroLineAmount)) {
+    if (amountsAre === "Tax Inclusive" && typeof item.xeroTaxAmount === "number" && Number.isFinite(item.xeroTaxAmount)) {
+      return item.xeroLineAmount - item.xeroTaxAmount;
+    }
+    return item.xeroLineAmount;
+  }
+
+  const entered = getEnteredAmount(item);
+  const rate = getEffectiveRate(item);
+  if (amountsAre !== "Tax Inclusive" || rate <= 0) {
+    return entered;
+  }
+
+  return entered / (1 + rate / 100);
+}
+
+function getTaxAmount(item: InvoiceItem, amountsAre: AmountsAre) {
+  if (typeof item.xeroTaxAmount === "number" && Number.isFinite(item.xeroTaxAmount)) {
+    return item.xeroTaxAmount;
+  }
+
+  if (amountsAre === "No Tax") return 0;
+
+  const entered = getEnteredAmount(item);
+  const rate = getEffectiveRate(item);
+  if (rate <= 0) return 0;
+
+  if (amountsAre === "Tax Inclusive") {
+    return entered - getBaseAmount(item, amountsAre);
+  }
+
+  return entered * (rate / 100);
+}
+
+function getLineAmount(item: InvoiceItem, amountsAre: AmountsAre) {
+  if (typeof item.xeroLineAmount === "number" && Number.isFinite(item.xeroLineAmount)) {
+    if (amountsAre === "Tax Exclusive" && typeof item.xeroTaxAmount === "number" && Number.isFinite(item.xeroTaxAmount)) {
+      return item.xeroLineAmount + item.xeroTaxAmount;
+    }
+    return item.xeroLineAmount;
+  }
+
+  if (amountsAre === "No Tax") {
+    return getBaseAmount(item, amountsAre);
+  }
+
+  if (amountsAre === "Tax Inclusive") {
+    return getEnteredAmount(item);
+  }
+
+  return getBaseAmount(item, amountsAre) + getTaxAmount(item, amountsAre);
 }
 
 function buildReference(currentReference: string, poNumber: string) {
@@ -122,6 +215,7 @@ const initialInvoiceState: InvoiceDashboardState = {
   dueDate: "",
   invoiceNumber: "",
   reference: "",
+  invoiceNote: "",
   amountsAre: "Tax Exclusive",
   xeroInvoiceId: "",
   status: "Awaiting PO",
@@ -149,7 +243,11 @@ const initialInvoiceState: InvoiceDashboardState = {
 };
 
 const initialItemCatalog: XeroItemDefinition[] = [];
-const EDITABLE_XERO_STATUSES: XeroInvoiceStatus[] = ["DRAFT", "AUTHORISED"];
+const EDITABLE_XERO_STATUSES: XeroInvoiceStatus[] = ["DRAFT"];
+
+function isSystemLocked(status: XeroInvoiceStatus) {
+  return status === "AUTHORISED" || status === "PAID";
+}
 
 function mergeEmailStates(current: EmailState[], add: EmailState[], remove: EmailState[] = []): EmailState[] {
   const next = new Set(current);
@@ -178,8 +276,6 @@ type InvoiceSnapshot = {
   invoice: InvoiceDashboardState;
   items: InvoiceItem[];
 };
-
-type LeavePromptDecision = "save" | "discard" | "stay";
 
 function mapExternalStatus(status?: string | null): InvoiceDashboardState["status"] {
   const normalized = status?.trim().toUpperCase();
@@ -226,6 +322,47 @@ function resolveWorkflowStep(status?: string | null, poNumber?: string | null, h
 }
 
 function parsePersistedItems(invoice?: JobInvoiceData | null): InvoiceItem[] {
+  const responseRaw = invoice?.responsePayloadJson?.trim();
+  if (responseRaw) {
+    try {
+      const parsed = JSON.parse(responseRaw) as {
+        Invoices?: Array<{
+          LineItems?: Array<{
+            ItemCode?: string;
+            Description?: string;
+            Quantity?: number;
+            UnitAmount?: number;
+            AccountCode?: string;
+            TaxType?: string;
+            TaxAmount?: number;
+            LineAmount?: number;
+          }>;
+        }>;
+      };
+
+      const lineItems = Array.isArray(parsed.Invoices) ? parsed.Invoices[0]?.LineItems : [];
+      if (Array.isArray(lineItems)) {
+        return lineItems
+          .filter((item) => typeof item?.Description === "string" && item.Description.trim())
+          .map((item, index) => ({
+            id: `line-${index + 1}`,
+            itemCode: item.ItemCode?.trim() || "",
+            description: item.Description!.trim(),
+            quantity: typeof item.Quantity === "number" ? item.Quantity : 1,
+            unitPrice: typeof item.UnitAmount === "number" ? item.UnitAmount : 0,
+            discount: 0,
+            account: item.AccountCode?.trim() || "",
+            taxRate: mapXeroTaxType(item.TaxType),
+            xeroTaxType: item.TaxType?.trim() || "",
+            xeroTaxAmount: typeof item.TaxAmount === "number" ? item.TaxAmount : undefined,
+            xeroLineAmount: typeof item.LineAmount === "number" ? item.LineAmount : undefined,
+          }));
+      }
+    } catch {
+      // Fall back to request payload parsing below.
+    }
+  }
+
   const raw = invoice?.requestPayloadJson?.trim();
   if (!raw) return [];
 
@@ -252,7 +389,8 @@ function parsePersistedItems(invoice?: JobInvoiceData | null): InvoiceItem[] {
             unitPrice: typeof item.unitAmount === "number" ? item.unitAmount : 0,
             discount: 0,
             account: item.accountCode?.trim() || "",
-            taxRate: "15% GST on Income",
+            taxRate: mapXeroTaxType(item.taxType),
+            xeroTaxType: item.taxType?.trim() || "",
           }))
       : [];
   } catch {
@@ -308,6 +446,7 @@ export function useInvoiceDashboardState({
 }: UseInvoiceDashboardStateArgs = {}) {
   const toast = useToast();
   const [invoice, setInvoice] = useState(initialInvoiceState);
+  const [sourceInvoice, setSourceInvoice] = useState<JobInvoiceData | null | undefined>(persistedInvoice);
   const [items, setItems] = useState<InvoiceItem[]>(() => parsePersistedItems(persistedInvoice));
   const [itemCatalog, setItemCatalog] = useState(initialItemCatalog);
   const [timeline, setTimeline] = useState<EmailTimelineEvent[]>([]);
@@ -320,10 +459,8 @@ export function useInvoiceDashboardState({
   const [itemCatalogLastUpdated, setItemCatalogLastUpdated] = useState<string | null>(null);
   const [itemsDirty, setItemsDirty] = useState(!persistedInvoice);
   const [draftDirty, setDraftDirty] = useState(false);
-  const [draftSaving, setDraftSaving] = useState(false);
   const [refreshingFromXero, setRefreshingFromXero] = useState(false);
   const [updatingXeroState, setUpdatingXeroState] = useState(false);
-  const [leavePromptOpen, setLeavePromptOpen] = useState(false);
   const [pendingFocusRowId, setPendingFocusRowId] = useState<string | null>(null);
   const [manualPoNumber, setManualPoNumber] = useState("");
   const [poPanelLoading, setPoPanelLoading] = useState(true);
@@ -332,7 +469,6 @@ export function useInvoiceDashboardState({
   const [merchantRecipientsLoading, setMerchantRecipientsLoading] = useState(true);
   const [savedPoNumber, setSavedPoNumber] = useState(persistedPoNumber?.trim() || "");
   const [savedInvoiceReference, setSavedInvoiceReference] = useState(persistedInvoiceReference?.trim() || "");
-  const blocker = useBlocker(draftDirty || itemsDirty);
   const timelineRef = useRef<EmailTimelineEvent[]>([]);
   const selectedDetectionIdRef = useRef<string | null>(null);
   const poPanelInitializedRef = useRef(false);
@@ -342,13 +478,21 @@ export function useInvoiceDashboardState({
     invoice: initialInvoiceState,
     items: parsePersistedItems(persistedInvoice),
   });
-  const leavePromptResolverRef = useRef<((decision: LeavePromptDecision) => void) | null>(null);
   const resolvedCorrelationId = useMemo(() => buildCorrelationId(jobId, vehicle), [jobId, vehicle]);
-  const subtotal = useMemo(() => items.reduce((sum, item) => sum + getBaseAmount(item), 0), [items]);
-  const taxTotal = useMemo(() => items.reduce((sum, item) => sum + getTaxAmount(item), 0), [items]);
-  const totalAmount = useMemo(() => subtotal + taxTotal, [subtotal, taxTotal]);
-  const poLocked = invoice.xeroStatus === "PAID";
-  const poLockReason = poLocked ? "Invoice is already marked as Paid in Xero. PO Request data is locked and can no longer be changed." : "";
+  const subtotal = useMemo(
+    () => items.reduce((sum, item) => sum + getBaseAmount(item, invoice.amountsAre), 0),
+    [items, invoice.amountsAre]
+  );
+  const taxTotal = useMemo(
+    () => items.reduce((sum, item) => sum + getTaxAmount(item, invoice.amountsAre), 0),
+    [items, invoice.amountsAre]
+  );
+  const totalAmount = useMemo(
+    () => items.reduce((sum, item) => sum + getLineAmount(item, invoice.amountsAre), 0),
+    [items, invoice.amountsAre]
+  );
+  const poLocked = isSystemLocked(invoice.xeroStatus);
+  const poLockReason = poLocked ? "Invoice is no longer in Draft. System changes are locked; only Pull From Xero is allowed." : "";
   const draftSendBlockedReason =
     !poLocked && hasExternalDraftSend
       ? "Detected external send from Gmail. System draft send is disabled for this PO thread."
@@ -401,10 +545,11 @@ export function useInvoiceDashboardState({
   }, [detections, savedPoNumber, timeline]);
 
   const buildDraftPayload = () => ({
-    lineAmountTypes: "Exclusive",
+    lineAmountTypes: mapAmountsAreToLineAmountTypes(invoice.amountsAre),
     date: invoice.issueDate || new Date().toISOString().slice(0, 10),
     reference: invoice.reference,
     contactName: invoice.contact,
+    invoiceNote: invoice.invoiceNote,
     lineItems: items.map((item) => ({
       description: item.description,
       quantity: item.quantity,
@@ -434,57 +579,35 @@ export function useInvoiceDashboardState({
     setPendingFocusRowId(null);
   };
 
-  const requestLeaveDecision = () =>
-    new Promise<LeavePromptDecision>((resolve) => {
-      leavePromptResolverRef.current = resolve;
-      setLeavePromptOpen(true);
-    });
-
-  const resolveLeavePrompt = (decision: LeavePromptDecision) => {
-    setLeavePromptOpen(false);
-    leavePromptResolverRef.current?.(decision);
-    leavePromptResolverRef.current = null;
-  };
-
   const persistDraftToDb = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!jobId) return true;
-
-    setDraftSaving(true);
-    try {
-      const res = await saveJobInvoiceDraft(jobId, buildDraftPayload());
-      if (!res.ok) {
-        if (!silent) toast.error(res.error || "Failed to save invoice draft");
-        return false;
-      }
-
-      const savedInvoice = res.data?.invoice;
-      setInvoice((prev) => ({
-        ...prev,
-        reference: savedInvoice?.reference || prev.reference,
-        issueDate: savedInvoice?.invoiceDate || prev.issueDate,
-        invoiceNumber: savedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
-        xeroInvoiceId: savedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
-        xeroStatus: mapXeroStatus(savedInvoice?.externalStatus) || prev.xeroStatus,
-        latestPaymentMethod: savedInvoice?.latestPayment?.method || prev.latestPaymentMethod,
-        latestPaymentReference: savedInvoice?.latestPayment?.reference || prev.latestPaymentReference,
-      }));
-      setDraftDirty(false);
-      return true;
-    } finally {
-      setDraftSaving(false);
+    if (isSystemLocked(invoice.xeroStatus)) {
+      if (!silent) toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return false;
     }
-  };
 
-  const confirmSaveBeforeLeaving = async () => {
-    if (!draftDirty && !itemsDirty) return true;
-    const decision = await requestLeaveDecision();
-    if (decision === "stay") return false;
-    if (decision === "discard") {
-      const reverted = await discardChanges({ silent: true });
-      return reverted;
+    const res = await saveJobInvoiceDraft(jobId, buildDraftPayload());
+    if (!res.ok) {
+      if (!silent) toast.error(res.error || "Failed to save invoice draft");
+      return false;
     }
-    if (!draftDirty) return true;
-    return await persistDraftToDb();
+
+    const savedInvoice = res.data?.invoice;
+    setSourceInvoice(savedInvoice ?? sourceInvoice ?? persistedInvoice);
+    setInvoice((prev) => ({
+      ...prev,
+      reference: savedInvoice?.reference || prev.reference,
+      invoiceNote: savedInvoice?.invoiceNote ?? "",
+      amountsAre: savedInvoice ? mapLineAmountTypes(savedInvoice.lineAmountTypes) : prev.amountsAre,
+      issueDate: savedInvoice?.invoiceDate || prev.issueDate,
+      invoiceNumber: savedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
+      xeroInvoiceId: savedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
+      xeroStatus: mapXeroStatus(savedInvoice?.externalStatus) || prev.xeroStatus,
+      latestPaymentMethod: savedInvoice?.latestPayment?.method || prev.latestPaymentMethod,
+      latestPaymentReference: savedInvoice?.latestPayment?.reference || prev.latestPaymentReference,
+    }));
+    setDraftDirty(false);
+    return true;
   };
 
   const discardChanges = async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -496,38 +619,38 @@ export function useInvoiceDashboardState({
       return true;
     }
 
-    setDraftSaving(true);
-    try {
-      const res = await saveJobInvoiceDraft(jobId, {
-        lineAmountTypes: "Exclusive",
-        date: snapshot.invoice.issueDate || new Date().toISOString().slice(0, 10),
-        reference: snapshot.invoice.reference,
-        contactName: snapshot.invoice.contact,
-        lineItems: snapshot.items.map((item) => ({
-          description: item.description,
-          quantity: item.quantity,
-          unitAmount: item.unitPrice,
-          itemCode: item.itemCode || undefined,
-          accountCode: item.account || undefined,
-          taxType: item.taxRate,
-          discountRate: item.discount > 0 ? item.discount : undefined,
-        })),
-      });
+    const res = await saveJobInvoiceDraft(jobId, {
+      lineAmountTypes: mapAmountsAreToLineAmountTypes(snapshot.invoice.amountsAre),
+      date: snapshot.invoice.issueDate || new Date().toISOString().slice(0, 10),
+      reference: snapshot.invoice.reference,
+      contactName: snapshot.invoice.contact,
+      invoiceNote: snapshot.invoice.invoiceNote,
+      lineItems: snapshot.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitAmount: item.unitPrice,
+        itemCode: item.itemCode || undefined,
+        accountCode: item.account || undefined,
+        taxType: item.taxRate,
+        discountRate: item.discount > 0 ? item.discount : undefined,
+      })),
+    });
 
-      if (!res.ok) {
-        if (!silent) toast.error(res.error || "Failed to discard invoice changes");
-        return false;
-      }
-
-      applySnapshot(snapshot);
-      if (!silent) toast.info("Invoice changes discarded");
-      return true;
-    } finally {
-      setDraftSaving(false);
+    if (!res.ok) {
+      if (!silent) toast.error(res.error || "Failed to discard invoice changes");
+      return false;
     }
+
+    applySnapshot(snapshot);
+    if (!silent) toast.info("Invoice changes discarded");
+    return true;
   };
 
   const updateItem = (id: string, field: keyof InvoiceItem, value: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -542,15 +665,36 @@ export function useInvoiceDashboardState({
               unitPrice: matched.unitPrice,
               account: matched.account,
               taxRate: matched.taxRate,
+              xeroTaxType: undefined,
+              xeroTaxAmount: undefined,
+              xeroLineAmount: undefined,
             };
           }
-          return { ...item, itemCode: value };
+          return {
+            ...item,
+            itemCode: value,
+            xeroTaxType: undefined,
+            xeroTaxAmount: undefined,
+            xeroLineAmount: undefined,
+          };
         }
         if (field === "description" || field === "account" || field === "taxRate") {
-          return { ...item, [field]: value };
+          return {
+            ...item,
+            [field]: value,
+            xeroTaxType: undefined,
+            xeroTaxAmount: undefined,
+            xeroLineAmount: undefined,
+          };
         }
         const parsed = Number(value || 0);
-        return { ...item, [field]: Number.isFinite(parsed) ? parsed : 0 };
+        return {
+          ...item,
+          [field]: Number.isFinite(parsed) ? parsed : 0,
+          xeroTaxType: undefined,
+          xeroTaxAmount: undefined,
+          xeroLineAmount: undefined,
+        };
       })
     );
     setInvoice((prev) => ({ ...prev, synced: false }));
@@ -559,6 +703,10 @@ export function useInvoiceDashboardState({
   };
 
   const addItem = () => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     const newId = `line-${nextItemId}`;
     setItems((prev) => [...prev, createNewItem(nextItemId)]);
     setNextItemId((prev) => prev + 1);
@@ -570,11 +718,28 @@ export function useInvoiceDashboardState({
   };
 
   const deleteItem = (id: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
     setItems((prev) => prev.filter((item) => item.id !== id));
     setInvoice((prev) => ({ ...prev, synced: false }));
     setItemsDirty(true);
     setDraftDirty(true);
     toast.info("Invoice item removed");
+  };
+
+  const setInvoiceNote = (value: string) => {
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return;
+    }
+
+    setInvoice((prev) => ({
+      ...prev,
+      invoiceNote: value,
+    }));
+    setDraftDirty(true);
   };
 
   const syncInvoice = () => {
@@ -596,12 +761,15 @@ export function useInvoiceDashboardState({
       }
 
       const syncedInvoice = res.data?.invoice;
+      setSourceInvoice(syncedInvoice ?? sourceInvoice ?? persistedInvoice);
       const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
 
       setInvoice((prev) => ({
         ...prev,
         contact: syncedInvoice?.contactName || prev.contact,
         reference: syncedInvoice?.reference || prev.reference,
+        invoiceNote: syncedInvoice?.invoiceNote ?? "",
+        amountsAre: syncedInvoice ? mapLineAmountTypes(syncedInvoice.lineAmountTypes) : prev.amountsAre,
         issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -616,12 +784,13 @@ export function useInvoiceDashboardState({
         currentWorkflowStep: Math.max(prev.currentWorkflowStep, 2),
       }));
 
-      if (typeof syncedInvoice?.requestPayloadJson === "string") {
+      if (typeof syncedInvoice?.requestPayloadJson === "string" || typeof syncedInvoice?.responsePayloadJson === "string") {
         const nextItems = parsePersistedItems({
           id: syncedInvoice.id || "synced",
           jobId: syncedInvoice.jobId || jobId,
           provider: syncedInvoice.provider || "xero",
           requestPayloadJson: syncedInvoice.requestPayloadJson,
+          responsePayloadJson: syncedInvoice.responsePayloadJson,
         });
         if (nextItems.length > 0) {
           setItems(nextItems);
@@ -656,11 +825,14 @@ export function useInvoiceDashboardState({
       }
 
       const pulledInvoice = res.data?.invoice;
+      setSourceInvoice(pulledInvoice ?? sourceInvoice ?? persistedInvoice);
       const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
       setInvoice((prev) => ({
         ...prev,
         contact: pulledInvoice?.contactName || prev.contact,
         reference: pulledInvoice?.reference || prev.reference,
+        invoiceNote: pulledInvoice?.invoiceNote ?? "",
+        amountsAre: pulledInvoice ? mapLineAmountTypes(pulledInvoice.lineAmountTypes) : prev.amountsAre,
         issueDate: pulledInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: pulledInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: pulledInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -673,12 +845,13 @@ export function useInvoiceDashboardState({
         lastSyncDirection: "Xero -> System",
       }));
 
-      if (typeof pulledInvoice?.requestPayloadJson === "string") {
+      if (typeof pulledInvoice?.requestPayloadJson === "string" || typeof pulledInvoice?.responsePayloadJson === "string") {
         const nextItems = parsePersistedItems({
           id: pulledInvoice.id || "pulled",
           jobId: pulledInvoice.jobId || jobId,
           provider: pulledInvoice.provider || "xero",
           requestPayloadJson: pulledInvoice.requestPayloadJson,
+          responsePayloadJson: pulledInvoice.responsePayloadJson,
         });
         if (nextItems.length > 0) {
           setItems(nextItems);
@@ -947,6 +1120,7 @@ export function useInvoiceDashboardState({
       ...prev,
       contact: syncedInvoice?.contactName || prev.contact,
       reference: syncedInvoice?.reference || nextReference,
+      invoiceNote: syncedInvoice?.invoiceNote ?? "",
       issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
       invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
       xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -980,6 +1154,10 @@ export function useInvoiceDashboardState({
   const saveReference = async (nextReferenceRaw: string) => {
     const nextReference = nextReferenceRaw.trim();
     if (!jobId) return false;
+    if (isSystemLocked(invoice.xeroStatus)) {
+      toast.error("This invoice is no longer editable in the system. Pull from Xero to refresh it.");
+      return false;
+    }
     if (!nextReference) {
       toast.error("Reference cannot be empty");
       return false;
@@ -1001,6 +1179,7 @@ export function useInvoiceDashboardState({
       ...prev,
       contact: syncedInvoice?.contactName || prev.contact,
       reference: syncedInvoice?.reference || nextReference,
+      invoiceNote: syncedInvoice?.invoiceNote ?? "",
       issueDate: syncedInvoice?.invoiceDate || prev.issueDate,
       invoiceNumber: syncedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
       xeroInvoiceId: syncedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -1064,6 +1243,8 @@ export function useInvoiceDashboardState({
       ...initialInvoiceState,
       correlationId: resolvedCorrelationId,
       reference: persistedInvoice?.reference?.trim() || "",
+      invoiceNote: persistedInvoice?.invoiceNote?.trim() || "",
+      amountsAre: mapLineAmountTypes(persistedInvoice?.lineAmountTypes),
       issueDate: persistedInvoice?.invoiceDate || "",
       invoiceNumber: persistedInvoice?.externalInvoiceNumber || "",
       xeroInvoiceId: persistedInvoice?.externalInvoiceId || "",
@@ -1087,6 +1268,7 @@ export function useInvoiceDashboardState({
       ...prev,
       ...nextInvoice,
     }));
+    setSourceInvoice(persistedInvoice);
     const persistedItems = parsePersistedItems(persistedInvoice);
     setItems(persistedItems);
     setNextItemId(persistedItems.length + 1);
@@ -1115,7 +1297,7 @@ export function useInvoiceDashboardState({
     }, 800);
 
     return () => window.clearTimeout(timer);
-  }, [draftDirty, jobId, items, invoice.contact, invoice.issueDate, invoice.reference]);
+  }, [draftDirty, jobId, items, invoice.contact, invoice.issueDate, invoice.reference, invoice.invoiceNote]);
 
   useEffect(() => {
     if (draftDirty || itemsDirty) return;
@@ -1124,17 +1306,6 @@ export function useInvoiceDashboardState({
       items: cloneItems(items),
     };
   }, [draftDirty, itemsDirty, invoice, items]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!draftDirty && !itemsDirty && !draftSaving) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [draftDirty, itemsDirty, draftSaving]);
 
   useEffect(() => {
     setSavedPoNumber(persistedPoNumber?.trim() || "");
@@ -1421,47 +1592,44 @@ export function useInvoiceDashboardState({
     };
   }, [customer, persistedInvoice, vehicle]);
 
-  useEffect(() => {
-    if (blocker.state !== "blocked") return;
-    let cancelled = false;
-
-    void (async () => {
-      const shouldProceed = await confirmSaveBeforeLeaving();
-      if (cancelled) return;
-      if (shouldProceed) {
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [blocker]);
-
-  const updateXeroState = async (state: XeroStateOption, epostReferenceId?: string) => {
-    if (!jobId) return false;
+  const updateXeroState = async (
+    state: XeroStateOption,
+    options?: {
+      epostReferenceId?: string;
+      reference?: string;
+      amount?: number;
+    }
+  ) => {
+    if (!jobId) return { success: false, message: "Missing job id." };
 
     setUpdatingXeroState(true);
     try {
       const shouldPersistPaymentDate = state === "PAID_CASH" || state === "PAID_EPOST" || state === "PAID_BANK_TRANSFER";
       const res = await updateJobInvoiceXeroState(jobId, {
         state,
-        epostReferenceId: epostReferenceId?.trim() || undefined,
+        epostReferenceId: options?.epostReferenceId?.trim() || undefined,
+        reference: options?.reference?.trim() || undefined,
+        amount: typeof options?.amount === "number" && Number.isFinite(options.amount) ? options.amount : undefined,
         paymentDate: shouldPersistPaymentDate ? new Date().toISOString().slice(0, 10) : undefined,
       });
 
       if (!res.ok) {
-        toast.error(res.error || "Failed to update Xero invoice status");
-        return false;
+        const message = res.error || "Failed to update Xero invoice status";
+        if (res.status === 400 || res.status === 409) {
+          toast.info(message);
+        } else {
+          toast.error(message);
+        }
+        return { success: false, message };
       }
 
       const updatedInvoice = res.data?.invoice;
+      setSourceInvoice(updatedInvoice ?? sourceInvoice ?? persistedInvoice);
       const now = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
       setInvoice((prev) => ({
         ...prev,
         reference: updatedInvoice?.reference || prev.reference,
+        invoiceNote: updatedInvoice?.invoiceNote ?? "",
         issueDate: updatedInvoice?.invoiceDate || prev.issueDate,
         invoiceNumber: updatedInvoice?.externalInvoiceNumber || prev.invoiceNumber,
         xeroInvoiceId: updatedInvoice?.externalInvoiceId || prev.xeroInvoiceId,
@@ -1474,14 +1642,20 @@ export function useInvoiceDashboardState({
         currentWorkflowStep: resolveWorkflowStep(updatedInvoice?.externalStatus, savedPoNumber, true),
         synced: true,
       }));
-      toast.success("Xero invoice status updated");
-      return true;
+      if (state !== "DRAFT") {
+        setItemsDirty(false);
+        setDraftDirty(false);
+      }
+      toast.success("Payment saved");
+      return { success: true, message: "Payment saved" };
     } finally {
       setUpdatingXeroState(false);
     }
   };
 
   return {
+    persistedInvoice,
+    sourceInvoice,
     invoice,
     items,
     itemCatalog,
@@ -1493,7 +1667,6 @@ export function useInvoiceDashboardState({
     itemCatalogLastUpdated,
     itemsDirty,
     draftDirty,
-    leavePromptOpen,
     refreshingFromXero,
     updatingXeroState,
     referencePreview,
@@ -1509,6 +1682,7 @@ export function useInvoiceDashboardState({
     taxTotal,
     totalAmount,
     manualPoNumber,
+    setInvoiceNote,
     setSelectedDetectionId,
     setPendingFocusRowId,
     setManualPoNumber,
@@ -1522,8 +1696,6 @@ export function useInvoiceDashboardState({
     refreshFromXero,
     openInXero,
     saveReference,
-    confirmSaveBeforeLeaving,
-    resolveLeavePrompt,
     refreshItemCatalog,
     sendPoRequest,
     sendReminderNow,

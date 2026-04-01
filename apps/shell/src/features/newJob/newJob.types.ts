@@ -18,6 +18,7 @@ export type ServiceOption = {
   id: ServiceType;
   label: string;
   icon: LucideIcon;
+  catalogItemId?: string;
 };
 
 export type ServiceCatalogItem = {

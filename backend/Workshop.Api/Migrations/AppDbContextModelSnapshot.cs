@@ -72,6 +72,57 @@ namespace Workshop.Api.Migrations
                     b.ToTable("customers", (string)null);
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.CustomerServicePrice", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<long>("CustomerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("customer_id");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<long>("ServiceCatalogItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("service_catalog_item_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("XeroItemCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("xero_item_code");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_customer_service_prices_customer_id");
+
+                    b.HasIndex("ServiceCatalogItemId")
+                        .HasDatabaseName("ix_customer_service_prices_service_catalog_item_id");
+
+                    b.ToTable("customer_service_prices", (string)null);
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.CustomerStaff", b =>
                 {
                     b.Property<long>("Id")
@@ -106,7 +157,7 @@ namespace Workshop.Api.Migrations
                     b.ToTable("customer_staff", (string)null);
                 });
 
-            modelBuilder.Entity("Workshop.Api.Models.CustomerServicePrice", b =>
+            modelBuilder.Entity("Workshop.Api.Models.GmailAccount", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -115,25 +166,45 @@ namespace Workshop.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("AccessToken")
+                        .HasColumnType("text")
+                        .HasColumnName("access_token");
+
+                    b.Property<DateTime?>("AccessTokenExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("access_token_expires_at");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("date_trunc('milliseconds', now())");
 
-                    b.Property<long>("CustomerId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("customer_id");
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("email");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasColumnName("is_active")
-                        .HasDefaultValue(true);
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
 
-                    b.Property<long>("ServiceCatalogItemId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("service_catalog_item_id");
+                    b.Property<bool>("IsDefault")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_default");
+
+                    b.Property<string>("RefreshToken")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("refresh_token");
+
+                    b.Property<string>("Scope")
+                        .HasColumnType("text")
+                        .HasColumnName("scope");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
@@ -141,20 +212,16 @@ namespace Workshop.Api.Migrations
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("date_trunc('milliseconds', now())");
 
-                    b.Property<string>("XeroItemCode")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("xero_item_code");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("CustomerId")
-                        .HasDatabaseName("ix_customer_service_prices_customer_id");
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("ux_gmail_accounts_email");
 
-                    b.HasIndex("ServiceCatalogItemId")
-                        .HasDatabaseName("ix_customer_service_prices_service_catalog_item_id");
+                    b.HasIndex("IsDefault")
+                        .HasDatabaseName("ix_gmail_accounts_is_default");
 
-                    b.ToTable("customer_service_prices", (string)null);
+                    b.ToTable("gmail_accounts", (string)null);
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.GmailMessageLog", b =>
@@ -202,6 +269,14 @@ namespace Workshop.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("from_address");
 
+                    b.Property<string>("GmailAccountEmail")
+                        .HasColumnType("text")
+                        .HasColumnName("gmail_account_email");
+
+                    b.Property<long?>("GmailAccountId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gmail_account_id");
+
                     b.Property<string>("GmailMessageId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -226,6 +301,12 @@ namespace Workshop.Api.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("is_read");
+
+                    b.Property<bool>("IsSystemInitiated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system_initiated");
 
                     b.Property<DateTime?>("ReadAt")
                         .HasColumnType("timestamp with time zone")
@@ -262,12 +343,15 @@ namespace Workshop.Api.Migrations
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_gmail_message_logs_correlation_id");
 
-                    b.HasIndex("GmailMessageId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_gmail_message_logs_message_id");
+                    b.HasIndex("GmailAccountId")
+                        .HasDatabaseName("ix_gmail_message_logs_account_id");
 
                     b.HasIndex("GmailThreadId")
                         .HasDatabaseName("ix_gmail_message_logs_thread_id");
+
+                    b.HasIndex("GmailAccountId", "GmailMessageId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_gmail_message_logs_account_message_id");
 
                     b.ToTable("gmail_message_logs", (string)null);
                 });
@@ -401,6 +485,86 @@ namespace Workshop.Api.Migrations
                     b.ToTable("inventory_items", (string)null);
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.OutboxMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AggregateId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("aggregate_id");
+
+                    b.Property<string>("AggregateType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("aggregate_type");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTime>("AvailableAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("available_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("message_type");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "AvailableAt")
+                        .HasDatabaseName("ix_outbox_messages_status_available_at");
+
+                    b.HasIndex("AggregateType", "AggregateId", "MessageType")
+                        .HasDatabaseName("ix_outbox_messages_aggregate_message_type");
+
+                    b.ToTable("outbox_messages", (string)null);
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.Job", b =>
                 {
                     b.Property<long>("Id")
@@ -451,6 +615,12 @@ namespace Workshop.Api.Migrations
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("date_trunc('milliseconds', now())");
 
+                    b.Property<bool>("UseServiceCatalogMapping")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("use_service_catalog_mapping");
+
                     b.Property<long?>("VehicleId")
                         .HasColumnType("bigint")
                         .HasColumnName("vehicle_id");
@@ -494,6 +664,10 @@ namespace Workshop.Api.Migrations
                     b.Property<DateOnly?>("InvoiceDate")
                         .HasColumnType("date")
                         .HasColumnName("invoice_date");
+
+                    b.Property<string>("InvoiceNote")
+                        .HasColumnType("text")
+                        .HasColumnName("invoice_note");
 
                     b.Property<long>("JobId")
                         .HasColumnType("bigint")
@@ -700,6 +874,97 @@ namespace Workshop.Api.Migrations
                     b.ToTable("job_parts_services", (string)null);
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.JobPayment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AccountCode")
+                        .HasColumnType("text")
+                        .HasColumnName("account_code");
+
+                    b.Property<string>("AccountName")
+                        .HasColumnType("text")
+                        .HasColumnName("account_name");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("ExternalInvoiceId")
+                        .HasColumnType("text")
+                        .HasColumnName("external_invoice_id");
+
+                    b.Property<string>("ExternalPaymentId")
+                        .HasColumnType("text")
+                        .HasColumnName("external_payment_id");
+
+                    b.Property<string>("ExternalStatus")
+                        .HasColumnType("text")
+                        .HasColumnName("external_status");
+
+                    b.Property<long>("JobId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("job_id");
+
+                    b.Property<long>("JobInvoiceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("job_invoice_id");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("method");
+
+                    b.Property<DateOnly>("PaymentDate")
+                        .HasColumnType("date")
+                        .HasColumnName("payment_date");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("Reference")
+                        .HasColumnType("text")
+                        .HasColumnName("reference");
+
+                    b.Property<string>("RequestPayloadJson")
+                        .HasColumnType("text")
+                        .HasColumnName("request_payload_json");
+
+                    b.Property<string>("ResponsePayloadJson")
+                        .HasColumnType("text")
+                        .HasColumnName("response_payload_json");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .HasDatabaseName("ix_job_payments_job_id");
+
+                    b.HasIndex("JobInvoiceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_job_payments_job_invoice_id");
+
+                    b.ToTable("job_payments", (string)null);
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.JobPoState", b =>
                 {
                     b.Property<long>("Id")
@@ -813,6 +1078,51 @@ namespace Workshop.Api.Migrations
                         .HasDatabaseName("ix_job_po_state_status");
 
                     b.ToTable("job_po_state", (string)null);
+                });
+
+            modelBuilder.Entity("Workshop.Api.Models.JobServiceSelection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<long>("JobId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("job_id");
+
+                    b.Property<long>("ServiceCatalogItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("service_catalog_item_id");
+
+                    b.Property<string>("ServiceNameSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("service_name_snapshot");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .HasDatabaseName("ix_job_service_selections_job_id");
+
+                    b.HasIndex("ServiceCatalogItemId")
+                        .HasDatabaseName("ix_job_service_selections_service_catalog_item_id");
+
+                    b.ToTable("job_service_selections", (string)null);
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.JobTag", b =>
@@ -944,6 +1254,70 @@ namespace Workshop.Api.Migrations
                     b.ToTable("job_wof_records", (string)null);
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.ServiceCatalogItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("category");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("DealershipLinkCode")
+                        .HasColumnType("text")
+                        .HasColumnName("dealership_link_code");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PersonalLinkCode")
+                        .HasColumnType("text")
+                        .HasColumnName("personal_link_code");
+
+                    b.Property<string>("ServiceType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("service_type");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceType", "Category")
+                        .HasDatabaseName("ix_service_catalog_items_type_category");
+
+                    b.ToTable("service_catalog_items", (string)null);
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.Staff", b =>
                 {
                     b.Property<long>("Id")
@@ -977,6 +1351,53 @@ namespace Workshop.Api.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("staff", (string)null);
+                });
+
+            modelBuilder.Entity("Workshop.Api.Models.SystemSyncState", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("LastResult")
+                        .HasColumnType("text")
+                        .HasColumnName("last_result");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_synced_at");
+
+                    b.Property<string>("SyncKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("sync_key");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("date_trunc('milliseconds', now())");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SyncKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_system_sync_state_sync_key");
+
+                    b.ToTable("system_sync_state", (string)null);
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.Tag", b =>
@@ -1144,6 +1565,10 @@ namespace Workshop.Api.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Code")
+                        .HasColumnType("text")
+                        .HasColumnName("code");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -1324,6 +1749,18 @@ namespace Workshop.Api.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("date_trunc('milliseconds', now())");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDefault")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_default");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1342,6 +1779,10 @@ namespace Workshop.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("tenant_id");
 
+                    b.Property<string>("TenantName")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_name");
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1350,22 +1791,14 @@ namespace Workshop.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Provider")
+                    b.HasIndex("IsDefault")
+                        .HasDatabaseName("ix_xero_tokens_is_default");
+
+                    b.HasIndex("Provider", "TenantId")
                         .IsUnique()
-                        .HasDatabaseName("ux_xero_tokens_provider");
+                        .HasDatabaseName("ux_xero_tokens_provider_tenant_id");
 
                     b.ToTable("xero_tokens", (string)null);
-                });
-
-            modelBuilder.Entity("Workshop.Api.Models.CustomerStaff", b =>
-                {
-                    b.HasOne("Workshop.Api.Models.Customer", "Customer")
-                        .WithMany("StaffMembers")
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.CustomerServicePrice", b =>
@@ -1387,6 +1820,17 @@ namespace Workshop.Api.Migrations
                     b.Navigation("ServiceCatalogItem");
                 });
 
+            modelBuilder.Entity("Workshop.Api.Models.CustomerStaff", b =>
+                {
+                    b.HasOne("Workshop.Api.Models.Customer", "Customer")
+                        .WithMany("StaffMembers")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
             modelBuilder.Entity("Workshop.Api.Models.JobInvoice", b =>
                 {
                     b.HasOne("Workshop.Api.Models.Job", null)
@@ -1394,6 +1838,40 @@ namespace Workshop.Api.Migrations
                         .HasForeignKey("JobId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Workshop.Api.Models.JobPayment", b =>
+                {
+                    b.HasOne("Workshop.Api.Models.Job", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Workshop.Api.Models.JobInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("JobInvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Workshop.Api.Models.JobServiceSelection", b =>
+                {
+                    b.HasOne("Workshop.Api.Models.Job", "Job")
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Workshop.Api.Models.ServiceCatalogItem", "ServiceCatalogItem")
+                        .WithMany()
+                        .HasForeignKey("ServiceCatalogItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+
+                    b.Navigation("ServiceCatalogItem");
                 });
 
             modelBuilder.Entity("Workshop.Api.Models.WorklogEntry", b =>

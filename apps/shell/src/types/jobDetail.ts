@@ -9,6 +9,7 @@ export type JobInvoiceData = {
   externalStatus?: string;
   reference?: string;
   contactName?: string;
+  invoiceNote?: string;
   invoiceDate?: string;
   lineAmountTypes?: string;
   tenantId?: string;
@@ -204,7 +205,19 @@ export type JobDetailData = {
   poNumber?: string;
   invoiceReference?: string;
   createdAt?: string;
+  hasWofService?: boolean;
+  wofStatus?: "Todo" | "Checked" | "Recorded" | null;
   vehicle: VehicleInfo;
   customer: CustomerInfo;
   invoice?: JobInvoiceData | null;
+  invoiceProcessing?: {
+    id: string;
+    messageType: string;
+    status: string;
+    attemptCount: number;
+    lastError?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    processedAt?: string | null;
+  } | null;
 };

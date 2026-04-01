@@ -37,6 +37,19 @@ export function JobsFiltersCard({ value, onChange, onReset, tagOptions }: Props)
           </div>
 
           <div className="col-span-12 md:col-span-3 lg:col-span-3">
+            <div className="mb-1 text-xs text-[rgba(0,0,0,0.55)]">WOF 状态</div>
+            <Select
+              value={value.wofStatus}
+              onChange={(e) => onChange({ ...value, wofStatus: e.target.value as JobsFilters["wofStatus"] })}
+            >
+              <option value="">全部</option>
+              <option value="Todo">待查</option>
+              <option value="Checked">检查完成</option>
+              <option value="Recorded">已录入</option>
+            </Select>
+          </div>
+
+          <div className="col-span-12 md:col-span-3 lg:col-span-3">
             <div className="mb-1 text-xs text-[rgba(0,0,0,0.55)]">时间</div>
             <Select
               value={value.timeRange}

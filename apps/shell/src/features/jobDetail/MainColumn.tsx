@@ -48,6 +48,9 @@ type MainColumnProps = {
     id: string,
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
+  onDeleteWofRecord?: (
+    id: string
+  ) => Promise<{ success: boolean; message?: string }>;
   onCreateWofRecord?: (
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
@@ -90,6 +93,10 @@ type MainColumnProps = {
   }) => Promise<{ success: boolean; message?: string }>;
   onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingXeroInvoice?: boolean;
+  onAttachXeroInvoice?: (invoiceNumber: string) => Promise<{ success: boolean; message?: string }>;
+  isAttachingXeroInvoice?: boolean;
+  onDetachXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isDetachingXeroInvoice?: boolean;
   onArchiveJob?: () => Promise<{ success: boolean; message?: string }>;
   isArchivingJob?: boolean;
   onDeleteJob?: () => void;
@@ -119,6 +126,7 @@ export function MainColumn({
   onRefreshWof,
   onDeleteWofServer,
   onUpdateWofRecord,
+  onDeleteWofRecord,
   onCreateWofRecord,
   onCreatePartsService,
   onUpdatePartsService,
@@ -137,6 +145,10 @@ export function MainColumn({
   onSaveVehicle,
   onCreateXeroInvoice,
   isCreatingXeroInvoice,
+  onAttachXeroInvoice,
+  isAttachingXeroInvoice,
+  onDetachXeroInvoice,
+  isDetachingXeroInvoice,
   onArchiveJob,
   isArchivingJob,
   onDeleteJob,
@@ -160,14 +172,7 @@ export function MainColumn({
   const needsPo = Boolean(jobData.needsPo);
 
   const handleTabChange = (nextTab: JobDetailTabKey) => {
-    if (!invoiceDashboard.draftDirty) {
-      onTabChange(nextTab);
-      return;
-    }
-
-    void invoiceDashboard.confirmSaveBeforeLeaving().then((shouldProceed) => {
-      if (shouldProceed) onTabChange(nextTab);
-    });
+    onTabChange(nextTab);
   };
 
   const tabs = useMemo(() => {
@@ -289,8 +294,10 @@ export function MainColumn({
 
         {activeTab === "WOF" ? (
           <WofPanel
-            hasRecord={hasWofRecord}
-            onAdd={onAddWof}
+              hasRecord={hasWofRecord}
+              hasService={jobData.hasWofService}
+              wofStatus={jobData.wofStatus}
+              onAdd={onAddWof}
             records={wofRecords}
             checkItems={wofCheckItems}
             failReasons={failReasons}
@@ -298,6 +305,7 @@ export function MainColumn({
             onRefresh={onRefreshWof}
             onDeleteWofServer={onDeleteWofServer}
             onUpdateRecord={onUpdateWofRecord}
+            onDeleteRecord={onDeleteWofRecord}
             onCreateRecord={onCreateWofRecord}
             jobId={jobData.id}
             vehiclePlate={jobData.vehicle.plate}
@@ -356,43 +364,19 @@ export function MainColumn({
           <InvoicePanel
             model={invoiceDashboard}
             hasInvoice={Boolean(jobData.invoice)}
+            invoiceProcessing={jobData.invoiceProcessing}
             onCreateInvoice={onCreateXeroInvoice}
             isCreatingInvoice={isCreatingXeroInvoice}
+            onAttachInvoice={onAttachXeroInvoice}
+            isAttachingInvoice={isAttachingXeroInvoice}
+            onDetachInvoice={onDetachXeroInvoice}
+            isDetachingInvoice={isDetachingXeroInvoice}
             needsPo={needsPo}
           />
         ) : null}
         {activeTab === "PO" && needsPo ? <PoPanel model={invoiceDashboard} /> : null}
       </Card>
 
-      {invoiceDashboard.leavePromptOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="text-lg font-semibold text-[var(--ds-primary)]">Invoice changes not saved</div>
-            <p className="mt-2 text-sm leading-6 text-[var(--ds-muted)]">
-              You have invoice changes that have not been confirmed yet. Choose whether to keep the current changes or cancel them before leaving this page.
-            </p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              {/* <Button variant="ghost" className="h-10 px-4" onClick={() => invoiceDashboard.resolveLeavePrompt("stay")}>
-                Stay Here
-              </Button> */}
-              <Button
-                variant="ghost"
-                className="h-10 border-[var(--ds-border)] px-4"
-                onClick={() => invoiceDashboard.resolveLeavePrompt("discard")}
-              >
-                Cancel Changes
-              </Button>
-              <Button  variant="ghost" 
-              
-        className="h-10 px-4 !bg-red-600 !text-white"
-              
-              onClick={() => invoiceDashboard.resolveLeavePrompt("save")}>
-                Save Changes
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

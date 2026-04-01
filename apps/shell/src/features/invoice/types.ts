@@ -37,6 +37,9 @@ export type InvoiceItem = {
   discount: number;
   account: string;
   taxRate: TaxRateOption;
+  xeroTaxType?: string;
+  xeroTaxAmount?: number;
+  xeroLineAmount?: number;
 };
 
 export type EmailState = "Draft" | "Email Sent" | "Get Reply" | "Reminder Scheduled" | "Get PO";
@@ -137,6 +140,7 @@ export type InvoiceDashboardState = {
   dueDate: string;
   invoiceNumber: string;
   reference: string;
+  invoiceNote: string;
   amountsAre: AmountsAre;
   xeroInvoiceId: string;
   status: InvoiceStatus;
