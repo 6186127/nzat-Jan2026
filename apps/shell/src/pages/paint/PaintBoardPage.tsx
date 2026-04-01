@@ -12,6 +12,9 @@ import {
   getDurationDays,
   mapStageKey,
   normalizeDate,
+  PAINT_STAGE_INDEX_BY_KEY,
+  PAINT_STAGE_LABELS,
+  PAINT_STAGE_ORDER,
   type PaintBoardJob,
   type StageKey,
 } from "@/features/paint/paintBoard.utils";
@@ -27,8 +30,16 @@ const STAGES: Record<
     text: string;
   }
 > = {
+  on_hold: {
+    label: PAINT_STAGE_LABELS.on_hold,
+    dot: "bg-amber-500",
+    pill: "bg-amber-100 text-amber-700",
+    bar: "bg-amber-500",
+    barSoft: "bg-amber-100",
+    text: "text-amber-700",
+  },
   waiting: {
-    label: "等待处理",
+    label: PAINT_STAGE_LABELS.waiting,
     dot: "bg-slate-400",
     pill: "bg-slate-100 text-slate-700",
     bar: "bg-slate-300",
@@ -36,7 +47,7 @@ const STAGES: Record<
     text: "text-slate-700",
   },
   sheet: {
-    label: "钣金/底漆",
+    label: PAINT_STAGE_LABELS.sheet,
     dot: "bg-sky-500",
     pill: "bg-sky-100 text-sky-700",
     bar: "bg-sky-500",
@@ -44,7 +55,7 @@ const STAGES: Record<
     text: "text-sky-700",
   },
   undercoat: {
-    label: "打底漆",
+    label: PAINT_STAGE_LABELS.undercoat,
     dot: "bg-amber-500",
     pill: "bg-amber-100 text-amber-700",
     bar: "bg-amber-500",
@@ -52,7 +63,7 @@ const STAGES: Record<
     text: "text-amber-700",
   },
   sanding: {
-    label: "底漆打磨",
+    label: PAINT_STAGE_LABELS.sanding,
     dot: "bg-fuchsia-500",
     pill: "bg-fuchsia-100 text-fuchsia-700",
     bar: "bg-fuchsia-500",
@@ -60,7 +71,7 @@ const STAGES: Record<
     text: "text-fuchsia-700",
   },
   painting: {
-    label: "喷漆",
+    label: PAINT_STAGE_LABELS.painting,
     dot: "bg-rose-500",
     pill: "bg-rose-100 text-rose-700",
     bar: "bg-rose-500",
@@ -68,7 +79,7 @@ const STAGES: Record<
     text: "text-rose-700",
   },
   assembly: {
-    label: "组装抛光",
+    label: PAINT_STAGE_LABELS.assembly,
     dot: "bg-teal-500",
     pill: "bg-teal-100 text-teal-700",
     bar: "bg-teal-500",
@@ -76,23 +87,33 @@ const STAGES: Record<
     text: "text-teal-700",
   },
   done: {
-    label: "完成喷漆",
+    label: PAINT_STAGE_LABELS.done,
     dot: "bg-emerald-500",
     pill: "bg-emerald-100 text-emerald-700",
     bar: "bg-emerald-500",
     barSoft: "bg-emerald-100",
     text: "text-emerald-700",
   },
+  delivered: {
+    label: PAINT_STAGE_LABELS.delivered,
+    dot: "bg-green-500",
+    pill: "bg-green-100 text-green-700",
+    bar: "bg-green-500",
+    barSoft: "bg-green-100",
+    text: "text-green-700",
+  },
 };
 
 const STAGE_PROGRESS: Record<StageKey, number> = {
+  on_hold: 0.06,
   waiting: 0.12,
   sheet: 0.28,
   undercoat: 0.44,
   sanding: 0.58,
   painting: 0.72,
   assembly: 0.88,
-  done: 1,
+  done: 0.96,
+  delivered: 1,
 };
 
 const TIMELINE_DAYS = 7;
@@ -154,15 +175,13 @@ export function PaintBoardPage() {
   const dayWidth = timelineWidth / TIMELINE_DAYS;
   const todayLeft = todayIndex * dayWidth;
   const overdueCount = countOverdue(filteredJobs, today);
-  const stageOrder: Record<StageKey, number> = {
-    waiting: 0,
-    sheet: 1,
-    undercoat: 2,
-    sanding: 3,
-    painting: 4,
-    assembly: 5,
-    done: 6,
-  };
+  const stageOrder: Record<StageKey, number> = PAINT_STAGE_ORDER.reduce(
+    (acc, stage, index) => {
+      acc[stage] = index;
+      return acc;
+    },
+    {} as Record<StageKey, number>
+  );
   const sortedJobs = useMemo(() => {
     const copy = [...filteredJobs];
     return copy.sort((a, b) => {
@@ -196,16 +215,7 @@ export function PaintBoardPage() {
   };
 
   const handleStageChange = async (jobId: string, nextStage: StageKey) => {
-    const stageIndexMap: Record<StageKey, number> = {
-      waiting: -1,
-      sheet: 0,
-      undercoat: 1,
-      sanding: 2,
-      painting: 3,
-      assembly: 4,
-      done: 5,
-    };
-    const stageIndex = stageIndexMap[nextStage];
+    const stageIndex = PAINT_STAGE_INDEX_BY_KEY[nextStage];
     await updatePaintStage(jobId, stageIndex);
     const res = await fetchPaintBoard();
     if (res.ok) {

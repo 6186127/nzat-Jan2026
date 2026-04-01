@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { StatusPill, ProgressRing, TagsCell } from "@/features/jobs/components";
 import { XeroButton, getXeroInvoiceUrl } from "@/components/common/XeroButton";
+import { PAINT_STAGE_OPTIONS } from "@/features/paint/paintBoard.utils";
 import { formatNzDate, formatNzDateTime, parseTimestamp } from "@/utils/date";
 import type { JobRow } from "@/types/JobType";
 export type JobsTableProps = {
@@ -77,17 +78,8 @@ function WofStatusPill({ status }: { status?: JobRow["wofStatus"] }) {
   );
 }
 
-const PAINT_STAGE_OPTIONS = [
-  { value: -1, label: "等待处理" },
-  { value: 0, label: "钣金/底漆" },
-  { value: 1, label: "打底漆" },
-  { value: 2, label: "底漆打磨" },
-  { value: 3, label: "喷漆" },
-  { value: 4, label: "组装抛光" },
-  { value: 5, label: "完成喷漆" },
-] as const;
-
 function getPaintStageValue(row: JobRow) {
+  if (row.paintStatus === "delivered") return 6;
   if (row.paintStatus === "done") return 5;
   if (typeof row.paintCurrentStage !== "number") return null;
   return row.paintCurrentStage;
@@ -105,22 +97,26 @@ function PaintStatusSelect({
     return <span className="text-xs text-[rgba(0,0,0,0.35)]">—</span>;
   }
 
-  const currentOption = PAINT_STAGE_OPTIONS.find((option) => option.value === currentValue) ?? PAINT_STAGE_OPTIONS[0];
+  const currentOption = PAINT_STAGE_OPTIONS.find((option) => option.stageIndex === currentValue) ?? PAINT_STAGE_OPTIONS[0];
   const tone =
-    currentValue === 5
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : currentValue >= 0
-        ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-        : "border-slate-200 bg-white text-slate-700";
+    currentValue === 6
+      ? "border-green-200 bg-green-50 text-green-700"
+      : currentValue === 5
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : currentValue === -2
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : currentValue >= 0
+            ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+            : "border-slate-200 bg-white text-slate-700";
 
   return (
     <select
       className={["h-8 min-w-[104px] rounded-[8px] border px-2 text-[11px] font-medium outline-none", tone].join(" ")}
-      value={String(currentOption.value)}
+      value={String(currentOption.stageIndex)}
       onChange={(e) => onChange(Number(e.target.value))}
     >
       {PAINT_STAGE_OPTIONS.map((option) => (
-        <option key={option.value} value={option.value}>
+        <option key={option.stageIndex} value={option.stageIndex}>
           {option.label}
         </option>
       ))}
