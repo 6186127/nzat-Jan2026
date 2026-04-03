@@ -78,6 +78,17 @@ function mapXeroTaxType(value?: string | null): TaxRateOption {
   }
 }
 
+function getNzDateValue(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function getEffectiveRate(item: InvoiceItem) {
   return TAX_RATE_PERCENTAGE[item.taxRate];
 }
@@ -1151,7 +1162,7 @@ export function useInvoiceDashboardState({
         epostReferenceId: options?.epostReferenceId?.trim() || undefined,
         reference: options?.reference?.trim() || undefined,
         amount: typeof options?.amount === "number" && Number.isFinite(options.amount) ? options.amount : undefined,
-        paymentDate: shouldPersistPaymentDate ? new Date().toISOString().slice(0, 10) : undefined,
+        paymentDate: shouldPersistPaymentDate ? getNzDateValue(new Date()) : undefined,
       });
 
       if (!res.ok) {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { Link } from "react-router-dom";
 import { Card, Input, Pagination } from "@/components/ui";
 import { getXeroInvoiceUrl } from "@/components/common/XeroButton";
 import { requestJson } from "@/utils/api";
@@ -29,10 +28,18 @@ type InvoicePaymentRow = {
 type DateFilterPreset = "7d" | "1m" | "custom";
 type PaymentWayFilter = "all" | "epost" | "cash";
 
+function resolvePaymentGroupDate(row: Pick<InvoicePaymentRow, "paymentDateTime" | "paymentDate">) {
+  const paymentDateTime = row.paymentDateTime?.trim();
+  if (/^\d{4}-\d{2}-\d{2}\b/.test(paymentDateTime)) {
+    return paymentDateTime.slice(0, 10);
+  }
+  return row.paymentDate;
+}
+
 function formatPaymentWay(value: string) {
   const normalized = value.trim().toLowerCase();
   if (normalized === "cash") return "Cash";
-  if (normalized === "epost") return "ePost";
+  if (normalized === "epost") return "Eftpos";
   if (normalized === "bank_transfer") return "Bank Transfer";
   return value || "-";
 }
@@ -47,6 +54,20 @@ function normalizePaymentWay(value: string): PaymentWayFilter | "other" {
 function formatCurrency(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return value.toFixed(2);
+}
+
+function formatNzDateTitle(value: string) {
+  if (!value) return "-";
+  const parts = value.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return value;
+  const [year, month, day] = parts;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return new Intl.DateTimeFormat("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 }
 
 function formatDateInputValue(date: Date) {
@@ -93,7 +114,7 @@ const dateFilterOptions: Array<{ key: DateFilterPreset; label: string }> = [
 
 const paymentFilterOptions: Array<{ key: PaymentWayFilter; label: string }> = [
   { key: "all", label: "All" },
-  { key: "epost", label: "ePost only" },
+  { key: "epost", label: "Eftpos only" },
   { key: "cash", label: "Cash only" },
 ];
 
@@ -129,7 +150,8 @@ export function InvoicePage() {
       setRows(payments);
       setExpandedDates(
         payments.reduce<Record<string, boolean>>((acc, row, index) => {
-          if (!(row.paymentDate in acc)) acc[row.paymentDate] = index === 0;
+          const groupDate = resolvePaymentGroupDate(row);
+          if (!(groupDate in acc)) acc[groupDate] = index === 0;
           return acc;
         }, {})
       );
@@ -143,7 +165,10 @@ export function InvoicePage() {
   }, []);
 
   const filteredRows = useMemo(
-    () => rows.filter((row) => isWithinDateRange(row.paymentDate, dateFilterPreset, customStartDate, customEndDate)),
+    () =>
+      rows.filter((row) =>
+        isWithinDateRange(resolvePaymentGroupDate(row), dateFilterPreset, customStartDate, customEndDate)
+      ),
     [rows, dateFilterPreset, customStartDate, customEndDate]
   );
 
@@ -158,9 +183,10 @@ export function InvoicePage() {
   const groups = useMemo(() => {
     const map = new Map<string, InvoicePaymentRow[]>();
     paymentFilteredRows.forEach((row) => {
-      const existing = map.get(row.paymentDate) ?? [];
+      const groupDate = resolvePaymentGroupDate(row);
+      const existing = map.get(groupDate) ?? [];
       existing.push(row);
-      map.set(row.paymentDate, existing);
+      map.set(groupDate, existing);
     });
     return Array.from(map.entries()).map(([date, items]) => ({
       date,
@@ -280,7 +306,7 @@ export function InvoicePage() {
                 <div className="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex-1">
                     <div>
-                      <div className="text-lg font-semibold text-[var(--ds-text)]">{group.date}</div>
+                      <div className="text-lg font-semibold text-[var(--ds-text)]">{formatNzDateTitle(group.date)}</div>
                       <div className="mt-1 text-sm text-[var(--ds-muted)]">
                         Invoice 总数：{group.items.length}
                       </div>
@@ -322,14 +348,7 @@ export function InvoicePage() {
                             key={row.id}
                             className="grid grid-cols-[110px_150px_1fr_1fr_1fr_120px_120px_140px_170px_1fr] gap-3 border-t border-[var(--ds-border)] px-5 py-4 text-sm text-[var(--ds-text)] first:border-t-0"
                           >
-                            <div>
-                              <Link
-                                to={`/jobs/${encodeURIComponent(row.jobId)}?tab=Invoice`}
-                                className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-                              >
-                                #{row.jobId}
-                              </Link>
-                            </div>
+                            <div className="font-semibold text-[var(--ds-text)]">#{row.jobId}</div>
                             <div className="font-medium">
                               {row.xeroInvoiceId ? (
                                 <a
