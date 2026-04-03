@@ -40,6 +40,7 @@ export function Sidebar() {
     return subscribeWorklogCostAlert((count) => setWorklogAlertCount(count));
   }, []);
 
+  // --- 保留正式版中的 WOF 排班表计数逻辑 ---
   useEffect(() => {
     let cancelled = false;
 
@@ -115,21 +116,21 @@ export function Sidebar() {
             </span>
           </NavLink>
 
-        <NavLink
-          to="/worklog"
-          className={({ isActive }) =>
-            `${linkBase} ${isActive ? linkActive : linkIdle}`
-          }
-        >
-          <span className="flex items-center justify-between gap-2">
-            <span>Worklog</span>
-            {worklogAlertCount > 0 ? (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                {worklogAlertCount}
-              </span>
-            ) : null}
-          </span>
-        </NavLink>
+          <NavLink
+            to="/worklog"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span>Worklog</span>
+              {worklogAlertCount > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {worklogAlertCount}
+                </span>
+              ) : null}
+            </span>
+          </NavLink>
 
           <NavLink
             to="/parts-flow"
@@ -179,6 +180,26 @@ export function Sidebar() {
                 </span>
               ) : null}
             </span>
+          </NavLink>
+
+          {/* --- [从 eric 版融合] 内部采购商城前台 --- */}
+          <NavLink
+            to="/shop"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            Internal Shop
+          </NavLink>
+
+          {/* --- [从 eric 版融合] 老板专属采购审核看板 --- */}
+          <NavLink
+            to="/procurement-admin"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            Procurement Admin
           </NavLink>
         </div>
 

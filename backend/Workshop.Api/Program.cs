@@ -12,6 +12,10 @@ using Workshop.Api.Options;
 using Workshop.Api.Services;
 using Workshop.Api.Utils;
 
+// --- [融合新增] 引入库存模块命名空间 ---
+using Workshop.Api.Procurement;
+// ------------------------------------
+
 var builder = WebApplication.CreateBuilder(args);
 
 QuestPDF.Settings.License = LicenseType.Community;
@@ -86,6 +90,11 @@ var dataSource = dataSourceBuilder.Build();
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(dataSource));
 
+// --- [融合新增] 注册库存模块的 ProcurementDbContext ---
+builder.Services.AddDbContext<ProcurementDbContext>(opt =>
+    opt.UseNpgsql(dataSource));
+// ---------------------------------------------------
+
 builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
@@ -139,6 +148,11 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+    
+    // 注意：如果 Eric 的 ProcurementDbContext 也需要自动执行 Migration，
+    // 可以在这里添加：
+    // var procurementDb = scope.ServiceProvider.GetRequiredService<ProcurementDbContext>();
+    // procurementDb.Database.Migrate();
 }
 
 if (app.Environment.IsDevelopment())

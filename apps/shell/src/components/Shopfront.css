@@ -1,0 +1,140 @@
+/* src/components/Shopfront.css */
+.shopfront-container {
+  padding: 16px;
+  background-color: #f0f2f5; /* 类似淘宝灰色的背景 */
+  min-height: 100vh;
+  padding-bottom: 80px; /* 底部留白，为了以后放悬浮购物车条 */
+}
+
+.page-title {
+  font-size: 24px;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+/* 核心：响应式网格布局 */
+.product-grid {
+  display: grid;
+  /* 魔法代码：卡片最小160px宽，空间够就自动排布。手机上刚好2列，iPad上3-4列 */
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px; 
+}
+/* --- 下面是新增的采购车相关样式 --- */
+
+/* 底部悬浮条 */
+.cart-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: white;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 100;
+  /* 如果在带有侧边栏的后台，让它不要挡住左边 */
+  margin-left: var(--sidebar-width, 0); 
+}
+
+.cart-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cart-qty {
+  font-size: 20px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.btn-checkout {
+  background-color: #1890ff;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+/* 弹出的确认清单遮罩层 */
+.cart-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end; /* 靠底部弹出 */
+}
+
+/* 弹出框本体 */
+.cart-modal {
+  background-color: white;
+  width: 100%;
+  max-width: 600px;
+  border-radius: 20px 20px 0 0;
+  padding: 20px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #888;
+}
+
+.modal-body {
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+.cart-item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.note-input {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 16px;
+  font-size: 14px;
+  resize: none; /* 禁止拖拽缩放 */
+}
+
+.btn-submit {
+  width: 100%;
+  background-color: #52c41a; /* 绿色提交按钮 */
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: bold;
+  margin-top: 16px;
+  cursor: pointer;
+}
