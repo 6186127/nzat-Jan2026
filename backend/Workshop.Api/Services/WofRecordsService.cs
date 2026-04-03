@@ -315,9 +315,6 @@ public class WofRecordsService
             )
             .AnyAsync(ct);
 
-        if (existingSelection)
-            return WofServiceResult.Ok(new { success = true, alreadyExists = true });
-
         var selectedItem = await _db.ServiceCatalogItems
             .AsNoTracking()
             .Where(x => x.IsActive && x.ServiceType == "wof" && (x.Category == "child" || x.Category == "root"))
@@ -331,21 +328,24 @@ public class WofRecordsService
             return WofServiceResult.BadRequest("No active WOF service catalog item is configured.");
 
         var now = DateTime.UtcNow;
-        _db.JobServiceSelections.Add(new JobServiceSelection
+        if (!existingSelection)
         {
-            JobId = id,
-            ServiceCatalogItemId = selectedItem.Id,
-            ServiceNameSnapshot = selectedItem.Name.Trim(),
-            CreatedAt = now,
-            UpdatedAt = now,
-        });
+            _db.JobServiceSelections.Add(new JobServiceSelection
+            {
+                JobId = id,
+                ServiceCatalogItemId = selectedItem.Id,
+                ServiceNameSnapshot = selectedItem.Name.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
         var existingState = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == id, ct);
         if (existingState is null)
         {
             _db.JobWofStates.Add(new JobWofState
             {
                 JobId = id,
-                ManualStatus = null,
+                ManualStatus = "Todo",
                 CreatedAt = now,
                 UpdatedAt = now,
             });
@@ -353,6 +353,12 @@ public class WofRecordsService
         else
         {
             existingState.UpdatedAt = now;
+        }
+
+        if (existingSelection)
+        {
+            await _db.SaveChangesAsync(ct);
+            return WofServiceResult.Ok(new { success = true, alreadyExists = true });
         }
 
         var linkedDraftExists = await _db.JobInvoices.AsNoTracking()
@@ -426,14 +432,14 @@ public class WofRecordsService
 
         state.ManualStatus = string.Equals(normalized, "Checked", StringComparison.OrdinalIgnoreCase)
             ? "Checked"
-            : null;
+            : "Todo";
         state.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new
         {
             success = true,
-            wofStatus = state.ManualStatus is null ? "Todo" : "Checked"
+            wofStatus = string.Equals(state.ManualStatus, "Checked", StringComparison.OrdinalIgnoreCase) ? "Checked" : "Todo"
         });
     }
 
@@ -875,7 +881,7 @@ public class WofRecordsService
             var state = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
             if (state is not null)
             {
-                state.ManualStatus = null;
+                state.ManualStatus = "Todo";
                 state.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync(ct);
             }

@@ -414,6 +414,34 @@ public class JobsController : ControllerBase
                     j.Id,
                     j.CreatedAt,
                     j.Notes,
+                    HasWofService = (
+                        from selection in _db.JobServiceSelections.AsNoTracking()
+                        join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                        where selection.JobId == j.Id && catalogItem.ServiceType == "wof"
+                        select selection.Id
+                    ).Any(),
+                    HasWofRecord = _db.JobWofRecords.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .Select(x => x.Id)
+                        .Any(),
+                    LatestWofUiState = _db.JobWofRecords.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .OrderByDescending(x => x.OccurredAt)
+                        .ThenByDescending(x => x.Id)
+                        .Select(x => (WofUiState?)x.WofUiState)
+                        .FirstOrDefault(),
+                    LatestWofManualStatus = _db.JobWofStates.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .OrderByDescending(x => x.UpdatedAt)
+                        .ThenByDescending(x => x.Id)
+                        .Select(x => x.ManualStatus)
+                        .FirstOrDefault(),
+                    HasMechService = (
+                        from selection in _db.JobServiceSelections.AsNoTracking()
+                        join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                        where selection.JobId == j.Id && catalogItem.ServiceType == "mech"
+                        select selection.Id
+                    ).Any() || _db.JobMechServices.AsNoTracking().Any(x => x.JobId == j.Id),
                     v.Plate,
                     v.Make,
                     v.Model,
@@ -436,6 +464,9 @@ public class JobsController : ControllerBase
             model = r.Model,
             status = r.Status,
             currentStage = r.CurrentStage,
+            hasWofService = r.HasWofService || r.HasWofRecord,
+            wofStatus = MapWofStatus(r.HasWofService || r.HasWofRecord, r.LatestWofManualStatus, r.LatestWofUiState),
+            hasMechService = r.HasMechService,
             panels = r.Panels,
             notes = r.Notes ?? "",
             updatedAt = FormatDateTime(r.UpdatedAt)
@@ -786,76 +817,152 @@ public class JobsController : ControllerBase
 
         var xeroDeleteResult = await _jobInvoiceService.DeleteDraftInXeroAsync(id, ct);
         if (!xeroDeleteResult.Ok)
-            return StatusCode(xeroDeleteResult.StatusCode, new { error = xeroDeleteResult.Error, payload = xeroDeleteResult.Payload });
+        {
+            return StatusCode(xeroDeleteResult.StatusCode, new
+            {
+                error = xeroDeleteResult.Error,
+                payload = xeroDeleteResult.Payload,
+                steps = new
+                {
+                    xero = new
+                    {
+                        status = "failed",
+                        message = xeroDeleteResult.Error ?? "删除 Xero draft 失败。",
+                    },
+                    jobStep = new
+                    {
+                        status = "pending",
+                        message = "等待删除本地 Job。",
+                    },
+                },
+            });
+        }
 
         // DeleteDraftInXeroAsync updates a tracked JobInvoice row before this action bulk-deletes it.
         // Clear tracked entities so the later SaveChanges only persists the new inactive correlation record.
         _db.ChangeTracker.Clear();
+        var xeroStepMessage = xeroDeleteResult.DeletedInXero
+            ? "Xero draft 已删除。"
+            : "没有需要删除的 Xero draft。";
 
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
-        var correlationId = BuildCorrelationId(job.Id);
-
-        var partServiceIds = await _db.JobPartsServices.AsNoTracking()
-            .Where(x => x.JobId == id)
-            .Select(x => x.Id)
-            .ToListAsync(ct);
-        if (partServiceIds.Count > 0)
+        try
         {
-            await _db.JobPartsNotes
-                .Where(x => partServiceIds.Contains(x.PartsServiceId))
-                .ExecuteDeleteAsync(ct);
-        }
-        await _db.JobPartsServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobMechServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobPaintServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobTags.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobPoStates.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.JobInvoices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-        await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            var correlationId = BuildCorrelationId(job.Id);
 
-        var existingInactive = await _db.InactiveGmailCorrelations
-            .FirstOrDefaultAsync(x => x.CorrelationId == correlationId, ct);
-        if (existingInactive is null)
-        {
-            _db.InactiveGmailCorrelations.Add(new InactiveGmailCorrelation
+            var partServiceIds = await _db.JobPartsServices.AsNoTracking()
+                .Where(x => x.JobId == id)
+                .Select(x => x.Id)
+                .ToListAsync(ct);
+            if (partServiceIds.Count > 0)
             {
-                CorrelationId = correlationId,
-                Reason = $"Job {id} deleted",
-                CreatedAt = DateTime.UtcNow,
-            });
-            await _db.SaveChangesAsync(ct);
-        }
-
-        var deletedJobs = await _db.Jobs.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
-        if (deletedJobs == 0)
-            return NotFound(new { error = "Job not found." });
-
-        var vehicleDeleted = false;
-
-        if (job.VehicleId.HasValue)
-        {
-            var otherJobs = await _db.Jobs.AsNoTracking()
-                .AnyAsync(x => x.VehicleId == job.VehicleId.Value, ct);
-            if (!otherJobs)
-            {
-                var deletedVehicles = await _db.Vehicles
-                    .Where(x => x.Id == job.VehicleId.Value)
+                await _db.JobPartsNotes
+                    .Where(x => partServiceIds.Contains(x.PartsServiceId))
                     .ExecuteDeleteAsync(ct);
-                vehicleDeleted = deletedVehicles > 0;
             }
+            await _db.JobPartsServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobMechServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobPaintServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobTags.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobPoStates.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.JobInvoices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
+            await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
+
+            var existingInactive = await _db.InactiveGmailCorrelations
+                .FirstOrDefaultAsync(x => x.CorrelationId == correlationId, ct);
+            if (existingInactive is null)
+            {
+                _db.InactiveGmailCorrelations.Add(new InactiveGmailCorrelation
+                {
+                    CorrelationId = correlationId,
+                    Reason = $"Job {id} deleted",
+                    CreatedAt = DateTime.UtcNow,
+                });
+                await _db.SaveChangesAsync(ct);
+            }
+
+            var deletedJobs = await _db.Jobs.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+            if (deletedJobs == 0)
+            {
+                return NotFound(new
+                {
+                    error = "Job not found.",
+                    steps = new
+                    {
+                        xero = new
+                        {
+                            status = "success",
+                            message = xeroStepMessage,
+                        },
+                        jobStep = new
+                        {
+                            status = "failed",
+                            message = "删除本地 Job 失败，记录不存在。",
+                        },
+                    },
+                });
+            }
+
+            var vehicleDeleted = false;
+
+            if (job.VehicleId.HasValue)
+            {
+                var otherJobs = await _db.Jobs.AsNoTracking()
+                    .AnyAsync(x => x.VehicleId == job.VehicleId.Value, ct);
+                if (!otherJobs)
+                {
+                    var deletedVehicles = await _db.Vehicles
+                        .Where(x => x.Id == job.VehicleId.Value)
+                        .ExecuteDeleteAsync(ct);
+                    vehicleDeleted = deletedVehicles > 0;
+                }
+            }
+
+            await tx.CommitAsync(ct);
+
+            return Ok(new
+            {
+                success = true,
+                vehicleDeleted,
+                customerDeleted = false,
+                correlationDeactivated = correlationId,
+                xeroDraftInvoiceDeleted = xeroDeleteResult.DeletedInXero,
+                steps = new
+                {
+                    xero = new
+                    {
+                        status = "success",
+                        message = xeroStepMessage,
+                    },
+                    jobStep = new
+                    {
+                        status = "success",
+                        message = "Job 及相关数据已删除。",
+                    },
+                },
+            });
         }
-
-        await tx.CommitAsync(ct);
-
-        return Ok(new
+        catch (Exception ex)
         {
-            success = true,
-            vehicleDeleted,
-            customerDeleted = false,
-            correlationDeactivated = correlationId,
-            xeroDraftInvoiceDeleted = xeroDeleteResult.DeletedInXero
-        });
+            return StatusCode(500, new
+            {
+                error = $"删除 Job 失败：{ex.Message}",
+                steps = new
+                {
+                    xero = new
+                    {
+                        status = "success",
+                        message = xeroStepMessage,
+                    },
+                    jobStep = new
+                    {
+                        status = "failed",
+                        message = "删除本地 Job 及相关数据失败。",
+                    },
+                },
+            });
+        }
     }
 
     private static string BuildCorrelationId(long jobId)

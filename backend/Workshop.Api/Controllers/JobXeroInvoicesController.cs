@@ -109,25 +109,6 @@ public class JobXeroInvoicesController : ControllerBase
         return Ok(new { ok = true });
     }
 
-    [HttpPut("/api/jobs/{id:long}/invoice-draft")]
-    public async Task<IActionResult> SaveDraft(long id, [FromBody] SaveJobInvoiceDraftRequest request, CancellationToken ct)
-    {
-        var result = await _jobInvoiceService.SaveDraftToDbAsync(id, request, ct);
-        if (!result.Ok)
-        {
-            return StatusCode(result.StatusCode, new
-            {
-                error = result.Error,
-                request = result.RequestBody,
-            });
-        }
-
-        return Ok(new
-        {
-            invoice = MapInvoice(result.Invoice),
-        });
-    }
-
     [HttpPut("state")]
     public async Task<IActionResult> UpdateXeroState(long id, [FromBody] UpdateJobInvoiceXeroStateRequest request, CancellationToken ct)
     {

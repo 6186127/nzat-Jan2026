@@ -24,6 +24,7 @@ public class InvoicePaymentsController : ControllerBase
         var rows = await (
                 from payment in _db.JobPayments.AsNoTracking()
                 join invoice in _db.JobInvoices.AsNoTracking() on payment.JobInvoiceId equals invoice.Id
+                join job in _db.Jobs.AsNoTracking() on payment.JobId equals job.Id
                 orderby payment.PaymentDate descending, payment.CreatedAt descending
                 select new
                 {
@@ -40,6 +41,7 @@ public class InvoicePaymentsController : ControllerBase
                     paymentDateTime = payment.CreatedAt,
                     amount = payment.Amount,
                     note = payment.Reference ?? "",
+                    jobNote = job.Notes ?? "",
                     externalStatus = payment.ExternalStatus ?? "",
                     responsePayloadJson = invoice.ResponsePayloadJson,
                     requestPayloadJson = invoice.RequestPayloadJson,
@@ -67,6 +69,7 @@ public class InvoicePaymentsController : ControllerBase
                 row.amount,
                 paymentTotal = row.amount,
                 row.note,
+                row.jobNote,
                 row.externalStatus,
                 createdAt = DateTimeHelper.FormatNz(row.createdAt),
             }),

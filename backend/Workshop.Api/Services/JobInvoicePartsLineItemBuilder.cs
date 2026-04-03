@@ -28,7 +28,7 @@ public static class JobInvoicePartsLineItemBuilder
             return new XeroInvoiceLineItemInput
             {
                 ItemCode = itemCode,
-                Description = description,
+                Description = ResolveInventoryLineDescription(inventoryItem, description),
                 Quantity = 1m,
                 UnitAmount = 0m,
                 AccountCode = inventoryItem.SalesAccount ?? inventoryItem.PurchasesAccount,
@@ -43,6 +43,19 @@ public static class JobInvoicePartsLineItemBuilder
             Quantity = 1m,
             UnitAmount = 0m,
         };
+    }
+
+    private static string ResolveInventoryLineDescription(InventoryItem inventoryItem, string fallbackDescription)
+    {
+        var salesDescription = inventoryItem.SalesDescription?.Trim();
+        if (!string.IsNullOrWhiteSpace(salesDescription))
+            return salesDescription;
+
+        var itemName = inventoryItem.ItemName?.Trim();
+        if (!string.IsNullOrWhiteSpace(itemName))
+            return itemName;
+
+        return fallbackDescription;
     }
 
     private static string? NormalizeXeroTaxType(string? value)

@@ -288,54 +288,6 @@ public sealed class JobInvoiceService
             expiresIn: syncResult.ExpiresIn);
     }
 
-    public async Task<JobInvoiceCreateResult> SaveDraftToDbAsync(long jobId, SaveJobInvoiceDraftRequest payload, CancellationToken ct)
-    {
-        var jobInvoice = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
-        if (jobInvoice is null)
-            return JobInvoiceCreateResult.Fail(404, "Job invoice not found.");
-
-        var job = await _db.Jobs.FirstOrDefaultAsync(x => x.Id == jobId, ct);
-        if (job is null)
-            return JobInvoiceCreateResult.Fail(404, "Job not found.");
-
-        if (payload.LineItems.Count == 0)
-            return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
-
-        var request = new CreateXeroInvoiceRequest
-        {
-            InvoiceId = Guid.TryParse(jobInvoice.ExternalInvoiceId, out var invoiceId) ? invoiceId : null,
-            Type = "ACCREC",
-            Status = jobInvoice.ExternalStatus ?? "DRAFT",
-            LineAmountTypes = string.IsNullOrWhiteSpace(payload.LineAmountTypes) ? "Inclusive" : payload.LineAmountTypes.Trim(),
-            Date = payload.Date ?? jobInvoice.InvoiceDate ?? DateOnly.FromDateTime(DateTime.UtcNow),
-            Reference = string.IsNullOrWhiteSpace(payload.Reference) ? jobInvoice.Reference : payload.Reference.Trim(),
-            Contact = new XeroInvoiceContactInput
-            {
-                Name = string.IsNullOrWhiteSpace(payload.ContactName) ? jobInvoice.ContactName : payload.ContactName.Trim(),
-            },
-            LineItems = await SanitizeLineItemsAsync(payload.LineItems, ct),
-        };
-        var normalizedInvoiceNote = string.IsNullOrWhiteSpace(payload.InvoiceNote) ? null : payload.InvoiceNote.Trim();
-
-        if (request.LineItems.Count == 0)
-            return JobInvoiceCreateResult.Fail(400, "At least one invoice line item is required.");
-
-        jobInvoice.Reference = request.Reference;
-        jobInvoice.ContactName = request.Contact.Name;
-        jobInvoice.InvoiceNote = normalizedInvoiceNote;
-        jobInvoice.InvoiceDate = request.Date;
-        jobInvoice.LineAmountTypes = request.LineAmountTypes;
-        jobInvoice.RequestPayloadJson = JsonSerializer.Serialize(request, JsonOptions);
-        jobInvoice.UpdatedAt = DateTime.UtcNow;
-
-        job.InvoiceReference = request.Reference;
-        job.UpdatedAt = DateTime.UtcNow;
-
-        await _db.SaveChangesAsync(ct);
-
-        return JobInvoiceCreateResult.Success(jobInvoice, alreadyExists: true, requestBody: request);
-    }
-
     public async Task<JobInvoiceCreateResult> AttachExistingXeroInvoiceAsync(long jobId, string invoiceNumber, CancellationToken ct)
     {
         var normalizedInvoiceNumber = invoiceNumber?.Trim();
@@ -1134,31 +1086,37 @@ public sealed class JobInvoiceService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        HashSet<string> validCodes = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, InventoryItem> inventoryByCode = new(StringComparer.OrdinalIgnoreCase);
         if (requestedCodes.Count > 0)
         {
-            var matchedCodes = await _db.InventoryItems.AsNoTracking()
+            var matchedInventoryItems = await _db.InventoryItems.AsNoTracking()
                 .Where(x => requestedCodes.Contains(x.ItemCode))
-                .Select(x => x.ItemCode)
                 .ToListAsync(ct);
-            validCodes = new HashSet<string>(matchedCodes, StringComparer.OrdinalIgnoreCase);
+            inventoryByCode = matchedInventoryItems
+                .GroupBy(x => x.ItemCode, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
         }
 
         return normalized
-            .Select(item => new XeroInvoiceLineItemInput
+            .Select(item =>
             {
-                Description = item.Description,
-                Quantity = item.Quantity,
-                UnitAmount = item.UnitAmount,
-                LineAmount = item.LineAmount,
-                ItemCode = !string.IsNullOrWhiteSpace(item.ItemCode) && validCodes.Contains(item.ItemCode)
-                    ? item.ItemCode
-                    : null,
-                AccountCode = item.AccountCode,
-                TaxType = item.TaxType,
-                TaxAmount = item.TaxAmount,
-                DiscountRate = item.DiscountRate,
-                DiscountAmount = item.DiscountAmount,
+                inventoryByCode.TryGetValue(item.ItemCode ?? "", out var inventoryItem);
+
+                return new XeroInvoiceLineItemInput
+                {
+                    Description = inventoryItem is null
+                        ? item.Description
+                        : ResolveInventoryLineDescription(inventoryItem, item.Description),
+                    Quantity = item.Quantity,
+                    UnitAmount = item.UnitAmount,
+                    LineAmount = item.LineAmount,
+                    ItemCode = inventoryItem?.ItemCode,
+                    AccountCode = item.AccountCode,
+                    TaxType = item.TaxType,
+                    TaxAmount = item.TaxAmount,
+                    DiscountRate = item.DiscountRate,
+                    DiscountAmount = item.DiscountAmount,
+                };
             })
             .ToList();
     }
@@ -1204,7 +1162,7 @@ public sealed class JobInvoiceService
             return new XeroInvoiceLineItemInput
             {
                 ItemCode = string.IsNullOrWhiteSpace(itemCode) ? inventoryItem.ItemCode : itemCode.Trim(),
-                Description = description,
+                Description = ResolveInventoryLineDescription(inventoryItem, description),
                 Quantity = 1m,
                 UnitAmount = useInventoryPrice
                     ? inventoryItem.SalesUnitPrice ?? inventoryItem.PurchasesUnitPrice ?? fallbackUnitAmount
@@ -1221,6 +1179,19 @@ public sealed class JobInvoiceService
             Quantity = 1m,
             UnitAmount = fallbackUnitAmount,
         };
+    }
+
+    private static string ResolveInventoryLineDescription(InventoryItem inventoryItem, string fallbackDescription)
+    {
+        var salesDescription = inventoryItem.SalesDescription?.Trim();
+        if (!string.IsNullOrWhiteSpace(salesDescription))
+            return salesDescription;
+
+        var itemName = inventoryItem.ItemName?.Trim();
+        if (!string.IsNullOrWhiteSpace(itemName))
+            return itemName;
+
+        return fallbackDescription;
     }
 
     private static string? NormalizeXeroTaxType(string? value)

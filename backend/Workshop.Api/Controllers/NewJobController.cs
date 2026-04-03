@@ -208,6 +208,27 @@ public class NewJobController : ControllerBase
             }
         }
 
+        if (wofCreated)
+        {
+            var existingWofState = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == job.Id, ct);
+            if (existingWofState is null)
+            {
+                _db.JobWofStates.Add(new JobWofState
+                {
+                    JobId = job.Id,
+                    ManualStatus = "Todo",
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+                hasPendingPostJobChanges = true;
+            }
+            else
+            {
+                existingWofState.UpdatedAt = now;
+                hasPendingPostJobChanges = true;
+            }
+        }
+
         if (hasPendingPostJobChanges)
             await _db.SaveChangesAsync(ct);
 

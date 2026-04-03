@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Clock3, ExternalLink, GripVertical, RefreshC
 import { Button, Card, EmptyState, useToast } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
 import { formatNzDateTime, parseTimestamp } from "@/utils/date";
+import { notifyPaintBoardRefresh, notifyWofScheduleRefresh, subscribeWofScheduleRefresh } from "@/utils/refreshSignals";
 import { useRef } from "react";
 import { updateWofStatus as apiUpdateWofStatus } from "@/features/wof/api/wofApi";
 
@@ -660,6 +661,13 @@ export function WofSchedulePage() {
   }, [loadJobs]);
 
   useEffect(() => {
+    const unsubscribe = subscribeWofScheduleRefresh(() => {
+      void loadJobs();
+    });
+    return unsubscribe;
+  }, [loadJobs]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -711,6 +719,8 @@ export function WofSchedulePage() {
         savePlacements(normalized);
         return normalized;
       });
+      notifyWofScheduleRefresh();
+      notifyPaintBoardRefresh();
       toast.success(next === "Checked" ? "WOF 状态已改为检查完成" : "WOF 状态已改为待查");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update WOF status.");

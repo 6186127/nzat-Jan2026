@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Button, Card, Input } from "@/components/ui";
+import { Card, Input, Pagination } from "@/components/ui";
 import { getXeroInvoiceUrl } from "@/components/common/XeroButton";
 import { requestJson } from "@/utils/api";
+import { paginate } from "@/utils/pagination";
 
 type InvoicePaymentRow = {
   id: string;
@@ -12,7 +13,6 @@ type InvoicePaymentRow = {
   invoiceNumber: string;
   xeroInvoiceId: string;
   contact: string;
-  issueDate: string;
   reference: string;
   paymentWay: string;
   paymentDate: string;
@@ -21,6 +21,7 @@ type InvoicePaymentRow = {
   amount: number;
   paymentTotal?: number | null;
   note: string;
+  jobNote: string;
   externalStatus: string;
   createdAt: string;
 };
@@ -96,6 +97,8 @@ const paymentFilterOptions: Array<{ key: PaymentWayFilter; label: string }> = [
   { key: "cash", label: "Cash only" },
 ];
 
+const GROUPS_PER_PAGE = 7;
+
 export function InvoicePage() {
   const [rows, setRows] = useState<InvoicePaymentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +107,8 @@ export function InvoicePage() {
   const [dateFilterPreset, setDateFilterPreset] = useState<DateFilterPreset>("1m");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
-  const [paymentFiltersByDate, setPaymentFiltersByDate] = useState<Record<string, PaymentWayFilter>>({});
+  const [paymentFilter, setPaymentFilter] = useState<PaymentWayFilter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,9 +147,17 @@ export function InvoicePage() {
     [rows, dateFilterPreset, customStartDate, customEndDate]
   );
 
+  const paymentFilteredRows = useMemo(
+    () =>
+      paymentFilter === "all"
+        ? filteredRows
+        : filteredRows.filter((row) => normalizePaymentWay(row.paymentWay) === paymentFilter),
+    [filteredRows, paymentFilter]
+  );
+
   const groups = useMemo(() => {
     const map = new Map<string, InvoicePaymentRow[]>();
-    filteredRows.forEach((row) => {
+    paymentFilteredRows.forEach((row) => {
       const existing = map.get(row.paymentDate) ?? [];
       existing.push(row);
       map.set(row.paymentDate, existing);
@@ -154,7 +166,7 @@ export function InvoicePage() {
       date,
       items,
     }));
-  }, [filteredRows]);
+  }, [paymentFilteredRows]);
 
   useEffect(() => {
     if (groups.length === 0) return;
@@ -167,6 +179,20 @@ export function InvoicePage() {
     );
   }, [groups]);
 
+  const pagination = useMemo(() => paginate(groups, currentPage, GROUPS_PER_PAGE), [groups, currentPage]);
+  const safePage = pagination.currentPage;
+  const pagedGroups = pagination.pageRows;
+
+  useEffect(() => {
+    if (safePage !== currentPage) {
+      setCurrentPage(safePage);
+    }
+  }, [safePage, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFilterPreset, customStartDate, customEndDate, paymentFilter]);
+
   return (
     <div className="space-y-5">
       <div>
@@ -174,33 +200,59 @@ export function InvoicePage() {
       </div>
 
       <Card className="p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-[var(--ds-text)]">日期筛选</div>
-            <div className="flex flex-wrap gap-2">
-              {dateFilterOptions.map((option) => {
-                const isActive = dateFilterPreset === option.key;
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setDateFilterPreset(option.key)}
-                    className={[
-                      "inline-flex items-center rounded-[999px] border px-3 py-1.5 text-sm font-medium transition",
-                      isActive
-                        ? "border-[rgba(37,99,235,0.18)] bg-[rgba(37,99,235,0.10)] text-blue-700"
-                        : "border-[rgba(0,0,0,0.10)] bg-white text-[var(--ds-muted)] hover:bg-[rgba(0,0,0,0.03)]",
-                    ].join(" ")}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-1 flex-col gap-4 lg:flex-row lg:items-end lg:gap-8">
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-[var(--ds-text)]">付款方式筛选</div>
+              <div className="flex flex-wrap gap-2">
+                {paymentFilterOptions.map((option) => {
+                  const isActive = paymentFilter === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setPaymentFilter(option.key)}
+                      className={[
+                        "inline-flex items-center rounded-[999px] border px-3 py-1.5 text-sm font-medium transition",
+                        isActive
+                          ? "border-[rgba(15,118,110,0.18)] bg-[rgba(15,118,110,0.10)] text-teal-700"
+                          : "border-[rgba(0,0,0,0.10)] bg-white text-[var(--ds-muted)] hover:bg-[rgba(0,0,0,0.03)]",
+                      ].join(" ")}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-[var(--ds-text)]">日期筛选</div>
+              <div className="flex flex-wrap gap-2">
+                {dateFilterOptions.map((option) => {
+                  const isActive = dateFilterPreset === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setDateFilterPreset(option.key)}
+                      className={[
+                        "inline-flex items-center rounded-[999px] border px-3 py-1.5 text-sm font-medium transition",
+                        isActive
+                          ? "border-[rgba(37,99,235,0.18)] bg-[rgba(37,99,235,0.10)] text-blue-700"
+                          : "border-[rgba(0,0,0,0.10)] bg-white text-[var(--ds-muted)] hover:bg-[rgba(0,0,0,0.03)]",
+                      ].join(" ")}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           {dateFilterPreset === "custom" ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[360px]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[360px]">
               <label className="space-y-1">
                 <div className="text-xs font-medium uppercase tracking-[0.04em] text-[var(--ds-muted)]">Start Date</div>
                 <Input type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} />
@@ -221,13 +273,8 @@ export function InvoicePage() {
       ) : null}
 
       {!loading && !error
-        ? groups.map((group) => {
+        ? pagedGroups.map((group) => {
             const isExpanded = expandedDates[group.date] ?? false;
-            const paymentFilter = paymentFiltersByDate[group.date] ?? "all";
-            const visibleItems =
-              paymentFilter === "all"
-                ? group.items
-                : group.items.filter((row) => normalizePaymentWay(row.paymentWay) === paymentFilter);
             return (
               <Card key={group.date} className="overflow-hidden">
                 <div className="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
@@ -235,34 +282,12 @@ export function InvoicePage() {
                     <div>
                       <div className="text-lg font-semibold text-[var(--ds-text)]">{group.date}</div>
                       <div className="mt-1 text-sm text-[var(--ds-muted)]">
-                        Invoice 总数：{visibleItems.length}
-                        {paymentFilter !== "all" ? ` / ${group.items.length}` : ""}
+                        Invoice 总数：{group.items.length}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                    {paymentFilterOptions.map((option) => (
-                      <Button
-                        key={option.key}
-                        type="button"
-                        onClick={() =>
-                          setPaymentFiltersByDate((prev) => ({
-                            ...prev,
-                            [group.date]: option.key,
-                          }))
-                        }
-                        className={[
-                          "rounded-[999px] px-3",
-                          paymentFilter === option.key
-                            ? "!border-transparent !bg-[rgba(15,118,110,0.12)] !text-teal-700"
-                            : "",
-                        ].join(" ")}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-
                     <button
                       type="button"
                       aria-label={isExpanded ? "Collapse section" : "Expand section"}
@@ -276,12 +301,12 @@ export function InvoicePage() {
 
                 {isExpanded ? (
                   <div className="border-t border-[var(--ds-border)]">
-                    <div className="grid grid-cols-[110px_150px_1fr_120px_1fr_120px_120px_140px_170px_1fr] gap-3 bg-[rgba(0,0,0,0.03)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--ds-muted)]">
+                    <div className="grid grid-cols-[110px_150px_1fr_1fr_1fr_120px_120px_140px_170px_1fr] gap-3 bg-[rgba(0,0,0,0.03)] px-5 py-3 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--ds-muted)]">
                       <div>Job ID</div>
                       <div>Invoice Number</div>
                       <div>Contact</div>
-                      <div>Issue Date</div>
                       <div>Reference</div>
+                      <div>Job Note</div>
                       <div>Xero Total</div>
                       <div>Payment Total</div>
                       <div>Payment Way</div>
@@ -289,13 +314,13 @@ export function InvoicePage() {
                       <div>Note</div>
                     </div>
                     <div>
-                      {visibleItems.length === 0 ? (
+                      {group.items.length === 0 ? (
                         <div className="px-5 py-6 text-sm text-[var(--ds-muted)]">当前筛选条件下没有 invoice payment。</div>
                       ) : (
-                        visibleItems.map((row) => (
+                        group.items.map((row) => (
                           <div
                             key={row.id}
-                            className="grid grid-cols-[110px_150px_1fr_120px_1fr_120px_120px_140px_170px_1fr] gap-3 border-t border-[var(--ds-border)] px-5 py-4 text-sm text-[var(--ds-text)] first:border-t-0"
+                            className="grid grid-cols-[110px_150px_1fr_1fr_1fr_120px_120px_140px_170px_1fr] gap-3 border-t border-[var(--ds-border)] px-5 py-4 text-sm text-[var(--ds-text)] first:border-t-0"
                           >
                             <div>
                               <Link
@@ -320,8 +345,8 @@ export function InvoicePage() {
                               )}
                             </div>
                             <div>{row.contact || "-"}</div>
-                            <div>{row.issueDate || "-"}</div>
                             <div className="break-words">{row.reference || "-"}</div>
+                            <div className="break-words text-[var(--ds-muted)]">{row.jobNote || "-"}</div>
                             <div>{formatCurrency(row.xeroTotal)}</div>
                             <div>{formatCurrency(row.paymentTotal ?? row.amount)}</div>
                             <div>{formatPaymentWay(row.paymentWay)}</div>
@@ -337,6 +362,18 @@ export function InvoicePage() {
             );
           })
         : null}
+
+      {!loading && !error && pagination.totalItems > 0 ? (
+        <Card className="overflow-hidden">
+          <Pagination
+            currentPage={safePage}
+            totalPages={pagination.totalPages}
+            pageSize={GROUPS_PER_PAGE}
+            totalItems={pagination.totalItems}
+            onPageChange={setCurrentPage}
+          />
+        </Card>
+      ) : null}
     </div>
   );
 }

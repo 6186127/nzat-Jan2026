@@ -71,6 +71,9 @@ export type PaintBoardJob = {
   model?: string;
   status?: string | null;
   currentStage?: number | null;
+  hasWofService?: boolean;
+  wofStatus?: "Todo" | "Checked" | "Recorded" | null;
+  hasMechService?: boolean;
   daysInStage?: number;
   panels?: number | null;
   notes?: string | null;

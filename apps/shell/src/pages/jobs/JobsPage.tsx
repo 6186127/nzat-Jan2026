@@ -1,5 +1,12 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { DeleteJobDialog } from "@/components/common/DeleteJobDialog";
+import {
+  createDeletingDeleteJobSteps,
+  createInitialDeleteJobSteps,
+  type DeleteJobApiSteps,
+  resolveDeleteJobDialogSteps,
+} from "@/components/common/DeleteJobDialogState";
 import { Card, Button, EmptyState, Alert, useToast, Pagination } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
 import { paginate } from "@/utils/pagination";
@@ -32,6 +39,12 @@ export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteDialogPhase, setDeleteDialogPhase] = useState<"confirm" | "status">("confirm");
+  const [deleteDialogSteps, setDeleteDialogSteps] = useState(() => createInitialDeleteJobSteps());
+  const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteCompletedId, setDeleteCompletedId] = useState<string | null>(null);
   const toast = useToast();
   const poUnreadSummary = usePoUnreadSummary();
 
@@ -272,18 +285,43 @@ export function JobsPage() {
   );
 
   const handleDelete = useCallback(
-    async (id: string) => {
-      const res = await deleteJob(id);
-      if (!res.ok) {
-        setLoadError(res.error || "删除失败");
-        toast.error(res.error || "删除失败");
-        return;
-      }
-      setAllRows((prev) => prev.filter((item) => item.id !== id));
-      toast.success("已删除");
+    async () => {
+      if (!deleteTargetId) return;
+
+      setDeleteDialogPhase("status");
+      setDeleteDialogError(null);
+      setDeleteDialogSteps(createDeletingDeleteJobSteps());
+
+      const res = await deleteJob(deleteTargetId);
+      setDeleteDialogSteps(
+        resolveDeleteJobDialogSteps(
+          (res.data as { steps?: DeleteJobApiSteps } | null)?.steps,
+          res.ok
+        )
+      );
+      setDeleteDialogError(res.ok ? null : res.error || "删除失败");
+      setDeleteCompletedId(res.ok ? deleteTargetId : null);
     },
-    [setAllRows, toast]
+    [deleteTargetId]
   );
+
+  const openDeleteDialog = useCallback((id: string) => {
+    setDeleteTargetId(id);
+    setDeleteCompletedId(null);
+    setDeleteDialogError(null);
+    setDeleteDialogPhase("confirm");
+    setDeleteDialogSteps(createInitialDeleteJobSteps());
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const closeDeleteDialog = useCallback(() => {
+    setDeleteDialogOpen(false);
+    if (deleteCompletedId) {
+      setAllRows((prev) => prev.filter((item) => item.id !== deleteCompletedId));
+    }
+    setDeleteTargetId(null);
+    setDeleteCompletedId(null);
+  }, [deleteCompletedId, setAllRows]);
 
   const handleUpdateCreatedAt = useCallback(
     async (id: string, date: string) => {
@@ -428,7 +466,7 @@ export function JobsPage() {
               rows={pagination.pageRows}
               onToggleUrgent={handleToggleUrgent}
               onArchive={handleArchive}
-              onDelete={handleDelete}
+              onDelete={openDeleteDialog}
               onUpdateCreatedAt={handleUpdateCreatedAt}
               onUpdatePaintStatus={handleUpdatePaintStatus}
               onPrintMech={handlePrintMech}
@@ -445,6 +483,15 @@ export function JobsPage() {
           </>
         )}
       </Card>
+      <DeleteJobDialog
+        open={deleteDialogOpen}
+        isDeleting={deleteDialogPhase === "status" && !deleteDialogError && !deleteCompletedId}
+        phase={deleteDialogPhase}
+        errorMessage={deleteDialogError}
+        steps={deleteDialogSteps}
+        onConfirm={() => void handleDelete()}
+        onClose={closeDeleteDialog}
+      />
     </div>
   );
 }

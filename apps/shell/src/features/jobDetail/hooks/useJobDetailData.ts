@@ -63,10 +63,23 @@ import { useToast } from "@/components/ui";
 
 type UseJobDetailDataArgs = {
   jobId?: string;
-  onDeleted?: () => void;
 };
 
-export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
+export type DeleteJobStepResult = {
+  status?: string;
+  message?: string;
+};
+
+export type DeleteJobActionResult = {
+  success: boolean;
+  message?: string;
+  steps?: {
+    xero?: DeleteJobStepResult;
+    jobStep?: DeleteJobStepResult;
+  };
+};
+
+export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
   const isMountedRef = useRef(true);
   const toast = useToast();
   const [jobData, setJobData] = useState<JobDetailData | null>(null);
@@ -612,26 +625,34 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     [jobId, refreshPartsServices, toast]
   );
 
-  const deleteJob = useCallback(async () => {
-    if (!jobId) return;
-    if (!window.confirm("确定删除该工单及相关数据？")) return;
+  const deleteJob = useCallback(async (): Promise<DeleteJobActionResult> => {
+    if (!jobId) {
+      return { success: false, message: "缺少工单 ID" };
+    }
     setDeletingJob(true);
     setDeleteError(null);
     try {
       const res = await apiDeleteJob(jobId);
       if (!res.ok) {
-        throw new Error(res.error || "删除失败");
+        return {
+          success: false,
+          message: res.error || "删除失败",
+          steps: (res.data as { steps?: DeleteJobActionResult["steps"] } | null)?.steps,
+        };
       }
-      toast.success("已删除");
-      onDeleted?.();
+
+      return {
+        success: true,
+        message: "已删除",
+        steps: (res.data as { steps?: DeleteJobActionResult["steps"] } | null)?.steps,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : "删除失败";
-      setDeleteError(message);
-      toast.error(message);
+      return { success: false, message };
     } finally {
       setDeletingJob(false);
     }
-  }, [jobId, onDeleted, toast]);
+  }, [jobId]);
 
   const archiveJob = useCallback(async () => {
     if (!jobId) return { success: false, message: "缺少工单 ID" };

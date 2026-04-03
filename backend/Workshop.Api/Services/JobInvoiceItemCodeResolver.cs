@@ -4,6 +4,9 @@ namespace Workshop.Api.Services;
 
 public static class JobInvoiceItemCodeResolver
 {
+    private const string MechRootFallbackCode = "203-Services";
+    private const string PaintRootFallbackCode = "206-PNP-L";
+
     public static string? Resolve(
         Customer customer,
         ServiceCatalogItem catalogItem,
@@ -18,6 +21,22 @@ public static class JobInvoiceItemCodeResolver
             : catalogItem.DealershipLinkCode;
 
         var normalizedDefaultCode = defaultCode?.Trim();
-        return string.IsNullOrWhiteSpace(normalizedDefaultCode) ? null : normalizedDefaultCode;
+        if (!string.IsNullOrWhiteSpace(normalizedDefaultCode))
+            return normalizedDefaultCode;
+
+        return ResolveRootFallbackCode(catalogItem);
+    }
+
+    private static string? ResolveRootFallbackCode(ServiceCatalogItem catalogItem)
+    {
+        if (!string.Equals(catalogItem.Category, "root", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return catalogItem.ServiceType.Trim().ToLowerInvariant() switch
+        {
+            "mech" => MechRootFallbackCode,
+            "paint" => PaintRootFallbackCode,
+            _ => null,
+        };
     }
 }
