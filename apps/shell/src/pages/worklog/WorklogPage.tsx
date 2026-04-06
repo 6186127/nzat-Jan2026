@@ -35,10 +35,11 @@ export function WorklogPage() {
     let cancelled = false;
 
     const loadJobs = async () => {
-      const res = await requestJson<any[]>("/api/jobs");
-      if (!res.ok || !Array.isArray(res.data) || cancelled) return;
+      const res = await requestJson<any[] | { items?: any[] }>("/api/jobs?page=1&pageSize=200");
+      const rows = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.items) ? res.data.items : [];
+      if (!res.ok || cancelled) return;
       setApiJobs(
-        res.data
+        rows
           .filter((job) => job?.id && job?.plate)
           .map((job) => ({
             id: String(job.id),

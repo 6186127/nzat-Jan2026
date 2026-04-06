@@ -9,7 +9,6 @@ import {
 } from "@/components/common/DeleteJobDialogState";
 import { Card, Button, EmptyState, Alert, useToast, Pagination } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
-import { paginate } from "@/utils/pagination";
 import { JobsFiltersCard } from "./JobsFiltersCard";
 import { JobsTable } from "./JobsTable";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,6 +31,14 @@ import {
 import { fetchPaintService, updatePaintStage } from "@/features/paint/api/paintApi";
 import { parseTimestamp } from "@/utils/date";
 
+type JobsListResponse = {
+  items?: any[];
+  totalItems?: number;
+  totalPages?: number;
+  currentPage?: number;
+  pageSize?: number;
+};
+
 export function JobsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFilters = searchParamsToFilters(searchParams);
@@ -39,6 +46,8 @@ export function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteDialogPhase, setDeleteDialogPhase] = useState<"confirm" | "status">("confirm");
   const [deleteDialogSteps, setDeleteDialogSteps] = useState(() => createInitialDeleteJobSteps());
@@ -76,19 +85,10 @@ export function JobsPage() {
     initialPage,
   });
 
-  const pagination = paginate(visibleRows, currentPage, pageSize);
-  const safePage = pagination.currentPage;
-
-  useEffect(() => {
-    if (safePage !== currentPage) {
-      setCurrentPage(safePage);
-    }
-  }, [safePage, currentPage, setCurrentPage]);
+  const safePage = Math.min(Math.max(1, currentPage), Math.max(1, totalPages));
 
   const didSyncRef = useRef(false);
   useEffect(() => {
-    console.log("SYNC URL", { currentPage: safePage, filters });
-
     if (!didSyncRef.current) {
       didSyncRef.current = true;
       return;
@@ -105,74 +105,57 @@ export function JobsPage() {
     setSearchParams(new URLSearchParams(), { replace: true });
   };
 
+  const loadJobs = useCallback(async (isCancelled: () => boolean = () => false) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const params = filtersToSearchParams(filters);
+      params.set("page", String(currentPage));
+      params.set("pageSize", String(pageSize));
+
+      const query = params.toString();
+      const res = await fetch(withApiBase(`/api/jobs${query ? `?${query}` : ""}`));
+      const data: JobsListResponse | any[] | null = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error((data as any)?.error || "加载工单失败");
+      }
+
+      const rows = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+      const rowsWithUnreadDefaults = rows.map((row: any) => ({
+        ...row,
+        poUnreadReplyCount: Number(row.poUnreadReplyCount ?? 0),
+        selectedTags: Array.isArray(row.selectedTags) ? row.selectedTags : [],
+      }));
+
+      if (!isCancelled()) {
+        setAllRows(rowsWithUnreadDefaults);
+        setTotalItems(Array.isArray(data) ? rows.length : Number(data?.totalItems ?? rows.length));
+        setTotalPages(Array.isArray(data) ? Math.max(1, Math.ceil(rows.length / pageSize)) : Math.max(1, Number(data?.totalPages ?? 1)));
+        if (!Array.isArray(data) && data?.currentPage && Number(data.currentPage) !== currentPage) {
+          setCurrentPage(Number(data.currentPage));
+        }
+      }
+    } catch (err) {
+      if (!isCancelled()) {
+        setAllRows([]);
+        setTotalItems(0);
+        setTotalPages(1);
+        const message = err instanceof Error ? err.message : "加载工单失败";
+        setLoadError(message);
+        toast.error(message);
+      }
+    } finally {
+      if (!isCancelled()) setLoading(false);
+    }
+  }, [currentPage, filters, pageSize, setAllRows, setCurrentPage, toast]);
+
   useEffect(() => {
     let cancelled = false;
-
-    const loadJobs = async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const res = await fetch(withApiBase("/api/jobs"));
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(data?.error || "加载工单失败");
-        }
-        const rows = Array.isArray(data) ? data : data?.items ?? [];
-
-        if (!cancelled) {
-          if (rows.length === 0) {
-            setAllRows(rows);
-            return;
-          }
-
-          const ids = rows.map((row: { id?: string }) => row.id).filter(Boolean).join(",");
-          if (!ids) {
-            setAllRows(rows);
-            return;
-          }
-
-          const tagsRes = await fetch(withApiBase(`/api/jobs/tags?ids=${encodeURIComponent(ids)}`));
-          const tagsData = await tagsRes.json().catch(() => null);
-          if (!tagsRes.ok) {
-            throw new Error(tagsData?.error || "加载标签失败");
-          }
-
-          const tagMap = new Map<string, string[]>();
-          if (Array.isArray(tagsData)) {
-            tagsData.forEach((entry) => {
-              if (entry?.jobId) {
-                tagMap.set(String(entry.jobId), Array.isArray(entry.tags) ? entry.tags : []);
-              }
-            });
-          }
-
-          const rowsWithTags = rows.map((row: any) => {
-            const tags = tagMap.get(String(row.id)) ?? [];
-            const mergedTags = row.urgent ? Array.from(new Set(["Urgent", ...tags])) : tags;
-            const hasUrgent = mergedTags.some((tag) => String(tag).toLowerCase() === "urgent");
-            return { ...row, urgent: hasUrgent, selectedTags: mergedTags, poUnreadReplyCount: 0 };
-          });
-
-          setAllRows(rowsWithTags);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setAllRows([]);
-          const message = err instanceof Error ? err.message : "加载工单失败";
-          setLoadError(message);
-          toast.error(message);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadJobs();
-
+    void loadJobs(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [setAllRows, toast]);
+  }, [loadJobs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,8 +240,9 @@ export function JobsPage() {
         )
       );
       toast.success(nextUrgent ? "已标记为加急" : "已取消加急");
+      void loadJobs();
     },
-    [allRows, setAllRows, toast]
+    [allRows, loadJobs, setAllRows, toast]
   );
 
   const handleArchive = useCallback(
@@ -280,8 +264,9 @@ export function JobsPage() {
         )
       );
       toast.success("已归档");
+      void loadJobs();
     },
-    [setAllRows, toast]
+    [loadJobs, setAllRows, toast]
   );
 
   const handleDelete = useCallback(
@@ -318,10 +303,12 @@ export function JobsPage() {
     setDeleteDialogOpen(false);
     if (deleteCompletedId) {
       setAllRows((prev) => prev.filter((item) => item.id !== deleteCompletedId));
+      setTotalItems((prev) => Math.max(0, prev - 1));
+      void loadJobs();
     }
     setDeleteTargetId(null);
     setDeleteCompletedId(null);
-  }, [deleteCompletedId, setAllRows]);
+  }, [deleteCompletedId, loadJobs, setAllRows]);
 
   const handleUpdateCreatedAt = useCallback(
     async (id: string, date: string) => {
@@ -344,9 +331,10 @@ export function JobsPage() {
         )
       );
       toast.success("创建日期已更新");
+      void loadJobs();
       return true;
     },
-    [setAllRows, toast]
+    [loadJobs, setAllRows, toast]
   );
 
   const handleUpdatePaintStatus = useCallback(
@@ -371,9 +359,10 @@ export function JobsPage() {
         )
       );
       toast.success("喷漆状态已更新");
+      void loadJobs();
       return true;
     },
-    [setAllRows, toast]
+    [loadJobs, setAllRows, toast]
   );
 
   const resolveJobSheetData = useCallback(
@@ -458,12 +447,12 @@ export function JobsPage() {
       <Card className="overflow-hidden">
         {loading ? (
           <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>
-        ) : pagination.totalItems === 0 ? (
+        ) : totalItems === 0 ? (
           <EmptyState message="暂无工单" />
         ) : (
           <>
             <JobsTable
-              rows={pagination.pageRows}
+              rows={visibleRows}
               onToggleUrgent={handleToggleUrgent}
               onArchive={handleArchive}
               onDelete={openDeleteDialog}
@@ -475,9 +464,9 @@ export function JobsPage() {
 
             <Pagination
               currentPage={safePage}
-              totalPages={pagination.totalPages}
+              totalPages={totalPages}
               pageSize={pageSize}
-              totalItems={pagination.totalItems}
+              totalItems={totalItems}
               onPageChange={setCurrentPage}
             />
           </>

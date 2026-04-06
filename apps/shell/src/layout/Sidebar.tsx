@@ -28,9 +28,10 @@ export function Sidebar() {
       const list = Array.isArray(res.data?.jobs) ? (res.data.jobs as PaintBoardJob[]) : [];
       if (!cancelled) setPaintOverdueCount(countOverdue(list));
     };
-    load();
+    const timer = window.setTimeout(() => void load(), 300);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -53,13 +54,14 @@ export function Sidebar() {
       setWofTodoCount(count);
     };
 
-    void load();
+    const initialTimer = window.setTimeout(() => void load(), 300);
     const timer = window.setInterval(() => {
       void load();
     }, 60000);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(initialTimer);
       window.clearInterval(timer);
     };
   }, []);

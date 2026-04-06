@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
@@ -12,16 +13,25 @@ namespace Workshop.Api.Controllers;
 [Route("api/newJob")]
 public class NewJobController : ControllerBase
 {
+    private const string JobsListVersionCacheKey = "jobs:list:version:v1";
+    private const string PaintBoardCacheKey = "jobs:paint-board:v1";
+    private const string WofScheduleCacheKey = "jobs:wof-schedule:v1";
+    private const string PoUnreadSummaryCacheKey = "jobs:po-unread-summary:v1";
+    private static readonly TimeSpan JobsListVersionCacheDuration = TimeSpan.FromDays(30);
+
     private readonly AppDbContext _db;
+    private readonly IAppCache _cache;
     private readonly InvoiceOutboxService _invoiceOutboxService;
     private readonly ILogger<NewJobController> _logger;
 
     public NewJobController(
         AppDbContext db,
+        IAppCache cache,
         InvoiceOutboxService invoiceOutboxService,
         ILogger<NewJobController> logger)
     {
         _db = db;
+        _cache = cache;
         _invoiceOutboxService = invoiceOutboxService;
         _logger = logger;
     }
@@ -246,6 +256,7 @@ public class NewJobController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         await tx.CommitAsync(ct);
+        await InvalidateJobsOverviewCachesAsync(hasPaint, wofCreated, job.NeedsPo, ct);
         transactionStopwatch.Stop();
         _logger.LogInformation(
             "New job segment {Segment} completed in {ElapsedMs} ms for job {JobId}",
@@ -296,6 +307,24 @@ public class NewJobController : ControllerBase
             invoiceAlreadyExists = false,
             invoiceError = (string?)null,
         });
+    }
+
+    private async Task InvalidateJobsOverviewCachesAsync(bool hasPaint, bool hasWof, bool needsPo, CancellationToken ct)
+    {
+        await _cache.SetStringAsync(
+            JobsListVersionCacheKey,
+            DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture),
+            JobsListVersionCacheDuration,
+            ct);
+
+        if (hasPaint)
+            await _cache.RemoveAsync(PaintBoardCacheKey, ct);
+
+        if (hasWof)
+            await _cache.RemoveAsync(WofScheduleCacheKey, ct);
+
+        if (needsPo)
+            await _cache.RemoveAsync(PoUnreadSummaryCacheKey, ct);
     }
 
     private static List<string> ParsePartsDescriptions(NewJobRequest req)

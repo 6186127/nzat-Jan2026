@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Workshop.Api.Services;
 
@@ -7,6 +8,8 @@ namespace Workshop.Api.Controllers;
 [Route("api/jobs/{id:long}")]
 public class WofRecordsController : ControllerBase
 {
+    private const string JobsListVersionCacheKey = "jobs:list:version:v1";
+    private static readonly TimeSpan JobsListVersionCacheDuration = TimeSpan.FromDays(30);
     private static readonly TimeSpan WofRecordsCacheDuration = TimeSpan.FromMinutes(2);
     private const string PaintBoardCacheKey = "jobs:paint-board:v1";
     private const string WofScheduleCacheKey = "jobs:wof-schedule:v1";
@@ -140,7 +143,15 @@ public class WofRecordsController : ControllerBase
         await _cache.RemoveAsync(GetJobDetailCacheKey(jobId), ct);
         await _cache.RemoveAsync(PaintBoardCacheKey, ct);
         await _cache.RemoveAsync(WofScheduleCacheKey, ct);
+        await TouchJobsListVersionAsync(ct);
     }
+
+    private Task TouchJobsListVersionAsync(CancellationToken ct)
+        => _cache.SetStringAsync(
+            JobsListVersionCacheKey,
+            DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture),
+            JobsListVersionCacheDuration,
+            ct);
 
     private static string GetWofRecordsCacheKey(long jobId)
         => $"job:wof-server:{jobId}:v1";
