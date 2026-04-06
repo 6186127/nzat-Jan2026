@@ -161,6 +161,9 @@ export function MainColumn({
   const hasPartsServices = partsServices.length > 0;
   const [partsTabVisibleForCreate, setPartsTabVisibleForCreate] = useState(false);
   const [partsCreateTrigger, setPartsCreateTrigger] = useState(0);
+  const [invoiceDashboardEnabled, setInvoiceDashboardEnabled] = useState(
+    activeTab === "Invoice" || activeTab === "PO"
+  );
   const invoiceDashboard = useInvoiceDashboardState({
     jobId: jobData.id,
     customer: jobData.customer,
@@ -168,8 +171,15 @@ export function MainColumn({
     persistedPoNumber: jobData.poNumber,
     persistedInvoiceReference: jobData.invoiceReference,
     persistedInvoice: jobData.invoice,
+    enabled: invoiceDashboardEnabled,
   });
   const needsPo = Boolean(jobData.needsPo);
+
+  useEffect(() => {
+    if (activeTab === "Invoice" || activeTab === "PO") {
+      setInvoiceDashboardEnabled(true);
+    }
+  }, [activeTab]);
 
   const handleTabChange = (nextTab: JobDetailTabKey) => {
     onTabChange(nextTab);

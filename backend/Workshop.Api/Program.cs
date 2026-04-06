@@ -24,6 +24,22 @@ QuestPDF.Settings.License = LicenseType.Community;
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
+var redisConfiguration =
+    builder.Configuration.GetConnectionString("Redis")
+    ?? builder.Configuration["Redis:Configuration"];
+var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "workshop-api:";
+if (!string.IsNullOrWhiteSpace(redisConfiguration))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConfiguration;
+        options.InstanceName = redisInstanceName;
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
 builder.Services.AddHttpClient();
 builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
 builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
@@ -87,17 +103,22 @@ dataSourceBuilder.MapEnum<PartsServiceStatus>("parts_service_status");
 dataSourceBuilder.MapEnum<WorklogServiceType>("worklog_service_type");
 var dataSource = dataSourceBuilder.Build();
 
-builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseNpgsql(dataSource));
+builder.Services.AddSingleton<DbQueryCountingInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, opt) =>
+    opt.UseNpgsql(dataSource)
+        .AddInterceptors(sp.GetRequiredService<DbQueryCountingInterceptor>()));
 
 // --- [融合新增] 注册库存模块的 ProcurementDbContext ---
-builder.Services.AddDbContext<ProcurementDbContext>(opt =>
-    opt.UseNpgsql(dataSource));
+builder.Services.AddDbContext<ProcurementDbContext>((sp, opt) =>
+    opt.UseNpgsql(dataSource)
+        .AddInterceptors(sp.GetRequiredService<DbQueryCountingInterceptor>()));
 // ---------------------------------------------------
 
 builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
+builder.Services.AddSingleton<IAppCache, DistributedAppCache>();
 builder.Services.AddScoped<InventoryItemService>();
 builder.Services.AddScoped<ServiceCatalogService>();
 builder.Services.AddScoped<XeroTokenConfiguration>();

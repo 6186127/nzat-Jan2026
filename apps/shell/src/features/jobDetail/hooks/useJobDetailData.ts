@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   JobDetailData,
+  JobDetailTabKey,
   MechService,
   PaintService,
   PartsService,
@@ -63,6 +64,7 @@ import { useToast } from "@/components/ui";
 
 type UseJobDetailDataArgs = {
   jobId?: string;
+  activeTab?: JobDetailTabKey;
 };
 
 export type DeleteJobStepResult = {
@@ -79,7 +81,7 @@ export type DeleteJobActionResult = {
   };
 };
 
-export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
+export function useJobDetailData({ jobId, activeTab }: UseJobDetailDataArgs) {
   const isMountedRef = useRef(true);
   const toast = useToast();
   const [jobData, setJobData] = useState<JobDetailData | null>(null);
@@ -103,6 +105,12 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
   const [attachingXeroInvoice, setAttachingXeroInvoice] = useState(false);
   const [detachingXeroInvoice, setDetachingXeroInvoice] = useState(false);
   const [hasWofRecord, setHasWofRecord] = useState(false);
+  const [wofInitialized, setWofInitialized] = useState(false);
+  const [wofFailReasonsInitialized, setWofFailReasonsInitialized] = useState(false);
+  const [partsInitialized, setPartsInitialized] = useState(false);
+  const [mechInitialized, setMechInitialized] = useState(false);
+  const [paintInitialized, setPaintInitialized] = useState(false);
+  const [tagOptionsInitialized, setTagOptionsInitialized] = useState(false);
 
   const refreshWofServer = useCallback(async () => {
     if (!jobId) return;
@@ -119,11 +127,13 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
         setWofCheckItems(Array.isArray(wofData?.checkItems) ? wofData.checkItems : []);
         const results = Array.isArray(wofData?.results) ? wofData.results : [];
         setWofRecords(results.map(mapWofRecord));
+        setWofInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setWofRecords([]);
         setWofCheckItems([]);
+        setWofInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -143,10 +153,12 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
       if (isMountedRef.current) {
         const list = Array.isArray(res.data) ? res.data : [];
         setPartsServices(list);
+        setPartsInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setPartsServices([]);
+        setPartsInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -166,10 +178,12 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
       if (isMountedRef.current) {
         const list = Array.isArray(res.data) ? res.data : [];
         setMechServices(list);
+        setMechInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setMechServices([]);
+        setMechInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -187,11 +201,19 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
         throw new Error(res.error || "加载喷漆服务失败");
       }
       const service = res.data?.service ? res.data.service : null;
-      setPaintService(service);
+      if (isMountedRef.current) {
+        setPaintService(service);
+        setPaintInitialized(true);
+      }
     } catch {
-      setPaintService(null);
+      if (isMountedRef.current) {
+        setPaintService(null);
+        setPaintInitialized(true);
+      }
     } finally {
-      setPaintLoading(false);
+      if (isMountedRef.current) {
+        setPaintLoading(false);
+      }
     }
   }, [jobId]);
 
@@ -863,38 +885,70 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
     [jobId, toast]
   );
 
+  const loadWofFailReasons = useCallback(async () => {
+    const res = await fetchWofFailReasons();
+    if (!res.ok) {
+      if (isMountedRef.current) {
+        setWofFailReasons([]);
+        setWofFailReasonsInitialized(true);
+      }
+      return;
+    }
+
+    if (isMountedRef.current) {
+      const list = Array.isArray(res.data) ? res.data : [];
+      const active = list.filter((item) => item?.isActive !== false);
+      setWofFailReasons(active.length ? active : list);
+      setWofFailReasonsInitialized(true);
+    }
+  }, []);
+
+  const loadTagOptions = useCallback(async () => {
+    const res = await fetchTags();
+    if (!res.ok) {
+      if (isMountedRef.current) {
+        setTagOptions([]);
+        setTagOptionsInitialized(true);
+      }
+      return;
+    }
+
+    if (isMountedRef.current) {
+      const tags = Array.isArray(res.data) ? res.data : [];
+      setTagOptions(
+        tags
+          .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
+          .map((tag: any) => ({ id: String(tag.id), label: tag.name }))
+      );
+      setTagOptionsInitialized(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    setWofRecords([]);
+    setWofCheckItems([]);
+    setWofFailReasons([]);
+    setPartsServices([]);
+    setMechServices([]);
+    setPaintService(null);
+    setTagOptions([]);
+    setHasWofRecord(false);
+    setWofLoading(false);
+    setPartsLoading(false);
+    setMechLoading(false);
+    setPaintLoading(false);
+    setWofInitialized(false);
+    setWofFailReasonsInitialized(false);
+    setPartsInitialized(false);
+    setMechInitialized(false);
+    setPaintInitialized(false);
+    setTagOptionsInitialized(false);
+  }, [jobId]);
+
   useEffect(() => {
     let cancelled = false;
     isMountedRef.current = true;
-
-    const loadWofFailReasons = async () => {
-      const res = await fetchWofFailReasons();
-      if (!res.ok) {
-        if (!cancelled) setWofFailReasons([]);
-        return;
-      }
-      if (!cancelled) {
-        const list = Array.isArray(res.data) ? res.data : [];
-        const active = list.filter((item) => item?.isActive !== false);
-        setWofFailReasons(active.length ? active : list);
-      }
-    };
-
-    const loadTagOptions = async () => {
-      const res = await fetchTags();
-      if (!res.ok) {
-        if (!cancelled) setTagOptions([]);
-        return;
-      }
-      if (!cancelled) {
-        const tags = Array.isArray(res.data) ? res.data : [];
-        setTagOptions(
-          tags
-            .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
-            .map((tag: any) => ({ id: String(tag.id), label: tag.name }))
-        );
-      }
-    };
 
     const loadJob = async () => {
       if (!jobId) {
@@ -920,31 +974,54 @@ export function useJobDetailData({ jobId }: UseJobDetailDataArgs) {
           if (typeof (data as any)?.hasWofRecord === "boolean") {
             setHasWofRecord((data as any).hasWofRecord);
           }
+          setLoading(false);
         }
-
-        await refreshWofServer();
-        await refreshPartsServices();
-        await refreshMechServices();
-        await refreshPaintService();
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "加载工单失败");
           setJobData(null);
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     };
 
-    loadJob();
-    loadWofFailReasons();
-    loadTagOptions();
+    void loadJob();
 
     return () => {
       cancelled = true;
       isMountedRef.current = false;
     };
-  }, [jobId, refreshWofServer, refreshPartsServices, refreshMechServices, refreshPaintService]);
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId || tagOptionsInitialized) return;
+    void loadTagOptions();
+  }, [jobId, tagOptionsInitialized, loadTagOptions]);
+
+  useEffect(() => {
+    if (!jobId || partsInitialized || partsLoading) return;
+    void refreshPartsServices();
+  }, [jobId, partsInitialized, partsLoading, refreshPartsServices]);
+
+  useEffect(() => {
+    if (activeTab !== "WOF") return;
+    if (!wofInitialized && !wofLoading) {
+      void refreshWofServer();
+    }
+    if (!wofFailReasonsInitialized) {
+      void loadWofFailReasons();
+    }
+  }, [activeTab, loadWofFailReasons, refreshWofServer, wofFailReasonsInitialized, wofInitialized, wofLoading]);
+
+  useEffect(() => {
+    if (activeTab !== "Mechanical" || mechInitialized || mechLoading) return;
+    void refreshMechServices();
+  }, [activeTab, mechInitialized, mechLoading, refreshMechServices]);
+
+  useEffect(() => {
+    if ((activeTab !== "Paint" && activeTab !== "Worklog") || paintInitialized || paintLoading) return;
+    void refreshPaintService();
+  }, [activeTab, paintInitialized, paintLoading, refreshPaintService]);
 
   return {
     jobData,

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Services;
 using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
@@ -11,28 +12,46 @@ namespace Workshop.Api.Controllers;
 [Route("api/wof-fail-reasons")]
 public class WofFailReasonsController : ControllerBase
 {
-    private readonly AppDbContext _db;
+    private const string WofFailReasonsCacheKey = "dict:wof-fail-reasons:v1";
+    private static readonly TimeSpan WofFailReasonsCacheDuration = TimeSpan.FromMinutes(60);
 
-    public WofFailReasonsController(AppDbContext db)
+    private readonly AppDbContext _db;
+    private readonly IAppCache _cache;
+
+    public WofFailReasonsController(AppDbContext db, IAppCache cache)
     {
         _db = db;
+        _cache = cache;
     }
+
+    public record WofFailReasonResponse(
+        string Id,
+        string? Code,
+        string Label,
+        bool IsActive,
+        string CreatedAt,
+        string UpdatedAt
+    );
 
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var reasons = await _db.WofFailReasons.AsNoTracking()
-            .OrderBy(x => x.Label)
-            .Select(x => new
-            {
-                id = x.Id.ToString(CultureInfo.InvariantCulture),
-                code = x.Code,
-                label = x.Label,
-                isActive = x.IsActive,
-                createdAt = DateTimeHelper.FormatUtc(x.CreatedAt),
-                updatedAt = DateTimeHelper.FormatUtc(x.UpdatedAt)
-            })
-            .ToListAsync(ct);
+        var reasons = await _cache.GetOrCreateAsync(
+            WofFailReasonsCacheKey,
+            WofFailReasonsCacheDuration,
+            async token => await _db.WofFailReasons.AsNoTracking()
+                .OrderBy(x => x.Label)
+                .Select(x => new WofFailReasonResponse(
+                    x.Id.ToString(CultureInfo.InvariantCulture),
+                    x.Code,
+                    x.Label,
+                    x.IsActive,
+                    DateTimeHelper.FormatUtc(x.CreatedAt),
+                    DateTimeHelper.FormatUtc(x.UpdatedAt)
+                ))
+                .ToListAsync(token),
+            ct
+        ) ?? [];
 
         return Ok(reasons);
     }
@@ -61,16 +80,16 @@ public class WofFailReasonsController : ControllerBase
 
         _db.WofFailReasons.Add(reason);
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(WofFailReasonsCacheKey, ct);
 
-        return Ok(new
-        {
-            id = reason.Id.ToString(CultureInfo.InvariantCulture),
-            code = reason.Code,
-            label = reason.Label,
-            isActive = reason.IsActive,
-            createdAt = DateTimeHelper.FormatUtc(reason.CreatedAt),
-            updatedAt = DateTimeHelper.FormatUtc(reason.UpdatedAt)
-        });
+        return Ok(new WofFailReasonResponse(
+            reason.Id.ToString(CultureInfo.InvariantCulture),
+            reason.Code,
+            reason.Label,
+            reason.IsActive,
+            DateTimeHelper.FormatUtc(reason.CreatedAt),
+            DateTimeHelper.FormatUtc(reason.UpdatedAt)
+        ));
     }
 
     [HttpPut("{id:long}")]
@@ -94,16 +113,16 @@ public class WofFailReasonsController : ControllerBase
         reason.IsActive = req.IsActive;
         reason.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(WofFailReasonsCacheKey, ct);
 
-        return Ok(new
-        {
-            id = reason.Id.ToString(CultureInfo.InvariantCulture),
-            code = reason.Code,
-            label = reason.Label,
-            isActive = reason.IsActive,
-            createdAt = DateTimeHelper.FormatUtc(reason.CreatedAt),
-            updatedAt = DateTimeHelper.FormatUtc(reason.UpdatedAt)
-        });
+        return Ok(new WofFailReasonResponse(
+            reason.Id.ToString(CultureInfo.InvariantCulture),
+            reason.Code,
+            reason.Label,
+            reason.IsActive,
+            DateTimeHelper.FormatUtc(reason.CreatedAt),
+            DateTimeHelper.FormatUtc(reason.UpdatedAt)
+        ));
     }
 
     [HttpDelete("{id:long}")]
@@ -115,6 +134,7 @@ public class WofFailReasonsController : ControllerBase
 
         _db.WofFailReasons.Remove(reason);
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(WofFailReasonsCacheKey, ct);
         return Ok(new { success = true });
     }
 

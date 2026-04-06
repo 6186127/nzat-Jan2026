@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Services;
 using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
@@ -11,27 +12,44 @@ namespace Workshop.Api.Controllers;
 [Route("api/tags")]
 public class TagsController : ControllerBase
 {
-    private readonly AppDbContext _db;
+    private const string TagsCacheKey = "dict:tags:v1";
+    private static readonly TimeSpan TagsCacheDuration = TimeSpan.FromMinutes(60);
 
-    public TagsController(AppDbContext db)
+    private readonly AppDbContext _db;
+    private readonly IAppCache _cache;
+
+    public TagsController(AppDbContext db, IAppCache cache)
     {
         _db = db;
+        _cache = cache;
     }
+
+    public record TagResponse(
+        string Id,
+        string Name,
+        bool IsActive,
+        string CreatedAt,
+        string UpdatedAt
+    );
 
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var rows = await _db.Tags.AsNoTracking()
-            .OrderBy(x => x.Name)
-            .Select(x => new
-            {
-                id = x.Id.ToString(CultureInfo.InvariantCulture),
-                name = x.Name,
-                isActive = x.IsActive,
-                createdAt = DateTimeHelper.FormatUtc(x.CreatedAt),
-                updatedAt = DateTimeHelper.FormatUtc(x.UpdatedAt)
-            })
-            .ToListAsync(ct);
+        var rows = await _cache.GetOrCreateAsync(
+            TagsCacheKey,
+            TagsCacheDuration,
+            async token => await _db.Tags.AsNoTracking()
+                .OrderBy(x => x.Name)
+                .Select(x => new TagResponse(
+                    x.Id.ToString(CultureInfo.InvariantCulture),
+                    x.Name,
+                    x.IsActive,
+                    DateTimeHelper.FormatUtc(x.CreatedAt),
+                    DateTimeHelper.FormatUtc(x.UpdatedAt)
+                ))
+                .ToListAsync(token),
+            ct
+        ) ?? [];
 
         return Ok(rows);
     }
@@ -59,15 +77,15 @@ public class TagsController : ControllerBase
 
         _db.Tags.Add(tag);
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(TagsCacheKey, ct);
 
-        return Ok(new
-        {
-            id = tag.Id.ToString(CultureInfo.InvariantCulture),
-            name = tag.Name,
-            isActive = tag.IsActive,
-            createdAt = DateTimeHelper.FormatUtc(tag.CreatedAt),
-            updatedAt = DateTimeHelper.FormatUtc(tag.UpdatedAt)
-        });
+        return Ok(new TagResponse(
+            tag.Id.ToString(CultureInfo.InvariantCulture),
+            tag.Name,
+            tag.IsActive,
+            DateTimeHelper.FormatUtc(tag.CreatedAt),
+            DateTimeHelper.FormatUtc(tag.UpdatedAt)
+        ));
     }
 
     [HttpPut("{id:long}")]
@@ -89,15 +107,15 @@ public class TagsController : ControllerBase
         tag.Name = name;
         tag.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(TagsCacheKey, ct);
 
-        return Ok(new
-        {
-            id = tag.Id.ToString(CultureInfo.InvariantCulture),
-            name = tag.Name,
-            isActive = tag.IsActive,
-            createdAt = DateTimeHelper.FormatUtc(tag.CreatedAt),
-            updatedAt = DateTimeHelper.FormatUtc(tag.UpdatedAt)
-        });
+        return Ok(new TagResponse(
+            tag.Id.ToString(CultureInfo.InvariantCulture),
+            tag.Name,
+            tag.IsActive,
+            DateTimeHelper.FormatUtc(tag.CreatedAt),
+            DateTimeHelper.FormatUtc(tag.UpdatedAt)
+        ));
     }
 
     [HttpDelete("{id:long}")]
@@ -113,6 +131,7 @@ public class TagsController : ControllerBase
 
         _db.Tags.Remove(tag);
         await _db.SaveChangesAsync(ct);
+        await _cache.RemoveAsync(TagsCacheKey, ct);
         return Ok(new { success = true });
     }
 }

@@ -25,10 +25,6 @@ public class WofRecordsService
 
     public async Task<WofServiceResult> GetWofRecords(long id, CancellationToken ct)
     {
-        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
-        if (!jobExists)
-            return WofServiceResult.NotFound("Job not found.");
-
         var rows = await _db.JobWofRecords.AsNoTracking()
             .Where(x => x.JobId == id)
             .OrderByDescending(x => x.OccurredAt)
@@ -59,6 +55,13 @@ public class WofRecordsService
                 x.UpdatedAt
             })
             .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
+            if (!jobExists)
+                return WofServiceResult.NotFound("Job not found.");
+        }
 
         var checkItems = rows.Select(x => new
             {

@@ -7,18 +7,38 @@ namespace Workshop.Api.Controllers;
 [Route("api/jobs/{id:long}/parts-services")]
 public class PartsServicesController : ControllerBase
 {
+    private static readonly TimeSpan PartsServicesCacheDuration = TimeSpan.FromMinutes(2);
+
+    private readonly IAppCache _cache;
     private readonly PartsServicesService _partsService;
 
-    public PartsServicesController(PartsServicesService partsService)
+    public PartsServicesController(IAppCache cache, PartsServicesService partsService)
     {
+        _cache = cache;
         _partsService = partsService;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetServices(long id, CancellationToken ct)
     {
-        var result = await _partsService.GetServices(id, ct);
-        return ToActionResult(result);
+        var payload = await _cache.GetOrCreateJsonAsync(
+            GetPartsServicesCacheKey(id),
+            PartsServicesCacheDuration,
+            async token =>
+            {
+                var result = await _partsService.GetServices(id, token);
+                if (result.StatusCode != 200)
+                    return null;
+
+                return System.Text.Json.JsonSerializer.Serialize(result.Payload);
+            },
+            ct
+        );
+
+        if (payload is null)
+            return NotFound(new { error = "Job not found." });
+
+        return Content(payload, "application/json");
     }
 
     [HttpGet("~/api/parts-flow")]
@@ -35,6 +55,7 @@ public class PartsServicesController : ControllerBase
             return BadRequest(new { error = "Missing payload." });
 
         var result = await _partsService.CreateService(id, request, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
 
@@ -45,6 +66,7 @@ public class PartsServicesController : ControllerBase
             return BadRequest(new { error = "Missing payload." });
 
         var result = await _partsService.UpdateService(id, serviceId, request, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
 
@@ -52,6 +74,7 @@ public class PartsServicesController : ControllerBase
     public async Task<IActionResult> DeleteService(long id, long serviceId, CancellationToken ct)
     {
         var result = await _partsService.DeleteService(id, serviceId, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
 
@@ -62,6 +85,7 @@ public class PartsServicesController : ControllerBase
             return BadRequest(new { error = "Missing payload." });
 
         var result = await _partsService.CreateNote(id, serviceId, request, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
 
@@ -72,6 +96,7 @@ public class PartsServicesController : ControllerBase
             return BadRequest(new { error = "Missing payload." });
 
         var result = await _partsService.UpdateNote(id, noteId, request, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
 
@@ -79,8 +104,24 @@ public class PartsServicesController : ControllerBase
     public async Task<IActionResult> DeleteNote(long id, long noteId, CancellationToken ct)
     {
         var result = await _partsService.DeleteNote(id, noteId, ct);
+        await InvalidatePartsCachesAsync(id, result, ct);
         return ToActionResult(result);
     }
+
+    private async Task InvalidatePartsCachesAsync(long jobId, WofServiceResult result, CancellationToken ct)
+    {
+        if (result.StatusCode != 200)
+            return;
+
+        await _cache.RemoveAsync(GetPartsServicesCacheKey(jobId), ct);
+        await _cache.RemoveAsync(GetJobDetailCacheKey(jobId), ct);
+    }
+
+    private static string GetPartsServicesCacheKey(long jobId)
+        => $"job:parts-services:{jobId}:v1";
+
+    private static string GetJobDetailCacheKey(long jobId)
+        => $"job:detail:{jobId}:v1";
 
     private IActionResult ToActionResult(WofServiceResult result)
     {

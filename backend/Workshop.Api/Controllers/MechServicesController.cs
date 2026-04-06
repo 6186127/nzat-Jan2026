@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Services;
 using Workshop.Api.Utils;
 
 namespace Workshop.Api.Controllers;
@@ -10,10 +12,15 @@ namespace Workshop.Api.Controllers;
 [Route("api/jobs/{id:long}/mech-services")]
 public class MechServicesController : ControllerBase
 {
+    private static readonly TimeSpan MechServicesCacheDuration = TimeSpan.FromMinutes(2);
+    private const string PaintBoardCacheKey = "jobs:paint-board:v1";
+
+    private readonly IAppCache _cache;
     private readonly AppDbContext _db;
 
-    public MechServicesController(AppDbContext db)
+    public MechServicesController(IAppCache cache, AppDbContext db)
     {
+        _cache = cache;
         _db = db;
     }
 
@@ -22,21 +29,31 @@ public class MechServicesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(long id, CancellationToken ct)
     {
-        var list = await _db.JobMechServices.AsNoTracking()
-            .Where(x => x.JobId == id)
-            .OrderByDescending(x => x.CreatedAt)
-            .Select(x => new
+        var payload = await _cache.GetOrCreateJsonAsync(
+            GetMechServicesCacheKey(id),
+            MechServicesCacheDuration,
+            async token =>
             {
-                id = x.Id.ToString(),
-                jobId = x.JobId.ToString(),
-                description = x.Description,
-                cost = x.Cost,
-                createdAt = DateTimeHelper.FormatUtc(x.CreatedAt),
-                updatedAt = DateTimeHelper.FormatUtc(x.UpdatedAt)
-            })
-            .ToListAsync(ct);
+                var list = await _db.JobMechServices.AsNoTracking()
+                    .Where(x => x.JobId == id)
+                    .OrderByDescending(x => x.CreatedAt)
+                    .Select(x => new
+                    {
+                        id = x.Id.ToString(),
+                        jobId = x.JobId.ToString(),
+                        description = x.Description,
+                        cost = x.Cost,
+                        createdAt = DateTimeHelper.FormatUtc(x.CreatedAt),
+                        updatedAt = DateTimeHelper.FormatUtc(x.UpdatedAt)
+                    })
+                    .ToListAsync(token);
 
-        return Ok(list);
+                return JsonSerializer.Serialize(list);
+            },
+            ct
+        );
+
+        return Content(payload ?? "[]", "application/json");
     }
 
     [HttpPost]
@@ -61,6 +78,7 @@ public class MechServicesController : ControllerBase
 
         _db.JobMechServices.Add(service);
         await _db.SaveChangesAsync(ct);
+        await InvalidateMechCachesAsync(id, ct);
 
         return Ok(new
         {
@@ -92,6 +110,7 @@ public class MechServicesController : ControllerBase
             service.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateMechCachesAsync(id, ct);
 
         return Ok(new
         {
@@ -112,7 +131,21 @@ public class MechServicesController : ControllerBase
             .ExecuteDeleteAsync(ct);
         if (deleted == 0)
             return NotFound(new { error = "Mech service not found." });
+        await InvalidateMechCachesAsync(id, ct);
 
         return Ok(new { success = true });
     }
+
+    private async Task InvalidateMechCachesAsync(long jobId, CancellationToken ct)
+    {
+        await _cache.RemoveAsync(GetMechServicesCacheKey(jobId), ct);
+        await _cache.RemoveAsync(GetJobDetailCacheKey(jobId), ct);
+        await _cache.RemoveAsync(PaintBoardCacheKey, ct);
+    }
+
+    private static string GetMechServicesCacheKey(long jobId)
+        => $"job:mech-services:{jobId}:v1";
+
+    private static string GetJobDetailCacheKey(long jobId)
+        => $"job:detail:{jobId}:v1";
 }

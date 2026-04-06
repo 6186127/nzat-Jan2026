@@ -1,7 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
 using Workshop.Api.Services;
@@ -13,24 +13,30 @@ namespace Workshop.Api.Controllers;
 [Route("api/jobs")]
 public class JobsController : ControllerBase
 {
-    private const string PoUnreadSummaryCacheKey = "jobs:po-unread-summary";
+    private const string PoUnreadSummaryCacheKey = "jobs:po-unread-summary:v1";
+    private const string PaintBoardCacheKey = "jobs:paint-board:v1";
+    private const string WofScheduleCacheKey = "jobs:wof-schedule:v1";
+    private static readonly TimeSpan JobDetailCacheDuration = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PaintServiceCacheDuration = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PoUnreadSummaryCacheDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan PaintBoardCacheDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan WofScheduleCacheDuration = TimeSpan.FromSeconds(30);
     private static readonly PoUnreadSummaryResponse EmptyPoUnreadSummary =
         new(0, 0, Array.Empty<PoUnreadSummaryItemResponse>());
 
     private readonly AppDbContext _db;
-    private readonly IMemoryCache _cache;
+    private readonly IAppCache _appCache;
     private readonly JobPoStateService _jobPoStateService;
     private readonly JobInvoiceService _jobInvoiceService;
 
     public JobsController(
         AppDbContext db,
-        IMemoryCache cache,
+        IAppCache appCache,
         JobPoStateService jobPoStateService,
         JobInvoiceService jobInvoiceService)
     {
         _db = db;
-        _cache = cache;
+        _appCache = appCache;
         _jobPoStateService = jobPoStateService;
         _jobInvoiceService = jobInvoiceService;
     }
@@ -149,6 +155,21 @@ public class JobsController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetById(long id, CancellationToken ct)
     {
+        var payload = await _appCache.GetOrCreateJsonAsync(
+            GetJobDetailCacheKey(id),
+            JobDetailCacheDuration,
+            token => BuildJobDetailResponseJsonAsync(id, token),
+            ct
+        );
+
+        if (payload is null)
+            return NotFound(new { error = "Job not found." });
+
+        return Content(payload, "application/json");
+    }
+
+    private async Task<string?> BuildJobDetailResponseJsonAsync(long id, CancellationToken ct)
+    {
         var row = await (
                 from j in _db.Jobs.AsNoTracking()
                 join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
@@ -156,38 +177,139 @@ public class JobsController : ControllerBase
                 where j.Id == id
                 select new
                 {
-                    Job = j,
-                    Vehicle = v,
-                    Customer = c
+                    Job = new
+                    {
+                        j.Id,
+                        j.Status,
+                        j.IsUrgent,
+                        j.NeedsPo,
+                        j.PoNumber,
+                        j.InvoiceReference,
+                        j.Notes,
+                        j.CreatedAt,
+                    },
+                    Vehicle = new
+                    {
+                        v.Plate,
+                        v.Make,
+                        v.Model,
+                        v.Year,
+                        v.Vin,
+                        v.Engine,
+                        v.RegoExpiry,
+                        v.Colour,
+                        v.BodyStyle,
+                        v.EngineNo,
+                        v.Chassis,
+                        v.CcRating,
+                        v.FuelType,
+                        v.Seats,
+                        v.CountryOfOrigin,
+                        v.GrossVehicleMass,
+                        v.Refrigerant,
+                        v.FuelTankCapacityLitres,
+                        v.FullCombinedRangeKm,
+                        v.WofExpiry,
+                        v.Odometer,
+                        v.NzFirstRegistration,
+                        v.CustomerId,
+                        v.UpdatedAt,
+                    },
+                    Customer = new
+                    {
+                        c.Id,
+                        c.Type,
+                        c.Name,
+                        c.Phone,
+                        c.Email,
+                        c.Address,
+                        c.BusinessCode,
+                        c.Notes,
+                    },
+                    HasWofRecord = _db.JobWofRecords.AsNoTracking()
+                        .Any(x => x.JobId == j.Id),
+                    LatestWofUiState = _db.JobWofRecords.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .OrderByDescending(x => x.OccurredAt)
+                        .ThenByDescending(x => x.Id)
+                        .Select(x => (WofUiState?)x.WofUiState)
+                        .FirstOrDefault(),
+                    LatestWofManualStatus = _db.JobWofStates.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .OrderByDescending(x => x.UpdatedAt)
+                        .ThenByDescending(x => x.Id)
+                        .Select(x => x.ManualStatus)
+                        .FirstOrDefault(),
+                    HasWofService = (
+                            from selection in _db.JobServiceSelections.AsNoTracking()
+                            join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                            where selection.JobId == j.Id && catalogItem.ServiceType == "wof"
+                            select selection.Id
+                        )
+                        .Any(),
+                    Invoice = _db.JobInvoices.AsNoTracking()
+                        .Where(x => x.JobId == j.Id)
+                        .Select(x => new
+                        {
+                            id = x.Id.ToString(CultureInfo.InvariantCulture),
+                            jobId = x.JobId.ToString(CultureInfo.InvariantCulture),
+                            provider = x.Provider,
+                            externalInvoiceId = x.ExternalInvoiceId,
+                            externalInvoiceNumber = x.ExternalInvoiceNumber,
+                            externalStatus = x.ExternalStatus,
+                            reference = x.Reference,
+                            contactName = x.ContactName,
+                            invoiceNote = x.InvoiceNote,
+                            invoiceDate = x.InvoiceDate,
+                            lineAmountTypes = x.LineAmountTypes,
+                            tenantId = x.TenantId,
+                            requestPayloadJson = x.RequestPayloadJson,
+                            responsePayloadJson = x.ResponsePayloadJson,
+                            createdAt = FormatDateTime(x.CreatedAt),
+                            updatedAt = FormatDateTime(x.UpdatedAt),
+                            latestPayment = _db.JobPayments.AsNoTracking()
+                                .Where(p => p.JobInvoiceId == x.Id)
+                                .OrderByDescending(p => p.CreatedAt)
+                                .Select(p => new
+                                {
+                                    id = p.Id.ToString(CultureInfo.InvariantCulture),
+                                    method = p.Method,
+                                    amount = p.Amount,
+                                    paymentDate = p.PaymentDate,
+                                    reference = p.Reference,
+                                    accountCode = p.AccountCode,
+                                    accountName = p.AccountName,
+                                    externalStatus = p.ExternalStatus,
+                                    createdAt = FormatDateTime(p.CreatedAt),
+                                    updatedAt = FormatDateTime(p.UpdatedAt),
+                                })
+                                .FirstOrDefault(),
+                        })
+                        .FirstOrDefault(),
+                    InvoiceProcessing = _db.OutboxMessages.AsNoTracking()
+                        .Where(x => x.AggregateType == InvoiceOutboxService.JobAggregateType
+                            && x.AggregateId == j.Id
+                            && (x.MessageType == InvoiceOutboxService.CreateDraftMessageType
+                                || x.MessageType == InvoiceOutboxService.AttachExistingMessageType))
+                        .OrderByDescending(x => x.CreatedAt)
+                        .Select(x => new
+                        {
+                            id = x.Id.ToString(CultureInfo.InvariantCulture),
+                            messageType = x.MessageType,
+                            status = x.Status,
+                            attemptCount = x.AttemptCount,
+                            lastError = x.LastError,
+                            createdAt = FormatDateTime(x.CreatedAt),
+                            updatedAt = FormatDateTime(x.UpdatedAt),
+                            processedAt = x.ProcessedAt.HasValue ? FormatDateTime(x.ProcessedAt.Value) : null,
+                        })
+                        .FirstOrDefault(),
                 }
             )
             .FirstOrDefaultAsync(ct);
 
         if (row is null)
-            return NotFound(new { error = "Job not found." });
-
-        var hasWofRecord = await _db.JobWofRecords.AsNoTracking().AnyAsync(x => x.JobId == id, ct);
-        var latestWofUiState = hasWofRecord
-            ? await _db.JobWofRecords.AsNoTracking()
-                .Where(x => x.JobId == id)
-                .OrderByDescending(x => x.OccurredAt)
-                .ThenByDescending(x => x.Id)
-                .Select(x => (WofUiState?)x.WofUiState)
-                .FirstOrDefaultAsync(ct)
-            : null;
-        var latestWofManualStatus = await _db.JobWofStates.AsNoTracking()
-            .Where(x => x.JobId == id)
-            .OrderByDescending(x => x.UpdatedAt)
-            .ThenByDescending(x => x.Id)
-            .Select(x => x.ManualStatus)
-            .FirstOrDefaultAsync(ct);
-        var hasWofService = await (
-                from selection in _db.JobServiceSelections.AsNoTracking()
-                join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
-                where selection.JobId == id && catalogItem.ServiceType == "wof"
-                select selection.Id
-            )
-            .AnyAsync(ct);
+            return null;
 
         var tagNames = await (
                 from jt in _db.JobTags.AsNoTracking()
@@ -197,67 +319,8 @@ public class JobsController : ControllerBase
             )
             .Distinct()
             .ToListAsync(ct);
-
-        var invoice = await _db.JobInvoices.AsNoTracking()
-            .Where(x => x.JobId == id)
-            .Select(x => new
-            {
-                id = x.Id.ToString(CultureInfo.InvariantCulture),
-                jobId = x.JobId.ToString(CultureInfo.InvariantCulture),
-                provider = x.Provider,
-                externalInvoiceId = x.ExternalInvoiceId,
-                externalInvoiceNumber = x.ExternalInvoiceNumber,
-                externalStatus = x.ExternalStatus,
-                reference = x.Reference,
-                contactName = x.ContactName,
-                invoiceNote = x.InvoiceNote,
-                invoiceDate = x.InvoiceDate,
-                lineAmountTypes = x.LineAmountTypes,
-                tenantId = x.TenantId,
-                requestPayloadJson = x.RequestPayloadJson,
-                responsePayloadJson = x.ResponsePayloadJson,
-                createdAt = FormatDateTime(x.CreatedAt),
-                updatedAt = FormatDateTime(x.UpdatedAt),
-                latestPayment = _db.JobPayments.AsNoTracking()
-                    .Where(p => p.JobInvoiceId == x.Id)
-                    .OrderByDescending(p => p.CreatedAt)
-                    .Select(p => new
-                    {
-                        id = p.Id.ToString(CultureInfo.InvariantCulture),
-                        method = p.Method,
-                        amount = p.Amount,
-                        paymentDate = p.PaymentDate,
-                        reference = p.Reference,
-                        accountCode = p.AccountCode,
-                        accountName = p.AccountName,
-                        externalStatus = p.ExternalStatus,
-                        createdAt = FormatDateTime(p.CreatedAt),
-                        updatedAt = FormatDateTime(p.UpdatedAt),
-                    })
-                    .FirstOrDefault(),
-            })
-            .FirstOrDefaultAsync(ct);
-
-        var invoiceProcessing = await _db.OutboxMessages.AsNoTracking()
-            .Where(x => x.AggregateType == InvoiceOutboxService.JobAggregateType
-                && x.AggregateId == id
-                && (x.MessageType == InvoiceOutboxService.CreateDraftMessageType
-                    || x.MessageType == InvoiceOutboxService.AttachExistingMessageType))
-            .OrderByDescending(x => x.CreatedAt)
-            .Select(x => new
-            {
-                id = x.Id.ToString(CultureInfo.InvariantCulture),
-                messageType = x.MessageType,
-                status = x.Status,
-                attemptCount = x.AttemptCount,
-                lastError = x.LastError,
-                createdAt = FormatDateTime(x.CreatedAt),
-                updatedAt = FormatDateTime(x.UpdatedAt),
-                processedAt = x.ProcessedAt.HasValue ? FormatDateTime(x.ProcessedAt.Value) : null,
-            })
-            .FirstOrDefaultAsync(ct);
-
-        var effectiveInvoiceProcessing = invoice is null ? invoiceProcessing : null;
+        var effectiveInvoiceProcessing = row.Invoice is null ? row.InvoiceProcessing : null;
+        var hasWofServiceOrRecord = row.HasWofService || row.HasWofRecord;
 
         var job = new
         {
@@ -270,8 +333,8 @@ public class JobsController : ControllerBase
             tags = tagNames.ToArray(),
             notes = row.Job.Notes,
             createdAt = FormatDateTime(row.Job.CreatedAt),
-            hasWofService = hasWofService || hasWofRecord,
-            wofStatus = MapWofStatus(hasWofService || hasWofRecord, latestWofManualStatus, latestWofUiState),
+            hasWofService = hasWofServiceOrRecord,
+            wofStatus = MapWofStatus(hasWofServiceOrRecord, row.LatestWofManualStatus, row.LatestWofUiState),
             vehicle = new
             {
                 plate = row.Vehicle.Plate,
@@ -313,26 +376,27 @@ public class JobsController : ControllerBase
                 discount = "",
                 notes = row.Customer.Notes
             },
-            invoice,
+            invoice = row.Invoice,
             invoiceProcessing = effectiveInvoiceProcessing,
         };
 
-        return Ok(new { job, hasWofRecord });
+        return JsonSerializer.Serialize(new { job, hasWofRecord = row.HasWofRecord });
     }
 
     [HttpGet("po-unread-summary")]
     public async Task<IActionResult> GetPoUnreadSummary(CancellationToken ct)
     {
-        var summary = await _cache.GetOrCreateAsync(PoUnreadSummaryCacheKey, async entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = PoUnreadSummaryCacheDuration;
-            return await BuildPoUnreadSummaryAsync(ct);
-        });
+        var payload = await _appCache.GetOrCreateJsonAsync(
+            PoUnreadSummaryCacheKey,
+            PoUnreadSummaryCacheDuration,
+            BuildPoUnreadSummaryJsonAsync,
+            ct
+        );
 
-        return Ok(summary ?? EmptyPoUnreadSummary);
+        return Content(payload ?? JsonSerializer.Serialize(EmptyPoUnreadSummary), "application/json");
     }
 
-    private async Task<PoUnreadSummaryResponse> BuildPoUnreadSummaryAsync(CancellationToken ct)
+    private async Task<string?> BuildPoUnreadSummaryJsonAsync(CancellationToken ct)
     {
         var inactiveCorrelations = await _db.InactiveGmailCorrelations.AsNoTracking()
             .Select(x => x.CorrelationId)
@@ -370,7 +434,7 @@ public class JobsController : ControllerBase
             .ToList();
 
         if (grouped.Count == 0)
-            return EmptyPoUnreadSummary;
+            return JsonSerializer.Serialize(EmptyPoUnreadSummary);
 
         var jobIds = grouped.Select(x => x.JobId).Distinct().ToArray();
         var activeJobs = await _db.Jobs.AsNoTracking()
@@ -390,10 +454,12 @@ public class JobsController : ControllerBase
                 NormalizeInternalDate(x.LatestReplyMs)))
             .ToList();
 
-        return new PoUnreadSummaryResponse(
+        var response = new PoUnreadSummaryResponse(
             items.Sum(x => x.UnreadReplyCount),
             items.Count,
             items);
+
+        return JsonSerializer.Serialize(response);
     }
 
     public record CreatePaintServiceRequest(string? Status, int? Panels);
@@ -402,6 +468,18 @@ public class JobsController : ControllerBase
 
     [HttpGet("paint-board")]
     public async Task<IActionResult> GetPaintBoard(CancellationToken ct)
+    {
+        var payload = await _appCache.GetOrCreateJsonAsync(
+            PaintBoardCacheKey,
+            PaintBoardCacheDuration,
+            BuildPaintBoardJsonAsync,
+            ct
+        );
+
+        return Content(payload ?? "{\"jobs\":[]}", "application/json");
+    }
+
+    private async Task<string?> BuildPaintBoardJsonAsync(CancellationToken ct)
     {
         var rows = await (
                 from p in _db.JobPaintServices.AsNoTracking()
@@ -472,11 +550,23 @@ public class JobsController : ControllerBase
             updatedAt = FormatDateTime(r.UpdatedAt)
         });
 
-        return Ok(new { jobs });
+        return JsonSerializer.Serialize(new { jobs });
     }
 
     [HttpGet("wof-schedule")]
     public async Task<IActionResult> GetWofSchedule(CancellationToken ct)
+    {
+        var payload = await _appCache.GetOrCreateJsonAsync(
+            WofScheduleCacheKey,
+            WofScheduleCacheDuration,
+            BuildWofScheduleJsonAsync,
+            ct
+        );
+
+        return Content(payload ?? "{\"jobs\":[]}", "application/json");
+    }
+
+    private async Task<string?> BuildWofScheduleJsonAsync(CancellationToken ct)
     {
         var rows = await (
                 from state in _db.JobWofStates.AsNoTracking()
@@ -518,19 +608,31 @@ public class JobsController : ControllerBase
                     : "Todo",
             });
 
-        return Ok(new { jobs });
+        return JsonSerializer.Serialize(new { jobs });
     }
 
     [HttpGet("{id:long}/paint-service")]
     public async Task<IActionResult> GetPaintService(long id, CancellationToken ct)
     {
+        var payload = await _appCache.GetOrCreateJsonAsync(
+            GetPaintServiceCacheKey(id),
+            PaintServiceCacheDuration,
+            token => BuildPaintServiceResponseJsonAsync(id, token),
+            ct
+        );
+
+        return Content(payload ?? "{\"exists\":false}", "application/json");
+    }
+
+    private async Task<string?> BuildPaintServiceResponseJsonAsync(long id, CancellationToken ct)
+    {
         var service = await _db.JobPaintServices.AsNoTracking().FirstOrDefaultAsync(x => x.JobId == id, ct);
         if (service is null)
         {
-            return Ok(new { exists = false });
+            return JsonSerializer.Serialize(new { exists = false });
         }
 
-        return Ok(new
+        return JsonSerializer.Serialize(new
         {
             exists = true,
             service = new
@@ -540,8 +642,8 @@ public class JobsController : ControllerBase
                 status = service.Status,
                 currentStage = service.CurrentStage,
                 panels = service.Panels,
-            createdAt = FormatDateTime(service.CreatedAt),
-            updatedAt = FormatDateTime(service.UpdatedAt),
+                createdAt = FormatDateTime(service.CreatedAt),
+                updatedAt = FormatDateTime(service.UpdatedAt),
             }
         });
     }
@@ -584,6 +686,8 @@ public class JobsController : ControllerBase
             {
                 existing.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync(ct);
+                await InvalidateJobDetailCachesAsync(id, ct);
+                await InvalidatePaintBoardCacheAsync(ct);
             }
 
             return Ok(new
@@ -620,6 +724,8 @@ public class JobsController : ControllerBase
 
         _db.JobPaintServices.Add(service);
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
 
         return Ok(new
         {
@@ -647,6 +753,8 @@ public class JobsController : ControllerBase
         service.CurrentStage = normalized.CurrentStage;
         service.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
 
         return Ok(new { success = true, status = service.Status, currentStage = service.CurrentStage });
     }
@@ -664,6 +772,8 @@ public class JobsController : ControllerBase
         service.Panels = req.Panels.Value;
         service.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
 
         return Ok(new { success = true, panels = service.Panels });
     }
@@ -674,6 +784,8 @@ public class JobsController : ControllerBase
         var deleted = await _db.JobPaintServices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
         if (deleted == 0)
             return NotFound(new { error = "Paint service not found." });
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
 
         return Ok(new { success = true });
     }
@@ -724,6 +836,9 @@ public class JobsController : ControllerBase
         vehicle.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
+        await InvalidateWofScheduleCacheAsync(ct);
 
         return Ok(new
         {
@@ -755,6 +870,8 @@ public class JobsController : ControllerBase
         job.Notes = req.Notes?.Trim();
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
 
         return Ok(new { success = true, notes = job.Notes });
     }
@@ -799,6 +916,8 @@ public class JobsController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
         await _jobPoStateService.SyncStateForJobAsync(id, ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePoUnreadSummaryCacheAsync(ct);
 
         return Ok(new
         {
@@ -920,6 +1039,10 @@ public class JobsController : ControllerBase
             }
 
             await tx.CommitAsync(ct);
+            await InvalidateJobDetailCachesAsync(id, ct);
+            await InvalidatePaintBoardCacheAsync(ct);
+            await InvalidateWofScheduleCacheAsync(ct);
+            await InvalidatePoUnreadSummaryCacheAsync(ct);
 
             return Ok(new
             {
@@ -1116,6 +1239,7 @@ public class JobsController : ControllerBase
         job.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
 
         return Ok(new { tags = tagNameList });
     }
@@ -1137,6 +1261,10 @@ public class JobsController : ControllerBase
         job.Status = "Archived";
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
+        await InvalidateWofScheduleCacheAsync(ct);
+        await InvalidatePoUnreadSummaryCacheAsync(ct);
 
         return Ok(new { status = job.Status });
     }
@@ -1160,12 +1288,36 @@ public class JobsController : ControllerBase
         job.CreatedAt = DateTime.SpecifyKind(date.Date + time, kind);
         job.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await InvalidateJobDetailCachesAsync(id, ct);
+        await InvalidatePaintBoardCacheAsync(ct);
+        await InvalidateWofScheduleCacheAsync(ct);
 
         return Ok(new
         {
             createdAt = FormatDateTime(job.CreatedAt)
         });
     }
+
+    private async Task InvalidateJobDetailCachesAsync(long jobId, CancellationToken ct)
+    {
+        await _appCache.RemoveAsync(GetJobDetailCacheKey(jobId), ct);
+        await _appCache.RemoveAsync(GetPaintServiceCacheKey(jobId), ct);
+    }
+
+    private Task InvalidatePaintBoardCacheAsync(CancellationToken ct)
+        => _appCache.RemoveAsync(PaintBoardCacheKey, ct);
+
+    private Task InvalidateWofScheduleCacheAsync(CancellationToken ct)
+        => _appCache.RemoveAsync(WofScheduleCacheKey, ct);
+
+    private Task InvalidatePoUnreadSummaryCacheAsync(CancellationToken ct)
+        => _appCache.RemoveAsync(PoUnreadSummaryCacheKey, ct);
+
+    private static string GetJobDetailCacheKey(long jobId)
+        => $"job:detail:{jobId}:v1";
+
+    private static string GetPaintServiceCacheKey(long jobId)
+        => $"job:paint-service:{jobId}:v1";
 
     private static string MapStatus(string? status)
     {

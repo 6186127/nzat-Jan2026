@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Workshop.Api.Data;
 using Workshop.Api.Models;
+using Workshop.Api.Services;
 
 namespace Workshop.Api.Controllers;
 
@@ -11,11 +12,17 @@ namespace Workshop.Api.Controllers;
 [Route("api/customers")]
 public class CustomersController : ControllerBase
 {
-    private readonly AppDbContext _db;
+    private const string CustomerListCacheKey = "customer:list:v1";
+    private static readonly TimeSpan CustomerListCacheDuration = TimeSpan.FromMinutes(60);
+    private static readonly TimeSpan CustomerProfileCacheDuration = TimeSpan.FromMinutes(60);
 
-    public CustomersController(AppDbContext db)
+    private readonly AppDbContext _db;
+    private readonly IAppCache _cache;
+
+    public CustomersController(AppDbContext db, IAppCache cache)
     {
         _db = db;
+        _cache = cache;
     }
 
     public record CustomerStaffUpsertRequest(
@@ -109,47 +116,12 @@ public class CustomersController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var customers = await _db.Customers.AsNoTracking()
-            .OrderBy(x => x.Name)
-            .ToListAsync(ct);
-
-        var customerIds = customers.Select(x => x.Id).ToArray();
-        var staffRows = await _db.CustomerStaffMembers.AsNoTracking()
-            .Where(x => customerIds.Contains(x.CustomerId))
-            .OrderBy(x => x.Id)
-            .ToListAsync(ct);
-        Dictionary<long, int> servicePriceCounts;
-        try
-        {
-            servicePriceCounts = await _db.CustomerServicePrices.AsNoTracking()
-                .Where(x => customerIds.Contains(x.CustomerId))
-                .GroupBy(x => x.CustomerId)
-                .Select(g => new { CustomerId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
-        }
-        catch (PostgresException ex) when (ex.SqlState == "42P01")
-        {
-            servicePriceCounts = [];
-        }
-        var yearStart = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var nextYearStart = yearStart.AddYears(1);
-        var currentYearJobCounts = await _db.Jobs.AsNoTracking()
-            .Where(x => x.CustomerId.HasValue && customerIds.Contains(x.CustomerId.Value))
-            .Where(x => x.CreatedAt >= yearStart && x.CreatedAt < nextYearStart)
-            .GroupBy(x => x.CustomerId!.Value)
-            .Select(g => new { CustomerId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
-
-        var staffByCustomerId = staffRows
-            .GroupBy(x => x.CustomerId)
-            .ToDictionary(g => g.Key, g => g.Select(ToStaffResponse).ToList());
-
-        var rows = customers.Select(x => ToCustomerListResponse(
-            x,
-            staffByCustomerId.TryGetValue(x.Id, out var members) ? members : [],
-            servicePriceCounts.TryGetValue(x.Id, out var servicePriceCount) ? servicePriceCount : 0,
-            currentYearJobCounts.TryGetValue(x.Id, out var currentYearJobCount) ? currentYearJobCount : 0
-        ));
+        var rows = await _cache.GetOrCreateAsync(
+            CustomerListCacheKey,
+            CustomerListCacheDuration,
+            async token => await LoadCustomerListAsync(token),
+            ct
+        ) ?? [];
 
         return Ok(rows);
     }
@@ -157,74 +129,17 @@ public class CustomersController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetById(long id, CancellationToken ct)
     {
-        var customer = await _db.Customers.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (customer is null)
+        var profile = await _cache.GetOrCreateAsync(
+            GetCustomerProfileCacheKey(id),
+            CustomerProfileCacheDuration,
+            token => LoadCustomerProfileAsync(id, token),
+            ct
+        );
+
+        if (profile is null)
             return NotFound(new { error = "Customer not found." });
 
-        var staffMembers = await _db.CustomerStaffMembers.AsNoTracking()
-            .Where(x => x.CustomerId == id)
-            .OrderBy(x => x.Id)
-            .Select(x => ToStaffResponse(x))
-            .ToListAsync(ct);
-
-        List<CustomerServicePrice> rawServicePrices;
-        try
-        {
-            rawServicePrices = await _db.CustomerServicePrices.AsNoTracking()
-                .Where(x => x.CustomerId == id)
-                .OrderBy(x => x.Id)
-                .ToListAsync(ct);
-        }
-        catch (PostgresException ex) when (ex.SqlState == "42P01")
-        {
-            rawServicePrices = [];
-        }
-        var serviceNameById = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => rawServicePrices.Select(price => price.ServiceCatalogItemId).Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, x => x.Name, ct);
-        var inventoryPriceByCode = await _db.InventoryItems.AsNoTracking()
-            .Where(x => rawServicePrices.Select(price => price.XeroItemCode).Contains(x.ItemCode))
-            .ToDictionaryAsync(x => x.ItemCode, x => x.SalesUnitPrice, ct);
-        var servicePrices = rawServicePrices
-            .Select(x => ToServicePriceResponse(
-                x,
-                serviceNameById.TryGetValue(x.ServiceCatalogItemId, out var serviceName) ? serviceName : "",
-                inventoryPriceByCode.TryGetValue(x.XeroItemCode, out var salePrice) ? salePrice : null
-            ))
-            .ToList();
-        var yearStart = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var nextYearStart = yearStart.AddYears(1);
-        var jobs = await (
-                from j in _db.Jobs.AsNoTracking()
-                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
-                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
-                join ji in _db.JobInvoices.AsNoTracking() on j.Id equals ji.JobId into invoiceGroup
-                from ji in invoiceGroup.DefaultIfEmpty()
-                where j.CustomerId == id && j.CreatedAt >= yearStart && j.CreatedAt < nextYearStart
-                orderby j.CreatedAt descending
-                select new CustomerJobResponse(
-                    j.Id.ToString(CultureInfo.InvariantCulture),
-                    MapStatus(j.Status),
-                    j.IsUrgent,
-                    j.NeedsPo,
-                    j.IsUrgent ? new[] { "Urgent" } : Array.Empty<string>(),
-                    v.Plate,
-                    BuildVehicleModel(v.Make, v.Model, v.Year),
-                    null,
-                    null,
-                    null,
-                    c.Name,
-                    c.BusinessCode ?? "",
-                    c.Phone ?? "",
-                    j.Notes ?? "",
-                    ji != null ? ji.ExternalInvoiceId : null,
-                    FormatDateTime(j.CreatedAt)
-                )
-            )
-            .ToListAsync(ct);
-
-        return Ok(ToCustomerProfileResponse(customer, staffMembers, servicePrices, jobs.Count, jobs));
+        return Ok(profile);
     }
 
     [HttpPost]
@@ -266,6 +181,7 @@ public class CustomersController : ControllerBase
 
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync(ct);
+        await InvalidateCustomerCachesAsync(customer.Id, ct);
 
         return await GetById(customer.Id, ct);
     }
@@ -315,6 +231,7 @@ public class CustomersController : ControllerBase
         customer.ServicePrices = servicePrices;
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateCustomerCachesAsync(id, ct);
 
         return await GetById(id, ct);
     }
@@ -332,8 +249,152 @@ public class CustomersController : ControllerBase
 
         _db.Customers.Remove(customer);
         await _db.SaveChangesAsync(ct);
+        await InvalidateCustomerCachesAsync(id, ct);
         return Ok(new { success = true });
     }
+
+    private async Task<List<CustomerListResponse>> LoadCustomerListAsync(CancellationToken ct)
+    {
+        var customers = await _db.Customers.AsNoTracking()
+            .OrderBy(x => x.Name)
+            .ToListAsync(ct);
+
+        var customerIds = customers.Select(x => x.Id).ToArray();
+        var staffRows = await _db.CustomerStaffMembers.AsNoTracking()
+            .Where(x => customerIds.Contains(x.CustomerId))
+            .OrderBy(x => x.Id)
+            .ToListAsync(ct);
+        Dictionary<long, int> servicePriceCounts;
+        try
+        {
+            servicePriceCounts = await _db.CustomerServicePrices.AsNoTracking()
+                .Where(x => customerIds.Contains(x.CustomerId))
+                .GroupBy(x => x.CustomerId)
+                .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            servicePriceCounts = [];
+        }
+        var yearStart = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var nextYearStart = yearStart.AddYears(1);
+        var currentYearJobCounts = await _db.Jobs.AsNoTracking()
+            .Where(x => x.CustomerId.HasValue && customerIds.Contains(x.CustomerId.Value))
+            .Where(x => x.CreatedAt >= yearStart && x.CreatedAt < nextYearStart)
+            .GroupBy(x => x.CustomerId!.Value)
+            .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
+
+        var staffByCustomerId = staffRows
+            .GroupBy(x => x.CustomerId)
+            .ToDictionary(g => g.Key, g => g.Select(ToStaffResponse).ToList());
+
+        var rows = customers.Select(x => ToCustomerListResponse(
+            x,
+            staffByCustomerId.TryGetValue(x.Id, out var members) ? members : [],
+            servicePriceCounts.TryGetValue(x.Id, out var servicePriceCount) ? servicePriceCount : 0,
+            currentYearJobCounts.TryGetValue(x.Id, out var currentYearJobCount) ? currentYearJobCount : 0
+        )).ToList();
+
+        return rows;
+    }
+
+    private async Task<CustomerProfileResponse?> LoadCustomerProfileAsync(long id, CancellationToken ct)
+    {
+        var customerRows = await (
+                from customerRow in _db.Customers.AsNoTracking()
+                where customerRow.Id == id
+                join staff in _db.CustomerStaffMembers.AsNoTracking() on customerRow.Id equals staff.CustomerId into staffGroup
+                from staff in staffGroup.DefaultIfEmpty()
+                orderby staff != null ? staff.Id : 0
+                select new
+                {
+                    Customer = customerRow,
+                    StaffMember = staff
+                }
+            )
+            .ToListAsync(ct);
+
+        if (customerRows.Count == 0)
+            return null;
+
+        var customer = customerRows[0].Customer;
+        var staffMembers = customerRows
+            .Where(x => x.StaffMember is not null)
+            .Select(x => ToStaffResponse(x.StaffMember!))
+            .ToList();
+
+        List<CustomerServicePriceResponse> servicePrices;
+        try
+        {
+            servicePrices = await (
+                    from price in _db.CustomerServicePrices.AsNoTracking()
+                    where price.CustomerId == id
+                    join service in _db.ServiceCatalogItems.AsNoTracking()
+                        on price.ServiceCatalogItemId equals service.Id into serviceGroup
+                    from service in serviceGroup.DefaultIfEmpty()
+                    join inventory in _db.InventoryItems.AsNoTracking()
+                        on price.XeroItemCode equals inventory.ItemCode into inventoryGroup
+                    from inventory in inventoryGroup.DefaultIfEmpty()
+                    orderby price.Id
+                    select new CustomerServicePriceResponse(
+                        price.Id.ToString(CultureInfo.InvariantCulture),
+                        price.ServiceCatalogItemId.ToString(CultureInfo.InvariantCulture),
+                        service != null ? service.Name : "",
+                        price.XeroItemCode,
+                        inventory != null ? inventory.SalesUnitPrice : null,
+                        price.IsActive
+                    )
+                )
+                .ToListAsync(ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            servicePrices = [];
+        }
+
+        var yearStart = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var nextYearStart = yearStart.AddYears(1);
+        var jobs = await (
+                from j in _db.Jobs.AsNoTracking()
+                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
+                join ji in _db.JobInvoices.AsNoTracking() on j.Id equals ji.JobId into invoiceGroup
+                from ji in invoiceGroup.DefaultIfEmpty()
+                where j.CustomerId == id && j.CreatedAt >= yearStart && j.CreatedAt < nextYearStart
+                orderby j.CreatedAt descending
+                select new CustomerJobResponse(
+                    j.Id.ToString(CultureInfo.InvariantCulture),
+                    MapStatus(j.Status),
+                    j.IsUrgent,
+                    j.NeedsPo,
+                    j.IsUrgent ? new[] { "Urgent" } : Array.Empty<string>(),
+                    v.Plate,
+                    BuildVehicleModel(v.Make, v.Model, v.Year),
+                    null,
+                    null,
+                    null,
+                    customer.Name,
+                    customer.BusinessCode ?? "",
+                    customer.Phone ?? "",
+                    j.Notes ?? "",
+                    ji != null ? ji.ExternalInvoiceId : null,
+                    FormatDateTime(j.CreatedAt)
+                )
+            )
+            .ToListAsync(ct);
+
+        return ToCustomerProfileResponse(customer, staffMembers, servicePrices, jobs.Count, jobs);
+    }
+
+    private async Task InvalidateCustomerCachesAsync(long customerId, CancellationToken ct)
+    {
+        await _cache.RemoveAsync(CustomerListCacheKey, ct);
+        await _cache.RemoveAsync(GetCustomerProfileCacheKey(customerId), ct);
+    }
+
+    private static string GetCustomerProfileCacheKey(long customerId)
+        => $"customer:profile:{customerId}:v1";
 
     private static string NormalizeCustomerType(string? type)
     {

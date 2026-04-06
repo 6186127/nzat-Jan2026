@@ -264,6 +264,7 @@ type UseInvoiceDashboardStateArgs = {
   persistedPoNumber?: string | null;
   persistedInvoiceReference?: string | null;
   persistedInvoice?: JobInvoiceData | null;
+  enabled?: boolean;
 };
 
 function mapExternalStatus(status?: string | null): InvoiceDashboardState["status"] {
@@ -432,6 +433,7 @@ export function useInvoiceDashboardState({
   persistedPoNumber,
   persistedInvoiceReference,
   persistedInvoice,
+  enabled = true,
 }: UseInvoiceDashboardStateArgs = {}) {
   const toast = useToast();
   const [invoice, setInvoice] = useState(initialInvoiceState);
@@ -883,6 +885,12 @@ export function useInvoiceDashboardState({
   useEffect(() => {
     let cancelled = false;
 
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const refreshThreadEvents = async () => {
       const existingThreadEvents = timelineRef.current.filter((event) => ["sent", "reminder", "reply"].includes(event.type));
 
@@ -993,6 +1001,7 @@ export function useInvoiceDashboardState({
       if (timer) window.clearInterval(timer);
     };
   }, [
+    enabled,
     invoice.selectedMerchantEmail,
     invoice.correlationId,
     merchantRecipientsLoading,
@@ -1021,6 +1030,12 @@ export function useInvoiceDashboardState({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const loadMerchantRecipients = async () => {
       setMerchantRecipientsLoading(true);
@@ -1142,7 +1157,7 @@ export function useInvoiceDashboardState({
     return () => {
       cancelled = true;
     };
-  }, [customer, persistedInvoice, vehicle]);
+  }, [customer, enabled, persistedInvoice, vehicle]);
 
   const updateXeroState = async (
     state: XeroStateOption,

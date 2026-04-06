@@ -17,15 +17,18 @@ public class PartsServicesService
 
     public async Task<WofServiceResult> GetServices(long jobId, CancellationToken ct)
     {
-        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == jobId, ct);
-        if (!jobExists)
-            return WofServiceResult.NotFound("Job not found.");
-
         var services = await _db.JobPartsServices.AsNoTracking()
             .Where(x => x.JobId == jobId)
             .OrderByDescending(x => x.UpdatedAt)
             .ThenByDescending(x => x.Id)
             .ToListAsync(ct);
+
+        if (services.Count == 0)
+        {
+            var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == jobId, ct);
+            if (!jobExists)
+                return WofServiceResult.NotFound("Job not found.");
+        }
 
         var serviceIds = services.Select(x => x.Id).ToList();
         var notes = serviceIds.Count == 0

@@ -77,7 +77,7 @@ export function JobDetailPage() {
     refreshPaintService,
     refreshVehicleInfo,
     saveVehicleInfo,
-  } = useJobDetailData({ jobId: id });
+  } = useJobDetailData({ jobId: id, activeTab });
 
   const openDeleteModal = () => {
     setDeleteModalOpen(true);
