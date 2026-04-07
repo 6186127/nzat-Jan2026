@@ -738,7 +738,6 @@ export function useInvoiceDashboardState({
       const syncRes = await syncJobXeroDraftInvoice(jobId, {
         ...buildDraftPayload(),
         reference: nextReference,
-        status: invoice.xeroStatus,
       });
 
       if (!syncRes.ok) {
