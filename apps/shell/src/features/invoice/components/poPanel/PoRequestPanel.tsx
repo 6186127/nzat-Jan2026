@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, type ClipboardEvent, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ChevronDown, Clock3, FileSearch, MailCheck, MessageSquareText, Paperclip, Send, Settings2, X } from "lucide-react";
 import { Button, Card, Input, Select, Textarea } from "@/components/ui";
 import { withApiBase } from "@/utils/api";
@@ -7,6 +7,9 @@ import { StatusBadge } from "./StatusBadge";
 import type { EmailState, EmailTimelineEvent, InvoiceItem, MerchantEmailRecipient, PoDetection } from "../../types";
 
 const PO_REQUEST_SEND_LOCK_PREFIX = "po-request-send-lock:";
+const DEFAULT_DRAFT_IMAGE_WIDTH = 360;
+const MIN_DRAFT_IMAGE_WIDTH = 120;
+const MAX_DRAFT_IMAGE_WIDTH = 720;
 
 function getPoRequestSendLockExpiration(correlationId: string) {
   if (typeof window === "undefined") return null;
@@ -38,6 +41,45 @@ function formatSendLockRemaining(expiresAtMs: number | null) {
   const remainingMs = Math.max(0, expiresAtMs - Date.now());
   const totalMinutes = Math.ceil(remainingMs / 60000);
   return totalMinutes <= 1 ? "1 minute" : `${totalMinutes} minutes`;
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function getImageFilesFromList(files: FileList | null | undefined) {
+  if (!files) return [];
+  return Array.from(files).filter((file) => file.type.startsWith("image/"));
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildDraftImageHtml(src: string, name: string, width = DEFAULT_DRAFT_IMAGE_WIDTH) {
+  return `<img src="${src}" alt="${escapeHtmlAttribute(name)}" data-po-draft-image="true" style="display:block; width:${width}px; max-width:100%; height:auto; margin:8px 0; border-radius:8px;" />`;
+}
+
+function normalizeDraftEditorImages(editor: HTMLDivElement | null) {
+  if (!editor) return;
+  editor.querySelectorAll("img").forEach((image) => {
+    image.setAttribute("data-po-draft-image", "true");
+    image.style.maxWidth = "100%";
+    image.style.height = "auto";
+    image.style.borderRadius = image.style.borderRadius || "8px";
+    if (!image.style.width && image.naturalWidth > DEFAULT_DRAFT_IMAGE_WIDTH) {
+      image.style.width = `${DEFAULT_DRAFT_IMAGE_WIDTH}px`;
+    }
+  });
 }
 
 type Props = {
@@ -213,8 +255,11 @@ export function PoRequestPanel({
   const [sending, setSending] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<{ fileName: string; mimeType: string; url: string } | null>(null);
   const [sendLockExpiresAt, setSendLockExpiresAt] = useState<number | null>(() => getPoRequestSendLockExpiration(correlationId));
+  const [selectedDraftImageActive, setSelectedDraftImageActive] = useState(false);
+  const [selectedDraftImageWidth, setSelectedDraftImageWidth] = useState(DEFAULT_DRAFT_IMAGE_WIDTH);
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const selectedDraftImageRef = useRef<HTMLImageElement | null>(null);
 
   const threadEvents = useMemo(
     () => timelineEvents.filter((event) => ["sent", "reminder", "reply"].includes(event.type)),
@@ -343,6 +388,7 @@ export function PoRequestPanel({
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== body) {
       editorRef.current.innerHTML = body;
+      normalizeDraftEditorImages(editorRef.current);
     }
   }, [body]);
 
@@ -433,6 +479,95 @@ export function PoRequestPanel({
     setBody("");
     setQuickAddRecipient("");
     setActiveTab("compose");
+  };
+
+  const syncBodyFromEditor = () => {
+    normalizeDraftEditorImages(editorRef.current);
+    setBody(editorRef.current?.innerHTML ?? "");
+  };
+
+  const insertHtmlIntoEditor = (html: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !editor.contains(selection.anchorNode)) {
+      editor.insertAdjacentHTML("beforeend", html);
+      syncBodyFromEditor();
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const fragment = template.content;
+    const lastNode = fragment.lastChild;
+    range.insertNode(fragment);
+    if (lastNode) {
+      range.setStartAfter(lastNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    syncBodyFromEditor();
+  };
+
+  const insertImageFilesIntoEditor = async (files: File[]) => {
+    for (const file of files) {
+      const dataUrl = await readFileAsDataUrl(file);
+      insertHtmlIntoEditor(buildDraftImageHtml(dataUrl, file.name || "Pasted image"));
+    }
+  };
+
+  const handleEditorPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    if (readOnly) return;
+    const imageFiles = getImageFilesFromList(event.clipboardData?.files);
+    if (imageFiles.length === 0) {
+      window.setTimeout(syncBodyFromEditor, 0);
+      return;
+    }
+
+    event.preventDefault();
+    void insertImageFilesIntoEditor(imageFiles).catch(() => undefined);
+  };
+
+  const handleEditorDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (readOnly) return;
+    const imageFiles = getImageFilesFromList(event.dataTransfer?.files);
+    if (imageFiles.length === 0) return;
+
+    event.preventDefault();
+    void insertImageFilesIntoEditor(imageFiles).catch(() => undefined);
+  };
+
+  const handleEditorClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement) || !editorRef.current?.contains(target)) {
+      selectedDraftImageRef.current = null;
+      setSelectedDraftImageActive(false);
+      return;
+    }
+
+    selectedDraftImageRef.current = target;
+    setSelectedDraftImageActive(true);
+    const parsedWidth = Number.parseInt(target.style.width || String(target.width), 10);
+    setSelectedDraftImageWidth(
+      Number.isFinite(parsedWidth)
+        ? Math.max(MIN_DRAFT_IMAGE_WIDTH, Math.min(MAX_DRAFT_IMAGE_WIDTH, parsedWidth))
+        : DEFAULT_DRAFT_IMAGE_WIDTH
+    );
+  };
+
+  const resizeSelectedDraftImage = (width: number) => {
+    const image = selectedDraftImageRef.current;
+    if (!image) return;
+    const clamped = Math.max(MIN_DRAFT_IMAGE_WIDTH, Math.min(MAX_DRAFT_IMAGE_WIDTH, width));
+    image.style.width = `${clamped}px`;
+    image.style.maxWidth = "100%";
+    image.style.height = "auto";
+    setSelectedDraftImageWidth(clamped);
+    syncBodyFromEditor();
   };
 
   const canInlinePreview = (mimeType: string) =>
@@ -596,11 +731,41 @@ export function PoRequestPanel({
                 <div
                   ref={editorRef}
                   contentEditable={!readOnly}
-                  className={`min-h-[280px] w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 ${readOnly ? "cursor-not-allowed opacity-50" : ""}`}
-                  onInput={(e) => setBody(e.currentTarget.innerHTML)}
+                  className={`min-h-[280px] w-full overflow-auto rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md [&_table]:max-w-full ${readOnly ? "cursor-not-allowed opacity-50" : ""}`}
+                  onInput={syncBodyFromEditor}
+                  onPaste={handleEditorPaste}
+                  onDrop={handleEditorDrop}
+                  onDragOver={(event) => {
+                    if (!readOnly) {
+                      event.preventDefault();
+                    }
+                  }}
+                  onClick={handleEditorClick}
                 />
+                {selectedDraftImageActive ? (
+                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <span className="shrink-0 font-medium text-slate-700">图片宽度</span>
+                    <input
+                      type="range"
+                      min={MIN_DRAFT_IMAGE_WIDTH}
+                      max={MAX_DRAFT_IMAGE_WIDTH}
+                      value={selectedDraftImageWidth}
+                      onChange={(event) => resizeSelectedDraftImage(Number(event.target.value))}
+                      className="min-w-[140px] accent-sky-600"
+                    />
+                    <Input
+                      type="number"
+                      min={MIN_DRAFT_IMAGE_WIDTH}
+                      max={MAX_DRAFT_IMAGE_WIDTH}
+                      value={selectedDraftImageWidth}
+                      onChange={(event) => resizeSelectedDraftImage(Number(event.target.value))}
+                      className="max-w-[100px] text-xs"
+                    />
+                    <span className="shrink-0">px</span>
+                  </div>
+                ) : null}
                 <div className="mt-1 text-xs text-slate-500">
-                  支持直接复制并粘贴截图/图片到上方正文中。
+                  支持直接复制/拖入截图或图片；点击正文里的图片后可调整大小。
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2 mt-4">
@@ -713,9 +878,9 @@ export function PoRequestPanel({
                               提醒邮件已发给 {selectedMerchantEmail}。\n\n请尽快回复当前 PO 请求（{correlationId}）。
                             </div>
                           ) : (
-                            <div 
-                              className="email-content-preview overflow-hidden" 
-                              dangerouslySetInnerHTML={{ __html: event.body || event.description || "" }} 
+                            <div
+                              className="email-content-preview max-w-full overflow-auto break-words [&_img]:h-auto [&_img]:max-w-full [&_table]:max-w-full"
+                              dangerouslySetInnerHTML={{ __html: event.body || event.description || "" }}
                             />
                           )}
                           

@@ -1657,6 +1657,11 @@ public class JobsController : ControllerBase
                         status = "failed",
                         message = xeroDeleteResult.Error ?? "删除 Xero draft 失败。",
                     },
+                    gmail = new
+                    {
+                        status = "pending",
+                        message = "等待删除 Gmail 信息。",
+                    },
                     jobStep = new
                     {
                         status = "pending",
@@ -1695,7 +1700,7 @@ public class JobsController : ControllerBase
             await _db.JobWofRecords.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
             await _db.JobPoStates.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
             await _db.JobInvoices.Where(x => x.JobId == id).ExecuteDeleteAsync(ct);
-            await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
+            var deletedGmailLogs = await _db.GmailMessageLogs.Where(x => x.CorrelationId == correlationId).ExecuteDeleteAsync(ct);
 
             var existingInactive = await _db.InactiveGmailCorrelations
                 .FirstOrDefaultAsync(x => x.CorrelationId == correlationId, ct);
@@ -1722,6 +1727,11 @@ public class JobsController : ControllerBase
                         {
                             status = "success",
                             message = xeroStepMessage,
+                        },
+                        gmail = new
+                        {
+                            status = "failed",
+                            message = "删除 Gmail 信息失败，本地 Job 未删除。",
                         },
                         jobStep = new
                         {
@@ -1759,6 +1769,7 @@ public class JobsController : ControllerBase
                 vehicleDeleted,
                 customerDeleted = false,
                 correlationDeactivated = correlationId,
+                gmailLogsDeleted = deletedGmailLogs,
                 xeroDraftInvoiceDeleted = xeroDeleteResult.DeletedInXero,
                 steps = new
                 {
@@ -1766,6 +1777,13 @@ public class JobsController : ControllerBase
                     {
                         status = "success",
                         message = xeroStepMessage,
+                    },
+                    gmail = new
+                    {
+                        status = "success",
+                        message = deletedGmailLogs > 0
+                            ? $"已删除 {deletedGmailLogs} 条 Gmail 信息，并停用 {correlationId} 同步。"
+                            : $"没有找到 Gmail 信息，已停用 {correlationId} 同步。",
                     },
                     jobStep = new
                     {
@@ -1786,6 +1804,11 @@ public class JobsController : ControllerBase
                     {
                         status = "success",
                         message = xeroStepMessage,
+                    },
+                    gmail = new
+                    {
+                        status = "failed",
+                        message = "删除 Gmail 信息失败，本地删除事务已回滚。",
                     },
                     jobStep = new
                     {

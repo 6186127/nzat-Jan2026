@@ -754,6 +754,9 @@ public class GmailAuthController : ControllerBase
                      .OrderByDescending(x => x.InternalDateMs ?? 0)
                      .ThenByDescending(x => x.Id))
         {
+            if (!string.Equals(log.Direction, "reply", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             AddTextDetections(
                 detections,
                 seen,
@@ -1419,7 +1422,8 @@ public class GmailAuthController : ControllerBase
         {
             $"To: {to}",
             $"Subject: {EncodeMimeHeader(subject)}",
-            "Content-Type: text/plain; charset=utf-8",
+            "Content-Type: text/html; charset=utf-8",
+            "Content-Transfer-Encoding: 8bit",
             "MIME-Version: 1.0",
         };
 

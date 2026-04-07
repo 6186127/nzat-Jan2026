@@ -630,8 +630,8 @@ function WofJobCard({
       className={[
         compact
           ? "group relative cursor-grab active:cursor-grabbing"
-          : "group relative rounded-lg border shadow-sm transition cursor-grab active:cursor-grabbing",
-        compact ? "space-y-1" : "space-y-2 p-2.5",
+          : "group relative rounded-xl border shadow-sm transition cursor-grab active:cursor-grabbing",
+        compact ? "space-y-1" : "space-y-3 p-3",
         compact ? "" : tone,
         isDragging ? "opacity-45" : "opacity-100",
       ].join(" ")}
@@ -640,7 +640,7 @@ function WofJobCard({
         <>
           <div
             className={[
-              "flex items-center gap-2 rounded-md px-2 py-0.5 transition",
+              "flex items-center gap-2 rounded-lg px-2 py-0.5 transition",
               compactTone.row,
             ].join(" ")}
           >
@@ -885,7 +885,7 @@ function WofPlaceholderCard({
   return (
     <div
       className={[
-        "space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-2.5 shadow-sm transition hover:border-sky-300",
+        "space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-3 shadow-sm transition hover:border-sky-300",
         isDragging ? "opacity-45" : "opacity-100",
       ].join(" ")}
     >
@@ -942,8 +942,8 @@ function DropLane({
   }, [drop]);
 
   return (
-    <Card className="flex h-full min-h-[650px] flex-col overflow-hidden">
-      <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2.5">
+    <Card className="flex h-full min-h-[760px] flex-col overflow-hidden">
+      <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-slate-900">{title}</div>
@@ -957,7 +957,7 @@ function DropLane({
       <div
         ref={attachDropRef}
         className={[
-          "flex-1 space-y-2 overflow-y-auto px-3 py-3",
+          "flex-1 space-y-3 overflow-y-auto px-4 py-4",
           isOver ? "bg-rose-50/60" : "bg-white",
         ].join(" ")}
       >
@@ -1018,14 +1018,14 @@ function ScheduleSlot({
     <div
       ref={attachDropRef}
       className={[
-        "relative h-full min-h-0 border-t border-slate-200 px-1.5 py-1.5 transition",
+        "relative h-full min-h-0 border-t border-slate-200 px-2 py-2 transition",
         isOver ? "bg-rose-50" : "bg-white",
       ].join(" ")}
     >
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
         {getSlotLabel(hour)}
       </div>
-      <div className="h-[calc(100%-18px)] space-y-1 overflow-x-visible overflow-y-auto pr-1">
+      <div className="h-[calc(100%-24px)] space-y-1 overflow-x-visible overflow-y-auto pr-1">
         {placeholders.map((placeholder) => (
           <WofPlaceholderCard
             key={placeholder.placeholderId}
@@ -1547,9 +1547,9 @@ export function WofSchedulePage() {
 
   if (loading) {
     return (
-      <div className="space-y-4 p-4">
+      <div className="space-y-6 p-6">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">WOF 排班表</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">WOF 排班表</h1>
           <p className="mt-1 text-sm text-slate-500">Loading schedule board…</p>
         </div>
       </div>
@@ -1558,10 +1558,10 @@ export function WofSchedulePage() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="mx-auto flex max-h-[calc(100vh-24px)] max-w-[1800px] flex-col space-y-4 p-4">
+      <div className="mx-auto flex max-h-[1200px] max-w-[2000px] flex-col space-y-6 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold text-slate-900">WOF 排班表</h1>
+            <h1 className="text-2xl font-semibold text-slate-900">WOF 排班表</h1>
             <p className="mt-1 text-sm text-slate-500">
               Drag WOF jobs from the backlog into the next 7 working days and update their inspection status as they move.
             </p>
@@ -1586,7 +1586,7 @@ export function WofSchedulePage() {
           </Card>
         ) : null}
 
-        <div className="grid min-h-[650px] flex-1 grid-cols-[280px_minmax(0,1fr)] gap-4">
+        <div className="grid min-h-[820px] grid-cols-[320px_minmax(0,1fr)] gap-6">
             <DropLane
               title="WOF 待办栏"
               subtitle=""
@@ -1614,7 +1614,6 @@ export function WofSchedulePage() {
                 <WofJobCard
                   key={job.jobId}
                   job={job}
-                  compact
                   onNzta={() => openNztaAndCopyVin(job.vin, toast)}
                   onStatusChange={(next) => handleStatusChange(job.jobId, next)}
                   statusUpdating={statusUpdatingId === job.jobId}
@@ -1623,8 +1622,8 @@ export function WofSchedulePage() {
               ))}
             </DropLane>
 
-            <Card className="max-w-[1800px] overflow-hidden">
-              <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+            <Card className="overflow-hidden max-w-[2000px]">
+              <div className="border-b border-slate-200 bg-slate-50/80 px-5 py-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <div className="text-sm font-semibold text-slate-900">7 个工作日</div>
@@ -1665,16 +1664,16 @@ export function WofSchedulePage() {
               </div>
 
               <div className="overflow-x-auto">
-                <div className="grid min-w-[900px] grid-cols-7">
+                <div className="grid min-w-[980px] grid-cols-7">
                   {workingDays.map((day) => (
                     <div key={day.key} className="border-r border-slate-200 last:border-r-0">
-                      <div className="border-b border-slate-200 bg-white px-2.5 py-2">
+                      <div className="border-b border-slate-200 bg-white px-3 py-3">
                         <div className="text-sm font-semibold text-slate-900">{day.label}</div>
                         <div className="mt-1 text-xs text-slate-500">{day.shortDate}</div>
                       </div>
                       <div
                         className="grid"
-                        style={{ gridTemplateRows: `repeat(${SLOT_HOURS.length}, minmax(0, 1fr))`, height: "720px" }}
+                        style={{ gridTemplateRows: `repeat(${SLOT_HOURS.length}, minmax(0, 1fr))`, height: "930px" }}
                       >
                         {SLOT_HOURS.map((hour) => {
                           const slotKey = `${day.key}-${hour}`;
