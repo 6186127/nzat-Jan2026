@@ -13,6 +13,14 @@ export function deleteWofServer(jobId: string) {
   return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/wof-server`, { method: "DELETE" });
 }
 
+export function updateWofStatus(jobId: string, status: "Todo" | "Checked") {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/wof-status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
 export function createWofResult(
   jobId: string,
   payload: { result: "Pass" | "Fail"; expiryDate?: string; failReasonId?: string; note?: string }
@@ -46,6 +54,12 @@ export function updateWofRecord(jobId: string, recordId: string, payload: WofRec
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWofRecord(jobId: string, recordId: string) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/wof-records/${encodeURIComponent(recordId)}`, {
+    method: "DELETE",
   });
 }
 

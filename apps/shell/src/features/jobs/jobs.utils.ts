@@ -1,4 +1,5 @@
 import type { JobsFilters, JobRow } from "@/types/JobType";
+import { mapStageKey } from "@/features/paint/paintBoard.utils";
 import { parseTimestamp } from "@/utils/date";
 
 export function parseJobCreatedAt(createdAt: string): Date | null {
@@ -88,17 +89,30 @@ export function filterJobs(rows: JobRow[], filters: JobsFilters): JobRow[] {
     // 搜索过滤
     if (s) {
       const customerText = (r.customerCode || r.customerName).toLowerCase();
+      const notesText = String(r.notes || "").toLowerCase();
       const hit =
         r.id.toLowerCase().includes(s) ||
         r.plate.toLowerCase().includes(s) ||
         r.vehicleModel.toLowerCase().includes(s) ||
-        customerText.includes(s);
+        customerText.includes(s) ||
+        notesText.includes(s);
       if (!hit) return false;
     }
 
     // Job Type: 默认隐藏 Archived，只有筛选时才显示
     if (!filters.jobType && r.vehicleStatus === "Archived") return false;
     if (filters.jobType && r.vehicleStatus !== filters.jobType) return false;
+
+    // WOF 状态
+    if (filters.wofStatus && r.wofStatus !== filters.wofStatus) return false;
+
+    // 喷漆状态
+    if (filters.paintStatus) {
+      const hasPaintService = Boolean(r.paintStatus) || typeof r.paintCurrentStage === "number";
+      if (!hasPaintService) return false;
+      const paintStage = mapStageKey(r.paintStatus, r.paintCurrentStage);
+      if (paintStage !== filters.paintStatus) return false;
+    }
 
     // 日期范围
     if (dateRange) {

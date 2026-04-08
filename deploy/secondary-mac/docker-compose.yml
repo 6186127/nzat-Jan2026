@@ -1,0 +1,42 @@
+services:
+  api:
+    image: ghcr.io/lynn61liu/nzat-api:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: ${DB_CONN_STRING}
+      ConnectionStrings__Carjam: ${DB_CONN_STRING}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      Gmail__ClientId: ${GMAIL_CLIENT_ID}
+      Gmail__ClientSecret: ${GMAIL_CLIENT_SECRET}
+      Gmail__RedirectUri: ${GMAIL_REDIRECT_URI}
+      Xero__ClientId: ${XERO_CLIENT_ID}
+      Xero__ClientSecret: ${XERO_CLIENT_SECRET}
+      Xero__RedirectUri: ${XERO_REDIRECT_URI}
+      Xero__Scopes: ${XERO_SCOPES:-}
+      XeroWebhook__SigningKey: ${XERO_WEBHOOK_SIGNING_KEY:-}
+      XeroPayments__DefaultAccountCode: ${XERO_PAYMENTS_DEFAULT_ACCOUNT_CODE:-}
+      XeroPayments__CashAccountCode: ${XERO_PAYMENTS_CASH_ACCOUNT_CODE:-}
+      XeroPayments__EpostAccountCode: ${XERO_PAYMENTS_EPOST_ACCOUNT_CODE:-}
+      XeroPayments__BankTransferAccountCode: ${XERO_PAYMENTS_BANK_TRANSFER_ACCOUNT_CODE:-}
+      ImageOcr__Enabled: ${IMAGE_OCR_ENABLED:-true}
+      GmailSync__Enabled: ${GMAIL_SYNC_ENABLED:-false}
+      PoFollowUp__Enabled: ${PO_FOLLOW_UP_ENABLED:-false}
+      XeroPolling__Enabled: ${XERO_POLLING_ENABLED:-false}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - api_data:/app/App_Data
+
+  web:
+    image: ghcr.io/lynn61liu/nzat-web:latest
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-5173}:80"
+
+volumes:
+  api_data:

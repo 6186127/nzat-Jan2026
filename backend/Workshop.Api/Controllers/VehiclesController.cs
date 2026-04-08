@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Workshop.Api.Data;
 using Workshop.Api.DTOs;
-using Workshop.Api.Models;
 using Workshop.Api.Services;
 
 namespace Workshop.Api.Controllers;
@@ -14,11 +13,16 @@ public class VehiclesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly CarjamScraper _scraper;
+    private readonly NztaExpiryLookupService _nztaExpiryLookupService;
 
-    public VehiclesController(AppDbContext db, CarjamScraper scraper)
+    public VehiclesController(
+        AppDbContext db,
+        CarjamScraper scraper,
+        NztaExpiryLookupService nztaExpiryLookupService)
     {
         _db = db;
         _scraper = scraper;
+        _nztaExpiryLookupService = nztaExpiryLookupService;
     }
 
     // [HttpPost("import-by-plate")]
@@ -70,11 +74,70 @@ public class VehiclesController : ControllerBase
 
         var normalized = NormalizePlate(plate);
         var vehicle = await _db.Vehicles
-            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Plate == normalized, ct);
 
         if (vehicle is null)
             return NotFound(new { error = "Vehicle not found." });
+
+        if (vehicle.WofExpiry is null)
+        {
+            var nztaExpiry = await _nztaExpiryLookupService.LookupInspectionExpiryAsync(normalized, ct);
+            if (nztaExpiry.ExpiryDate is not null &&
+                !string.Equals(nztaExpiry.InspectionType, "COF", StringComparison.OrdinalIgnoreCase))
+            {
+                vehicle.WofExpiry = nztaExpiry.ExpiryDate;
+                vehicle.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
+        var latestJobCustomer = await (
+                from j in _db.Jobs.AsNoTracking()
+                join c in _db.Customers.AsNoTracking() on j.CustomerId equals c.Id
+                where j.VehicleId == vehicle.Id
+                orderby j.CreatedAt descending, j.Id descending
+                select new
+                {
+                    source = "job",
+                    jobId = j.Id,
+                    customer = new
+                    {
+                        id = c.Id,
+                        type = c.Type,
+                        name = c.Name,
+                        phone = c.Phone,
+                        email = c.Email,
+                        address = c.Address,
+                        businessCode = c.BusinessCode,
+                        notes = c.Notes,
+                    }
+                }
+            )
+            .FirstOrDefaultAsync(ct);
+
+        object? linkedCustomer = latestJobCustomer;
+        if (linkedCustomer is null && vehicle.CustomerId.HasValue)
+        {
+            linkedCustomer = await _db.Customers.AsNoTracking()
+                .Where(x => x.Id == vehicle.CustomerId.Value)
+                .Select(c => new
+                {
+                    source = "vehicle",
+                    jobId = (long?)null,
+                    customer = new
+                    {
+                        id = c.Id,
+                        type = c.Type,
+                        name = c.Name,
+                        phone = c.Phone,
+                        email = c.Email,
+                        address = c.Address,
+                        businessCode = c.BusinessCode,
+                        notes = c.Notes,
+                    }
+                })
+                .FirstOrDefaultAsync(ct);
+        }
 
         return Ok(new
         {
@@ -88,9 +151,11 @@ public class VehiclesController : ControllerBase
                 vehicle.FuelType,
                 vehicle.BodyStyle,
                 vehicle.NzFirstRegistration,
+                vehicle.WofExpiry,
                 vehicle.Odometer,
                 vehicle.UpdatedAt
-            }
+            },
+            linkedCustomer
         });
     }
 

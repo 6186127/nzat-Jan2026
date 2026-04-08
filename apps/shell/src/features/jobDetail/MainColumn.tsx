@@ -10,7 +10,7 @@ import type {
   WofRecord,
   WofRecordUpdatePayload,
 } from "@/types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { JobHeader } from "@/features/jobDetail/components/JobHeader";
@@ -21,8 +21,10 @@ import { RepairPanel } from "@/features/jobDetail/components/RepairPanel";
 import { PaintPanel } from "@/features/paint";
 import { LogPanel } from "@/features/jobDetail/components/LogPanel";
 import { InvoicePanel } from "@/features/jobDetail/components/InvoicePanel";
+import { PoPanel } from "@/features/jobDetail/components/PoPanel";
 import { WorklogPanel } from "@/features/jobDetail/components/WorklogPanel";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
+import { useInvoiceDashboardState } from "@/features/invoice/hooks/useInvoiceDashboardState";
 
 type MainColumnProps = {
   jobData: JobDetailData;
@@ -45,6 +47,9 @@ type MainColumnProps = {
   onUpdateWofRecord?: (
     id: string,
     payload: WofRecordUpdatePayload
+  ) => Promise<{ success: boolean; message?: string }>;
+  onDeleteWofRecord?: (
+    id: string
   ) => Promise<{ success: boolean; message?: string }>;
   onCreateWofRecord?: (
     payload: WofRecordUpdatePayload
@@ -86,14 +91,14 @@ type MainColumnProps = {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
-  onSaveCustomer?: (payload: {
-    type: "Personal" | "Business";
-    customerId?: string;
-    name?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-  }) => Promise<{ success: boolean; message?: string }>;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
+  onAttachXeroInvoice?: (invoiceNumber: string) => Promise<{ success: boolean; message?: string }>;
+  isAttachingXeroInvoice?: boolean;
+  onDetachXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isDetachingXeroInvoice?: boolean;
+  onArchiveJob?: () => Promise<{ success: boolean; message?: string }>;
+  isArchivingJob?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: { id: string; label: string }[];
@@ -121,6 +126,7 @@ export function MainColumn({
   onRefreshWof,
   onDeleteWofServer,
   onUpdateWofRecord,
+  onDeleteWofRecord,
   onCreateWofRecord,
   onCreatePartsService,
   onUpdatePartsService,
@@ -137,7 +143,14 @@ export function MainColumn({
   onRefreshPaintService,
   onRefreshVehicle,
   onSaveVehicle,
-  onSaveCustomer,
+  onCreateXeroInvoice,
+  isCreatingXeroInvoice,
+  onAttachXeroInvoice,
+  isAttachingXeroInvoice,
+  onDetachXeroInvoice,
+  isDetachingXeroInvoice,
+  onArchiveJob,
+  isArchivingJob,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -148,8 +161,32 @@ export function MainColumn({
   const hasPartsServices = partsServices.length > 0;
   const [partsTabVisibleForCreate, setPartsTabVisibleForCreate] = useState(false);
   const [partsCreateTrigger, setPartsCreateTrigger] = useState(0);
+  const [invoiceDashboardEnabled, setInvoiceDashboardEnabled] = useState(
+    activeTab === "Invoice" || activeTab === "PO"
+  );
+  const invoiceDashboard = useInvoiceDashboardState({
+    jobId: jobData.id,
+    customer: jobData.customer,
+    vehicle: jobData.vehicle,
+    persistedPoNumber: jobData.poNumber,
+    persistedInvoiceReference: jobData.invoiceReference,
+    persistedInvoice: jobData.invoice,
+    enabled: invoiceDashboardEnabled,
+  });
+  const needsPo = Boolean(jobData.needsPo);
+
+  useEffect(() => {
+    if (activeTab === "Invoice" || activeTab === "PO") {
+      setInvoiceDashboardEnabled(true);
+    }
+  }, [activeTab]);
+
+  const handleTabChange = (nextTab: JobDetailTabKey) => {
+    onTabChange(nextTab);
+  };
+
   const tabs = useMemo(() => {
-    const base: { key: JobDetailTabKey; label: string }[] = [
+    const base: { key: JobDetailTabKey; label: ReactNode }[] = [
       { key: "WOF", label: JOB_DETAIL_TEXT.tabs.wof },
       { key: "Mechanical", label: JOB_DETAIL_TEXT.tabs.mechanical },
     ];
@@ -162,14 +199,41 @@ export function MainColumn({
       { key: "Log", label: JOB_DETAIL_TEXT.tabs.log },
       { key: "Invoice", label: JOB_DETAIL_TEXT.tabs.invoice }
     );
+    if (needsPo) {
+      base.push({
+        key: "PO",
+        label: (
+          <span className="inline-flex items-center gap-2">
+            <span>{JOB_DETAIL_TEXT.tabs.po}</span>
+            {invoiceDashboard.poPanel.unreadReplyCount > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#dc2626] px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {invoiceDashboard.poPanel.unreadReplyCount}
+              </span>
+            ) : null}
+          </span>
+        ),
+      });
+    }
     return base;
-  }, [hasPartsServices, partsTabVisibleForCreate]);
+  }, [hasPartsServices, needsPo, partsTabVisibleForCreate, invoiceDashboard.poPanel.unreadReplyCount]);
 
   useEffect(() => {
     if (activeTab === "Parts" && !hasPartsServices && !partsTabVisibleForCreate) {
-      onTabChange("Mechanical");
+      handleTabChange("Mechanical");
     }
-  }, [activeTab, hasPartsServices, onTabChange, partsTabVisibleForCreate]);
+  }, [activeTab, hasPartsServices, partsTabVisibleForCreate]);
+
+  useEffect(() => {
+    if (activeTab === "PO" && !needsPo) {
+      handleTabChange("Invoice");
+    }
+  }, [activeTab, needsPo]);
+
+  useEffect(() => {
+    if (activeTab === "PO" && invoiceDashboard.poPanel.unreadReplyCount > 0) {
+      invoiceDashboard.poPanel.markPoThreadSeen();
+    }
+  }, [activeTab, invoiceDashboard.poPanel.unreadReplyCount]);
 
   useEffect(() => {
     if (partsTabVisibleForCreate && activeTab !== "Parts" && !hasPartsServices) {
@@ -196,16 +260,22 @@ export function MainColumn({
           customerName={jobData.customer.name}
           customerCode={jobData.customer.businessCode}
           customerPhone={jobData.customer.phone}
+          externalInvoiceId={jobData.invoice?.externalInvoiceId}
+          needsPo={needsPo}
           paintPanels={paintService?.panels ?? null}
           vin={jobData.vehicle.vin}
           nzFirstRegistration={jobData.vehicle.nzFirstRegistration}
           hasPaintService={Boolean(paintService?.id)}
+          onArchive={onArchiveJob}
+          isArchiving={isArchivingJob}
           onDelete={onDeleteJob}
           isDeleting={isDeletingJob}
           tagOptions={tagOptions}
           onSaveTags={onSaveTags}
           onSaveNotes={onSaveNotes}
           onCreatePaintService={onCreatePaintService}
+          onCreateXeroInvoice={onCreateXeroInvoice}
+          isCreatingXeroInvoice={isCreatingXeroInvoice}
         />
       </Card>
       <SummaryCard
@@ -213,12 +283,11 @@ export function MainColumn({
         customer={jobData.customer}
         onRefreshVehicle={onRefreshVehicle}
         onSaveVehicle={onSaveVehicle}
-        onSaveCustomer={onSaveCustomer}
       />
 
       <Card className="p-4">
         <div className="flex items-start justify-between gap-3">
-          <JobTabs activeTab={activeTab} onChange={onTabChange} tabs={tabs} />
+              <JobTabs activeTab={activeTab} onChange={handleTabChange} tabs={tabs} />
           <Button
             variant="ghost"
             className="inline-flex items-center gap-1 rounded-[8px] border border-[rgba(220,38,38,0.40)] bg-[rgba(220,38,38,0.05)] px-2.5 py-1.5 text-base font-medium text-[#b91c1c] hover:bg-[rgba(220,38,38,0.10)]"
@@ -226,7 +295,7 @@ export function MainColumn({
             onClick={() => {
               setPartsTabVisibleForCreate(true);
               setPartsCreateTrigger((prev) => prev + 1);
-              onTabChange("Parts");
+              handleTabChange("Parts");
             }}
           >
             添加配件
@@ -235,8 +304,10 @@ export function MainColumn({
 
         {activeTab === "WOF" ? (
           <WofPanel
-            hasRecord={hasWofRecord}
-            onAdd={onAddWof}
+              hasRecord={hasWofRecord}
+              hasService={jobData.hasWofService}
+              wofStatus={jobData.wofStatus}
+              onAdd={onAddWof}
             records={wofRecords}
             checkItems={wofCheckItems}
             failReasons={failReasons}
@@ -244,6 +315,7 @@ export function MainColumn({
             onRefresh={onRefreshWof}
             onDeleteWofServer={onDeleteWofServer}
             onUpdateRecord={onUpdateWofRecord}
+            onDeleteRecord={onDeleteWofRecord}
             onCreateRecord={onCreateWofRecord}
             jobId={jobData.id}
             vehiclePlate={jobData.vehicle.plate}
@@ -298,8 +370,23 @@ export function MainColumn({
           <WorklogPanel jobData={jobData} paintPanels={paintService?.panels ?? null} />
         ) : null}
         {activeTab === "Log" ? <LogPanel /> : null}
-        {activeTab === "Invoice" ? <InvoicePanel /> : null}
+        {activeTab === "Invoice" ? (
+          <InvoicePanel
+            model={invoiceDashboard.invoicePanel}
+            hasInvoice={Boolean(jobData.invoice)}
+            invoiceProcessing={jobData.invoiceProcessing}
+            onCreateInvoice={onCreateXeroInvoice}
+            isCreatingInvoice={isCreatingXeroInvoice}
+            onAttachInvoice={onAttachXeroInvoice}
+            isAttachingInvoice={isAttachingXeroInvoice}
+            onDetachInvoice={onDetachXeroInvoice}
+            isDetachingInvoice={isDetachingXeroInvoice}
+            needsPo={needsPo}
+          />
+        ) : null}
+        {activeTab === "PO" && needsPo ? <PoPanel model={invoiceDashboard.poPanel} /> : null}
       </Card>
+
     </div>
   );
 }

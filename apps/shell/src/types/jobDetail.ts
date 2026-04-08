@@ -1,4 +1,35 @@
-export type JobDetailTabKey = "WOF" | "Mechanical" | "Parts" | "Paint" | "Worklog" | "Log" | "Invoice";
+export type JobDetailTabKey = "WOF" | "Mechanical" | "Parts" | "Paint" | "Worklog" | "Log" | "Invoice" | "PO";
+
+export type JobInvoiceData = {
+  id: string;
+  jobId: string;
+  provider: string;
+  externalInvoiceId?: string;
+  externalInvoiceNumber?: string;
+  externalStatus?: string;
+  reference?: string;
+  contactName?: string;
+  invoiceNote?: string;
+  invoiceDate?: string;
+  lineAmountTypes?: string;
+  tenantId?: string;
+  requestPayloadJson?: string;
+  responsePayloadJson?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  latestPayment?: {
+    id: string;
+    method: string;
+    amount: number;
+    paymentDate: string;
+    reference?: string;
+    accountCode?: string;
+    accountName?: string;
+    externalStatus?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  } | null;
+};
 
 export type VehicleInfo = {
   plate: string;
@@ -170,7 +201,25 @@ export type JobDetailData = {
   isUrgent: boolean;
   tags: string[];
   notes?: string;
+  needsPo?: boolean;
+  poNumber?: string;
+  invoiceReference?: string;
   createdAt?: string;
+  hasWofService?: boolean;
+  wofStatus?: "Todo" | "Checked" | "Recorded" | null;
   vehicle: VehicleInfo;
   customer: CustomerInfo;
+  invoice?: JobInvoiceData | null;
+  invoiceProcessing?: {
+    id: string;
+    messageType: string;
+    status: string;
+    attemptCount: number;
+    lastError?: string | null;
+    availableAt?: string;
+    lockedAt?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    processedAt?: string | null;
+  } | null;
 };

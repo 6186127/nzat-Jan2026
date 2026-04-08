@@ -5,21 +5,27 @@ import {
   ClipboardCheck,
   Droplets,
   Hammer,
+  PauseCircle,
   Paintbrush2,
+  RefreshCw,
   Search,
   Settings2,
 } from "lucide-react";
 import { fetchPaintBoard, updatePaintStage } from "@/features/paint/api/paintApi";
+import { updateWofStatus as apiUpdateWofStatus } from "@/features/wof/api/wofApi";
 import {
   getDurationDays,
   mapStageKey,
   normalizeDate,
+  PAINT_STAGE_INDEX_BY_KEY,
+  PAINT_STAGE_LABELS,
+  PAINT_STAGE_ORDER,
   type PaintBoardJob,
   type StageKey,
 } from "@/features/paint/paintBoard.utils";
-import { Pagination, Select } from "@/components/ui";
+import { Button, Pagination, Select } from "@/components/ui";
 import { paginate } from "@/utils/pagination";
-import { subscribePaintBoardRefresh } from "@/utils/refreshSignals";
+import { notifyWofScheduleRefresh, subscribePaintBoardRefresh } from "@/utils/refreshSignals";
 
 const STAGES: Record<
   StageKey,
@@ -31,66 +37,75 @@ const STAGES: Record<
     text: string;
   }
 > = {
+  on_hold: {
+    label: PAINT_STAGE_LABELS.on_hold,
+    icon: <PauseCircle className="h-4 w-4 text-amber-600" />,
+    pill: "bg-amber-50 text-amber-700",
+    card: "border-amber-100",
+    text: "text-amber-700",
+  },
   waiting: {
-    label: "等待处理",
+    label: PAINT_STAGE_LABELS.waiting,
     icon: <CheckCircle2 className="h-4 w-4 text-slate-500" />,
     pill: "bg-slate-100 text-slate-700",
     card: "border-slate-200",
     text: "text-slate-700",
   },
   sheet: {
-    label: "钣金/底漆",
+    label: PAINT_STAGE_LABELS.sheet,
     icon: <Hammer className="h-4 w-4 text-sky-600" />,
     pill: "bg-sky-50 text-sky-700",
     card: "border-sky-100",
     text: "text-sky-700",
   },
   undercoat: {
-    label: "打底漆",
+    label: PAINT_STAGE_LABELS.undercoat,
     icon: <Paintbrush2 className="h-4 w-4 text-amber-600" />,
     pill: "bg-amber-50 text-amber-700",
     card: "border-amber-100",
     text: "text-amber-700",
   },
   sanding: {
-    label: "底漆打磨",
+    label: PAINT_STAGE_LABELS.sanding,
     icon: <Settings2 className="h-4 w-4 text-fuchsia-600" />,
     pill: "bg-fuchsia-50 text-fuchsia-700",
     card: "border-fuchsia-100",
     text: "text-fuchsia-700",
   },
   painting: {
-    label: "喷漆",
+    label: PAINT_STAGE_LABELS.painting,
     icon: <Droplets className="h-4 w-4 text-rose-600" />,
     pill: "bg-rose-50 text-rose-700",
     card: "border-rose-100",
     text: "text-rose-700",
   },
   assembly: {
-    label: "组装抛光",
+    label: PAINT_STAGE_LABELS.assembly,
     icon: <ClipboardCheck className="h-4 w-4 text-amber-900" />,
     pill: "bg-amber-100 text-amber-900",
     card: "border-amber-200",
     text: "text-amber-900",
   },
   done: {
-    label: "完成喷漆",
+    label: PAINT_STAGE_LABELS.done,
     icon: <Car className="h-4 w-4 text-emerald-600" />,
     pill: "bg-emerald-50 text-emerald-700",
     card: "border-emerald-100",
     text: "text-emerald-700",
   },
+  delivered: {
+    label: PAINT_STAGE_LABELS.delivered,
+    icon: <Car className="h-4 w-4 text-green-600" />,
+    pill: "bg-green-50 text-green-700",
+    card: "border-green-100",
+    text: "text-green-700",
+  },
 };
 
-const STAGE_ORDER: StageKey[] = [
-  "waiting",
-  "sheet",
-  "undercoat",
-  "sanding",
-  "painting",
-  "assembly",
-  "done",
-];
+const STAGE_ORDER = PAINT_STAGE_ORDER;
+const SUMMARY_STAGE_ORDER = STAGE_ORDER.filter((stage) => stage !== "delivered");
+const TECH_STAGE_ORDER = STAGE_ORDER.filter((stage) => stage !== "on_hold" && stage !== "delivered");
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
 
 const extractServiceNote = (note?: string | null) => {
   if (!note) return "";
@@ -112,6 +127,8 @@ export function PaintTechBoardPage() {
   const [jobs, setJobs] = useState<PaintBoardJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [updatingWofJobIds, setUpdatingWofJobIds] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
   const [selectedStage, setSelectedStage] = useState<"all" | StageKey>("all");
   const [page, setPage] = useState(1);
@@ -125,19 +142,24 @@ export function PaintTechBoardPage() {
     };
   }, []);
 
-  const load = async () => {
+  const load = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!mountedRef.current) return;
-    setLoading(true);
-    setLoadError(null);
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     const res = await fetchPaintBoard();
     if (!res.ok) {
       if (mountedRef.current) setLoadError(res.error || "加载失败");
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current && !silent) setLoading(false);
       return;
     }
     const list = Array.isArray(res.data?.jobs) ? res.data.jobs : [];
-    if (mountedRef.current) setJobs(list);
-    if (mountedRef.current) setLoading(false);
+    if (mountedRef.current) {
+      setJobs(list);
+      setLastUpdatedAt(new Date());
+    }
+    if (mountedRef.current && !silent) setLoading(false);
   };
 
   useEffect(() => {
@@ -146,20 +168,47 @@ export function PaintTechBoardPage() {
 
   useEffect(() => {
     const unsubscribe = subscribePaintBoardRefresh(() => {
-      void load();
+      void load({ silent: true });
     });
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void load({ silent: true });
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const visibleJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        const stage = mapStageKey(job.status, job.currentStage);
+        if (stage === "on_hold" || stage === "delivered") return false;
+        if (job.wofStatus === "Recorded") return false;
+        return true;
+      }),
+    [jobs]
+  );
+
   const today = normalizeDate(new Date());
-  const overdueCount = jobs.filter((job) => {
+  const statsJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        const stage = mapStageKey(job.status, job.currentStage);
+        return stage !== "delivered";
+      }),
+    [jobs]
+  );
+  const overdueCount = visibleJobs.filter((job) => {
     const stageKey = mapStageKey(job.status, job.currentStage);
-    if (stageKey === "done") return false;
+    if (stageKey === "done" || stageKey === "delivered") return false;
     return getDurationDays(job.createdAt, today) >= 3;
   }).length;
 
   const stageCounts = useMemo(() => {
     const counts: Record<StageKey, number> = {
+      on_hold: 0,
       waiting: 0,
       sheet: 0,
       undercoat: 0,
@@ -167,24 +216,29 @@ export function PaintTechBoardPage() {
       painting: 0,
       assembly: 0,
       done: 0,
+      delivered: 0,
     };
-    jobs.forEach((job) => {
+    statsJobs.forEach((job) => {
       const key = mapStageKey(job.status, job.currentStage);
       counts[key] += 1;
     });
     return counts;
-  }, [jobs]);
+  }, [statsJobs]);
+
+  const maxStageCount = useMemo(() => {
+    return Math.max(1, ...SUMMARY_STAGE_ORDER.map((stage) => stageCounts[stage] ?? 0));
+  }, [stageCounts]);
 
   const filteredJobs = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return jobs.filter((job) => {
+    return visibleJobs.filter((job) => {
       const stageKey = mapStageKey(job.status, job.currentStage);
       if (selectedStage !== "all" && stageKey !== selectedStage) return false;
       if (!keyword) return true;
       const haystack = `${job.plate} ${job.make ?? ""} ${job.model ?? ""}`.toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [jobs, search, selectedStage]);
+  }, [visibleJobs, search, selectedStage]);
 
   const sortedJobs = useMemo(() => {
     const copy = [...filteredJobs];
@@ -200,7 +254,7 @@ export function PaintTechBoardPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedStage, jobs.length]);
+  }, [search, selectedStage, visibleJobs.length]);
 
   const pagination = useMemo(
     () => paginate(sortedJobs, page, pageSize),
@@ -216,31 +270,48 @@ export function PaintTechBoardPage() {
   }, [safePage, page]);
 
   const topFive = useMemo(() => {
-    return [...jobs]
+    return [...visibleJobs]
       .map((job) => ({
         ...job,
         durationDays: getDurationDays(job.createdAt, today),
       }))
       .sort((a, b) => b.durationDays - a.durationDays)
       .slice(0, 5);
-  }, [jobs, today]);
+  }, [visibleJobs, today]);
 
   const handleStageChange = async (jobId: string, nextStage: StageKey) => {
-    const stageIndexMap: Record<StageKey, number> = {
-      waiting: -1,
-      sheet: 0,
-      undercoat: 1,
-      sanding: 2,
-      painting: 3,
-      assembly: 4,
-      done: 5,
-    };
-    await updatePaintStage(jobId, stageIndexMap[nextStage]);
+    await updatePaintStage(jobId, PAINT_STAGE_INDEX_BY_KEY[nextStage]);
     const res = await fetchPaintBoard();
     if (res.ok) {
       const list = Array.isArray(res.data?.jobs) ? res.data.jobs : [];
       setJobs(list);
+      setLastUpdatedAt(new Date());
     }
+  };
+
+  const handleWofStatusChange = async (jobId: string, nextStatus: "Todo" | "Checked") => {
+    setUpdatingWofJobIds((prev) => ({ ...prev, [jobId]: true }));
+    const res = await apiUpdateWofStatus(jobId, nextStatus);
+    if (res.ok) {
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === jobId
+            ? {
+                ...job,
+                wofStatus: nextStatus,
+              }
+            : job
+        )
+      );
+      notifyWofScheduleRefresh();
+    } else {
+      setLoadError(res.error || "更新 WOF 状态失败");
+    }
+    setUpdatingWofJobIds((prev) => {
+      const next = { ...prev };
+      delete next[jobId];
+      return next;
+    });
   };
 
   return (
@@ -263,8 +334,30 @@ export function PaintTechBoardPage() {
       </header>
 
       <main className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6">
-        <div className="grid gap-3 md:grid-cols-7">
-          {STAGE_ORDER.map((stage) => (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-3 text-sm font-semibold text-slate-700">
+            <Button
+              variant="ghost"
+              className="h-9 rounded-[10px] border border-slate-200 bg-slate-50 px-3 text-slate-700 hover:bg-slate-100"
+              leftIcon={<RefreshCw className={["h-4 w-4", loading ? "animate-spin" : ""].join(" ")} />}
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              {loading ? "刷新中..." : "手动刷新"}
+            </Button>
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-[var(--ds-primary)]" />
+              Paint Tech Board 已启用 5 分钟自动刷新
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">
+            每 5 分钟刷新一次，当前页面不显示 On Hold 和交车完毕订单
+            {lastUpdatedAt ? ` · 上次刷新 ${lastUpdatedAt.toLocaleString("zh-CN", { hour12: false })}` : ""}
+          </div>
+        </div>
+
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
+          {SUMMARY_STAGE_ORDER.map((stage) => (
             <div
               key={stage}
               className={`rounded-2xl border bg-white p-4 shadow-sm ${STAGES[stage].card}`}
@@ -285,15 +378,15 @@ export function PaintTechBoardPage() {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-700">状态分布</div>
             <div className="mt-4 flex h-40 items-end gap-6">
-              {STAGE_ORDER.map((stage) => {
+              {SUMMARY_STAGE_ORDER.map((stage) => {
                 const value = stageCounts[stage] ?? 0;
-                const height = value === 0 ? 6 : 20 + value * 16;
+                const height = value === 0 ? 6 : Math.max(18, Math.round((value / maxStageCount) * 132));
                 return (
                   <div key={stage} className="flex flex-1 flex-col items-center gap-2">
                     <div
                       className={`w-10 rounded-lg ${STAGES[stage].text}`}
                       style={{
-                        height,
+                        height: `${height}px`,
                         background: "currentColor",
                         opacity: 0.85,
                       }}
@@ -353,7 +446,7 @@ export function PaintTechBoardPage() {
             className="h-9 w-[150px]"
           >
             <option value="all">全部</option>
-            {STAGE_ORDER.map((stage) => (
+            {TECH_STAGE_ORDER.map((stage) => (
               <option key={stage} value={stage}>
                 {STAGES[stage].label}
               </option>
@@ -361,9 +454,9 @@ export function PaintTechBoardPage() {
           </Select>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              全部({jobs.length})
+              全部({visibleJobs.length})
             </span>
-            {STAGE_ORDER.map((stage) => (
+            {TECH_STAGE_ORDER.map((stage) => (
               <button
                 key={stage}
                 type="button"
@@ -378,7 +471,7 @@ export function PaintTechBoardPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-600">
-            显示 {sortedJobs.length} / {jobs.length} 辆车
+            显示 {sortedJobs.length} / {visibleJobs.length} 辆车
           </div>
           {loading ? (
             <div className="py-8 text-center text-sm text-slate-400">加载中...</div>
@@ -394,6 +487,7 @@ export function PaintTechBoardPage() {
                     <th className="py-2">车牌号</th>
                     <th className="py-2">车型</th>
                     <th className="py-2">状态</th>
+                    <th className="py-2">WOF状态</th>
                     <th className="py-2">工作内容</th>
                     <th className="py-2 text-right">片数</th>
                   </tr>
@@ -409,7 +503,7 @@ export function PaintTechBoardPage() {
                         className="border-b border-slate-100 hover:bg-slate-50"
                       >
                         <td className="py-3 text-xs text-slate-500">
-                          {new Date(job.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                          {new Date(job.createdAt).toLocaleDateString("zh-CN")}
                         </td>
                         <td className="py-3">
                           <span
@@ -440,12 +534,39 @@ export function PaintTechBoardPage() {
                             }}
                             onClick={(event) => event.stopPropagation()}
                           >
-                            {STAGE_ORDER.map((stage) => (
+                            {TECH_STAGE_ORDER.map((stage) => (
                               <option key={stage} value={stage}>
                                 {STAGES[stage].label}
                               </option>
                             ))}
                           </select>
+                        </td>
+                        <td className="py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {job.wofStatus === "Todo" || job.wofStatus === "Checked" ? (
+                              <select
+                                className={[
+                                  "h-8 rounded-full border px-3 text-xs font-semibold outline-none transition focus:border-[var(--ds-primary)]",
+                                  job.wofStatus === "Checked"
+                                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                                    : "border-sky-200 bg-sky-100 text-sky-700",
+                                ].join(" ")}
+                                value={job.wofStatus}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  void handleWofStatusChange(job.id, event.target.value as "Todo" | "Checked");
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                                disabled={Boolean(updatingWofJobIds[job.id])}
+                              >
+                                <option value="Todo">待查</option>
+                                <option value="Checked">检查完成</option>
+                              </select>
+                            ) : null}
+                            {job.wofStatus !== "Todo" && job.wofStatus !== "Checked" ? (
+                              <span className="text-xs text-slate-300">—</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="py-3 text-xs text-slate-500">
                           {extractServiceNote(job.notes) || "—"}

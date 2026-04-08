@@ -3,6 +3,8 @@ import { Archive, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { StatusPill, ProgressRing, TagsCell } from "@/features/jobs/components";
+import { XeroButton, getXeroInvoiceUrl } from "@/components/common/XeroButton";
+import { PAINT_STAGE_OPTIONS } from "@/features/paint/paintBoard.utils";
 import { formatNzDate, formatNzDateTime, parseTimestamp } from "@/utils/date";
 import type { JobRow } from "@/types/JobType";
 export type JobsTableProps = {
@@ -11,6 +13,7 @@ export type JobsTableProps = {
   onArchive: (id: string) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
   onUpdateCreatedAt: (id: string, date: string) => boolean | Promise<boolean>;
+  onUpdatePaintStatus?: (id: string, stageIndex: number) => boolean | Promise<boolean>;
   onPrintMech: (id: string) => void | Promise<void>;
   onPrintPaint: (id: string) => void | Promise<void>;
 };
@@ -29,6 +32,97 @@ const ONE_LINE_CLAMP_STYLE = {
   WebkitLineClamp: 1,
   wordBreak: "break-word",
 } as const;
+
+function WofStatusPill({ status }: { status?: JobRow["wofStatus"] }) {
+  if (!status) {
+    return <span className="text-xs text-[rgba(0,0,0,0.35)]">—</span>;
+  }
+
+  const config =
+    status === "Recorded"
+      ? {
+          label: "已录入",
+          bg: "bg-sky-50",
+          bd: "border-sky-200",
+          tx: "text-sky-700",
+          dot: "bg-sky-500",
+        }
+      : status === "Checked"
+        ? {
+            label: "检查完成",
+            bg: "bg-amber-50",
+            bd: "border-amber-200",
+            tx: "text-amber-700",
+            dot: "bg-amber-500",
+          }
+        : {
+            label: "待查",
+            bg: "bg-white",
+            bd: "border-slate-200",
+            tx: "text-slate-700",
+            dot: "bg-slate-400",
+          };
+
+  return (
+    <span
+      className={[
+        "inline-flex items-center gap-2 rounded-[8px] border px-2 py-1 text-[11px] font-medium",
+        config.bg,
+        config.bd,
+        config.tx,
+      ].join(" ")}
+    >
+      <span className={["h-1.5 w-1.5 rounded-full", config.dot].join(" ")} />
+      {config.label}
+    </span>
+  );
+}
+
+function getPaintStageValue(row: JobRow) {
+  if (row.paintStatus === "delivered") return 6;
+  if (row.paintStatus === "done") return 5;
+  if (typeof row.paintCurrentStage !== "number") return null;
+  return row.paintCurrentStage;
+}
+
+function PaintStatusSelect({
+  row,
+  onChange,
+}: {
+  row: JobRow;
+  onChange?: (stageIndex: number) => boolean | Promise<boolean>;
+}) {
+  const currentValue = getPaintStageValue(row);
+  if (currentValue === null || !onChange) {
+    return <span className="text-xs text-[rgba(0,0,0,0.35)]">—</span>;
+  }
+
+  const currentOption = PAINT_STAGE_OPTIONS.find((option) => option.stageIndex === currentValue) ?? PAINT_STAGE_OPTIONS[0];
+  const tone =
+    currentValue === 6
+      ? "border-green-200 bg-green-50 text-green-700"
+      : currentValue === 5
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : currentValue === -2
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : currentValue >= 0
+            ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+            : "border-slate-200 bg-white text-slate-700";
+
+  return (
+    <select
+      className={["h-8 min-w-[104px] rounded-[8px] border px-2 text-[11px] font-medium outline-none", tone].join(" ")}
+      value={String(currentOption.stageIndex)}
+      onChange={(e) => onChange(Number(e.target.value))}
+    >
+      {PAINT_STAGE_OPTIONS.map((option) => (
+        <option key={option.stageIndex} value={option.stageIndex}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 const JOB_TABLE_COLUMNS: Array<{
   key: string;
@@ -81,6 +175,7 @@ export function JobsTable({
   onArchive,
   onDelete,
   onUpdateCreatedAt,
+  onUpdatePaintStatus,
   onPrintMech,
   onPrintPaint,
 }: JobsTableProps) {
@@ -262,13 +357,18 @@ export function JobsTable({
                 <div className="truncate">{r.customerCode || r.customerName || "—"}</div>
 
                 <div className="text-left font-medium text-[rgba(0,0,0,0.70)]">
-                  <div className="h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
+                  <div className="flex items-center gap-2 h-6 overflow-hidden leading-5" style={ONE_LINE_CLAMP_STYLE}>
                     <Link
                       to={`/jobs/${r.id}`}
                       className="block text-[rgba(37,99,235,1)] font-semibold underline"
                     >
                       {r.plate}
                     </Link>
+                    {(r.poUnreadReplyCount ?? 0) > 0 ? (
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                        PO {r.poUnreadReplyCount}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -295,9 +395,11 @@ export function JobsTable({
                   )}
                 </div>
 
-                <div className="flex justify-center"><ProgressRing value={r.wofPct} /></div>
+                <div className="flex justify-center"><WofStatusPill status={r.wofStatus} /></div>
                 <div className="flex justify-center"><ProgressRing value={r.mechPct} /></div>
-                <div className="flex justify-center"><ProgressRing value={r.paintPct} /></div>
+                <div className="flex justify-center">
+                  <PaintStatusSelect row={r} onChange={onUpdatePaintStatus ? (stageIndex) => onUpdatePaintStatus(r.id, stageIndex) : undefined} />
+                </div>
 
                 <div className="flex justify-center gap-1 ">
                   <button
@@ -312,6 +414,13 @@ export function JobsTable({
                   >
                     喷漆
                   </button>
+                  {r.externalInvoiceId ? (
+                    <XeroButton
+                      className="h-8 min-w-10 rounded-[8px] px-2"
+                      label=""
+                      onClick={() => window.open(getXeroInvoiceUrl(r.externalInvoiceId), "_blank", "noopener,noreferrer")}
+                    />
+                  ) : null}
                   <button
                     className="text-[rgba(0,0,0,0.45)] hover:text-[rgba(0,0,0,0.70)]"
                     title="Archive"

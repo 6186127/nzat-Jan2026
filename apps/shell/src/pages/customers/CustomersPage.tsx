@@ -1,57 +1,51 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, Button, EmptyState, Alert, Input, useToast } from "@/components/ui";
+import {
+  loadCustomerListCacheFirst,
+  removeCustomerCaches,
+  syncCustomerListCache,
+  type CachedCustomerListRow,
+} from "@/features/lookups/lookupCache";
 import { withApiBase } from "@/utils/api";
 import { Plus, Trash2, Pencil } from "lucide-react";
 
-type CustomerRow = {
-  id: string;
-  type: string;
+type CustomerStaff = {
   name: string;
-  phone: string;
+  title: string;
   email: string;
-  address: string;
-  businessCode: string;
-  notes: string;
 };
 
-type CustomerDraft = Omit<CustomerRow, "id">;
+type CustomerRow = CachedCustomerListRow;
 
-const blankDraft: CustomerDraft = {
-  type: "Personal",
-  name: "",
-  phone: "",
-  email: "",
-  address: "",
-  businessCode: "",
-  notes: "",
-};
+type CustomerDraft = Omit<CustomerRow, "id" | "servicePriceCount" | "currentYearJobCount">;
 
 export function CustomersPage() {
+  const navigate = useNavigate();
+  const toast = useToast();
   const [rows, setRows] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState<CustomerDraft>(blankDraft);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<CustomerDraft>(blankDraft);
-  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [previewRows, setPreviewRows] = useState<CustomerDraft[] | null>(null);
   const [importing, setImporting] = useState(false);
-  const toast = useToast();
-
-  // 新增：页面视图切换（Personal / Business）
+  const [saving, setSaving] = useState(false);
   const [viewType, setViewType] = useState<"Personal" | "Business">("Personal");
+
+  const isBusinessView = viewType === "Business";
+  const businessGridTemplate =
+    "50px minmax(92px,0.8fr) minmax(180px,1.3fr) minmax(130px,1fr) minmax(180px,1.2fr) minmax(220px,1.5fr) minmax(130px,1fr) minmax(150px,1fr) 120px 120px 120px 120px";
+  const personalGridTemplate =
+    "50px minmax(92px,0.8fr) minmax(180px,1.3fr) minmax(130px,1fr) minmax(180px,1.2fr) minmax(220px,1.5fr) minmax(130px,1fr) minmax(150px,1fr) 120px";
 
   const filteredRows = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const base = rows.filter((r) => (r.type || "").toLowerCase() === viewType.toLowerCase());
-
+    const base = rows.filter((row) => (row.type || "").toLowerCase() === viewType.toLowerCase());
     if (!s) return base;
-
     return base.filter((row) => {
-      const hay = [
+      const staffText = row.staffMembers.map((member) => [member.name, member.title, member.email].join(" ")).join(" ");
+      return [
         row.id,
         row.type,
         row.name,
@@ -60,26 +54,35 @@ export function CustomersPage() {
         row.address,
         row.businessCode,
         row.notes,
+        String(row.servicePriceCount),
+        String(row.currentYearJobCount),
+        staffText,
       ]
         .join(" ")
-        .toLowerCase();
-      return hay.includes(s);
+        .toLowerCase()
+        .includes(s);
     });
   }, [rows, search, viewType]);
 
-  const loadCustomers = async () => {
+  const loadCustomers = async (forceRefresh = false) => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(withApiBase("/api/customers"));
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "加载客户失败");
+      let mapped: CustomerRow[];
+
+      if (forceRefresh) {
+        const res = await fetch(withApiBase("/api/customers"));
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || "加载客户失败");
+        mapped = syncCustomerListCache(Array.isArray(data) ? data : []);
+      } else {
+        mapped = await loadCustomerListCacheFirst();
       }
-      setRows(Array.isArray(data) ? data : []);
+
+      setRows(mapped);
     } catch (err) {
-      setRows([]);
       const message = err instanceof Error ? err.message : "加载客户失败";
+      setRows([]);
       setLoadError(message);
       toast.error(message);
     } finally {
@@ -88,46 +91,25 @@ export function CustomersPage() {
   };
 
   useEffect(() => {
-    loadCustomers();
+    void loadCustomers();
   }, []);
 
-  // CSV 输出时的标准转义：包含逗号/引号/换行 -> 必须用引号包起来，内部引号用 "" 表示
   const csvEscape = (v: string) => {
     const s = (v ?? "").toString();
-    if (/[",\r\n]/.test(s)) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
 
   const downloadTemplate = () => {
     const header = "type,name,phone,email,address,businessCode,notes";
-    const row1 = [
-      "Personal",
-      "John Doe",
-      "021000000",
-      "john@email.com",
-      '12 Queen St, Auckland', // 故意带逗号演示正确 CSV
-      "",
-      "VIP",
+    const rowsText = [
+      ["Personal", "John Doe", "021000000", "john@email.com", "12 Queen St, Auckland", "", "VIP"],
+      ["Business", "ABC Motors", "093333333", "info@abc.co.nz", "44 Mount Rd, Auckland", "ABC123", "Dealer"],
     ]
-      .map(csvEscape)
-      .join(",");
+      .map((row) => row.map(csvEscape).join(","))
+      .join("\n");
 
-    const row2 = [
-      "Business",
-      "ABC Motors",
-      "093333333",
-      "info@abc.co.nz",
-      '44 Mount Rd, Auckland',
-      "ABC123",
-      "Dealer",
-    ]
-      .map(csvEscape)
-      .join(",");
-
-    const csv = `${header}\n${row1}\n${row2}\n`;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`${header}\n${rowsText}\n`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -136,9 +118,8 @@ export function CustomersPage() {
     URL.revokeObjectURL(url);
   };
 
-  // 标准 CSV 解析（支持：引号字段、字段内逗号、"" 代表引号、CRLF/LF）
   const parseCsv = (text: string): CustomerDraft[] => {
-    const input = text.replace(/\uFEFF/g, ""); // 去掉 BOM
+    const input = text.replace(/\uFEFF/g, "");
     const rowsOut: string[][] = [];
     let row: string[] = [];
     let field = "";
@@ -149,7 +130,6 @@ export function CustomersPage() {
       field = "";
     };
     const pushRow = () => {
-      // 避免把纯空行当数据行
       const hasAny = row.some((c) => (c ?? "").trim() !== "");
       if (hasAny) rowsOut.push(row);
       row = [];
@@ -157,7 +137,6 @@ export function CustomersPage() {
 
     for (let i = 0; i < input.length; i++) {
       const ch = input[i];
-
       if (inQuotes) {
         if (ch === '"') {
           const next = input[i + 1];
@@ -170,33 +149,28 @@ export function CustomersPage() {
         } else {
           field += ch;
         }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        pushField();
+      } else if (ch === "\r") {
+        if (input[i + 1] === "\n") i++;
+        pushField();
+        pushRow();
+      } else if (ch === "\n") {
+        pushField();
+        pushRow();
       } else {
-        if (ch === '"') {
-          inQuotes = true;
-        } else if (ch === ",") {
-          pushField();
-        } else if (ch === "\r") {
-          const next = input[i + 1];
-          if (next === "\n") i++;
-          pushField();
-          pushRow();
-        } else if (ch === "\n") {
-          pushField();
-          pushRow();
-        } else {
-          field += ch;
-        }
+        field += ch;
       }
     }
 
-    // last field/row
     pushField();
     pushRow();
 
     if (rowsOut.length < 2) throw new Error("CSV 文件为空或只有表头");
 
-    const headers = rowsOut[0].map((h) => (h ?? "").trim().toLowerCase());
-
+    const headers = rowsOut[0].map((header) => (header ?? "").trim().toLowerCase());
     const get = (obj: Record<string, string>, key: string) => (obj[key] ?? "").toString();
 
     return rowsOut.slice(1).map((values) => {
@@ -204,30 +178,22 @@ export function CustomersPage() {
       headers.forEach((header, index) => {
         rowObj[header] = (values[index] ?? "").trim();
       });
-
-      // 兼容 businessCode / businesscode
-      const bc =
-        get(rowObj, "businesscode") ||
-        get(rowObj, "business_code") ||
-        get(rowObj, "businesscode ") ||
-        "";
-
       return {
         type: get(rowObj, "type") || "Personal",
         name: get(rowObj, "name") || "",
         phone: get(rowObj, "phone") || "",
         email: get(rowObj, "email") || "",
         address: get(rowObj, "address") || "",
-        businessCode: bc,
+        businessCode: get(rowObj, "businesscode") || get(rowObj, "business_code") || "",
         notes: get(rowObj, "notes") || "",
+        staffMembers: [],
       };
     });
   };
 
   const handleCsvSelect = async (file: File) => {
     try {
-      const text = await file.text();
-      const parsed = parseCsv(text);
+      const parsed = parseCsv(await file.text());
       setPreviewRows(parsed);
       toast.success(`已读取 ${parsed.length} 条记录`);
     } catch (err) {
@@ -241,40 +207,35 @@ export function CustomersPage() {
     if (!previewRows) return;
     setImporting(true);
     setActionError(null);
-
     try {
       let importedCount = 0;
-      for (const draftRow of previewRows) {
-        if (!draftRow.name.trim()) continue;
-
+      for (const row of previewRows) {
+        if (!row.name.trim()) continue;
         const existing = rows.find(
-          (r) =>
-            r.name === draftRow.name &&
-            (r.phone === draftRow.phone || r.email === draftRow.email)
+          (item) => item.name === row.name && (item.phone === row.phone || item.email === row.email)
         );
-
+        let existingProfile: { staffMembers?: CustomerStaff[]; servicePrices?: unknown[] } | null = null;
         if (existing) {
-          const res = await fetch(withApiBase(`/api/customers/${encodeURIComponent(existing.id)}`), {
-            method: "PUT",
+          const detailRes = await fetch(withApiBase(`/api/customers/${encodeURIComponent(existing.id)}`));
+          existingProfile = await detailRes.json().catch(() => null);
+        }
+        const res = await fetch(
+          withApiBase(existing ? `/api/customers/${encodeURIComponent(existing.id)}` : "/api/customers"),
+          {
+            method: existing ? "PUT" : "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              ...existing,
-              ...draftRow,
+              ...row,
+              staffMembers: existingProfile?.staffMembers ?? row.staffMembers ?? [],
+              servicePrices: existingProfile?.servicePrices ?? [],
             }),
-          });
-          if (res.ok) importedCount += 1;
-        } else {
-          const res = await fetch(withApiBase("/api/customers"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(draftRow),
-          });
-          if (res.ok) importedCount += 1;
-        }
+          }
+        );
+        if (res.ok) importedCount += 1;
       }
 
       setPreviewRows(null);
-      await loadCustomers();
+      await loadCustomers(true);
       toast.success(`导入完成：${importedCount} 条`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "导入失败";
@@ -285,93 +246,6 @@ export function CustomersPage() {
     }
   };
 
-  const startAdd = () => {
-    setActionError(null);
-    setAdding(true);
-    // 默认新增类型跟随当前 tab（更符合直觉）
-    setDraft({ ...blankDraft, type: viewType });
-    setEditingId(null);
-  };
-
-  const cancelAdd = () => {
-    setAdding(false);
-    setDraft(blankDraft);
-  };
-
-  const saveNew = async () => {
-    if (!draft.name.trim() || saving) return;
-    setSaving(true);
-    setActionError(null);
-    try {
-      const res = await fetch(withApiBase("/api/customers"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "保存失败");
-      }
-      setAdding(false);
-      setDraft(blankDraft);
-      await loadCustomers();
-      toast.success("客户已创建");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "保存失败";
-      setActionError(message);
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startEdit = (row: CustomerRow) => {
-    setActionError(null);
-    setEditingId(row.id);
-    setEditDraft({
-      type: row.type,
-      name: row.name,
-      phone: row.phone,
-      email: row.email,
-      address: row.address,
-      businessCode: row.businessCode,
-      notes: row.notes,
-    });
-    setAdding(false);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditDraft(blankDraft);
-  };
-
-  const saveEdit = async () => {
-    if (!editingId || !editDraft.name.trim() || saving) return;
-    setSaving(true);
-    setActionError(null);
-    try {
-      const res = await fetch(withApiBase(`/api/customers/${encodeURIComponent(editingId)}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editDraft),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "保存失败");
-      }
-      setEditingId(null);
-      setEditDraft(blankDraft);
-      await loadCustomers();
-      toast.success("客户已更新");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "保存失败";
-      setActionError(message);
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const deleteRow = async (row: CustomerRow) => {
     if (!window.confirm(`删除客户 “${row.name}”？`)) return;
     setSaving(true);
@@ -379,10 +253,9 @@ export function CustomersPage() {
     try {
       const res = await fetch(withApiBase(`/api/customers/${encodeURIComponent(row.id)}`), { method: "DELETE" });
       const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || "删除失败");
-      }
-      await loadCustomers();
+      if (!res.ok) throw new Error(data?.error || "删除失败");
+      removeCustomerCaches(row.id);
+      await loadCustomers(true);
       toast.success("客户已删除");
     } catch (err) {
       const message = err instanceof Error ? err.message : "删除失败";
@@ -397,19 +270,13 @@ export function CustomersPage() {
     <div className="space-y-4 text-[14px]">
       <h1 className="text-2xl font-semibold text-[rgba(0,0,0,0.72)]">客户管理</h1>
 
-      {loadError ? (
-        <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} />
-      ) : null}
-      {actionError ? (
-        <Alert variant="error" description={actionError} onClose={() => setActionError(null)} />
-      ) : null}
+      {loadError ? <Alert variant="error" description={loadError} onClose={() => setLoadError(null)} /> : null}
+      {actionError ? <Alert variant="error" description={actionError} onClose={() => setActionError(null)} /> : null}
 
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(0,0,0,0.06)] px-4 py-3">
           <div className="flex items-center gap-2">
             <div className="text-sm font-semibold text-[rgba(0,0,0,0.7)]">Customers List</div>
-
-            {/* 新增：Personal / Business 切换 */}
             <div className="ml-2 flex items-center gap-2">
               <button
                 className={`h-8 rounded-[10px] px-3 text-sm border ${
@@ -420,8 +287,6 @@ export function CustomersPage() {
                 onClick={() => {
                   setViewType("Personal");
                   setSearch("");
-                  setAdding(false);
-                  setEditingId(null);
                 }}
                 type="button"
               >
@@ -436,8 +301,6 @@ export function CustomersPage() {
                 onClick={() => {
                   setViewType("Business");
                   setSearch("");
-                  setAdding(false);
-                  setEditingId(null);
                 }}
                 type="button"
               >
@@ -447,250 +310,116 @@ export function CustomersPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Input
-              className="w-[220px]"
-              placeholder="搜索客户..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <Button onClick={downloadTemplate}>
-              Template
-            </Button>
+            <Input className="w-[220px]" placeholder="搜索客户..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Button onClick={downloadTemplate}>Template</Button>
 
             <input
+              id="csv-upload"
               type="file"
               accept=".csv"
               style={{ display: "none" }}
-              id="csv-upload"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
+              onChange={(event) => {
+                const file = event.target.files?.[0];
                 if (file) handleCsvSelect(file);
-                e.target.value = "";
+                event.target.value = "";
               }}
             />
 
-            <Button onClick={() => document.getElementById("csv-upload")?.click()}>
-              Import CSV
-            </Button>
-
-            <Button variant="primary" leftIcon={<Plus size={16} />} onClick={startAdd}>
+            <Button onClick={() => document.getElementById("csv-upload")?.click()}>Import CSV</Button>
+            <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => navigate(`/customers/new?type=${viewType}`)}>
               Add
             </Button>
           </div>
         </div>
 
-        {previewRows && (
+        {previewRows ? (
           <div className="border-b bg-[rgba(0,0,0,0.03)] p-4">
-            <div className="font-semibold mb-2">
-              预览导入数据（{previewRows.length} 条）
-            </div>
-
-            <div className="text-xs max-h-60 overflow-auto">
-              {previewRows.map((r, i) => (
-                <div key={i} className="grid grid-cols-7 gap-2 border-b py-1">
-                  <div>{r.type}</div>
-                  <div>{r.name}</div>
-                  <div>{r.phone}</div>
-                  <div>{r.email}</div>
-                  <div>{r.address}</div>
-                  <div>{r.businessCode}</div>
-                  <div>{r.notes}</div>
+            <div className="mb-2 font-semibold">预览导入数据（{previewRows.length} 条）</div>
+            <div className="max-h-60 overflow-auto text-xs">
+              {previewRows.map((row, index) => (
+                <div key={index} className="grid grid-cols-7 gap-2 border-b py-1">
+                  <div>{row.type}</div>
+                  <div>{row.name}</div>
+                  <div>{row.phone}</div>
+                  <div>{row.email}</div>
+                  <div>{row.address}</div>
+                  <div>{row.businessCode}</div>
+                  <div>{row.notes}</div>
                 </div>
               ))}
             </div>
-
             <div className="mt-3 flex gap-2">
               <Button variant="primary" onClick={confirmImport} disabled={importing}>
                 {importing ? "Importing..." : "Confirm Import"}
               </Button>
-              <Button onClick={() => setPreviewRows(null)}>
-                Cancel
-              </Button>
+              <Button onClick={() => setPreviewRows(null)}>Cancel</Button>
             </div>
           </div>
-        )}
+        ) : null}
 
         {loading ? (
           <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>
-        ) : filteredRows.length === 0 && !adding ? (
+        ) : filteredRows.length === 0 ? (
           <EmptyState message="暂无客户" />
         ) : (
           <div className="overflow-x-auto">
-            <div className="min-w-[1200px]">
-              <div className="grid grid-cols-9 gap-2 border-b border-[rgba(0,0,0,0.06)] px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.55)]">
+            <div className={isBusinessView ? "min-w-[1740px]" : "min-w-[1380px]"}>
+              <div
+                className="grid gap-2 border-b border-[rgba(0,0,0,0.06)] px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.55)]"
+                style={{ gridTemplateColumns: isBusinessView ? businessGridTemplate : personalGridTemplate }}
+              >
                 <div>ID</div>
                 <div>类型</div>
-                <div>Name</div>
+                <div>{isBusinessView ? "公司名称" : "姓名"}</div>
                 <div>电话</div>
                 <div>Email</div>
                 <div>地址</div>
                 <div>Business Code</div>
                 <div>备注</div>
+                {isBusinessView ? <div>商户专员统计数量</div> : null}
+                {isBusinessView ? <div>服务价格</div> : null}
+                {isBusinessView ? <div>服务的车辆总数</div> : null}
                 <div className="text-right pr-2">操作</div>
               </div>
 
-              {adding ? (
-                <div className="grid grid-cols-9 gap-2 px-4 py-3 hover:bg-[rgba(0,0,0,0.02)]">
-                  <div className="text-xs text-[rgba(0,0,0,0.5)]">-</div>
-                  <div>
-                    <select
-                      className="h-9 w-full rounded-[8px] border border-[var(--ds-border)] px-2 text-sm"
-                      value={draft.type}
-                      onChange={(event) => setDraft((prev) => ({ ...prev, type: event.target.value }))}
-                    >
-                      <option value="Personal">Personal</option>
-                      <option value="Business">Business</option>
-                    </select>
-                  </div>
-                  <Input
-                    value={draft.name}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-                  />
-                  <Input
-                    value={draft.phone}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, phone: event.target.value }))}
-                  />
-                  <Input
-                    value={draft.email}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, email: event.target.value }))}
-                  />
-                  <Input
-                    value={draft.address}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, address: event.target.value }))}
-                  />
-                  <Input
-                    value={draft.businessCode}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, businessCode: event.target.value }))}
-                  />
-                  <Input
-                    value={draft.notes}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))}
-                  />
+              {filteredRows.map((row, rowIndex) => (
+                <div
+                  key={row.id}
+                  className={`grid gap-2 border-b border-[rgba(0,0,0,0.06)] px-4 py-3 transition ${
+                    rowIndex % 2 === 0 ? "bg-[rgba(0,0,0,0.02)]" : "bg-white"
+                  } hover:bg-[rgba(59,130,246,0.08)]`}
+                  style={{ gridTemplateColumns: isBusinessView ? businessGridTemplate : personalGridTemplate }}
+                >
+                  <div className="text-xs text-[rgba(0,0,0,0.6)]">{row.id}</div>
+                  <div className="truncate">{row.type}</div>
+                  <div className="truncate">{row.name}</div>
+                  <div className="truncate">{row.phone}</div>
+                  <div className="truncate">{row.email}</div>
+                  <div className="whitespace-normal break-words">{row.address}</div>
+                  <div className="truncate">{row.businessCode}</div>
+                  <div className="truncate">{row.notes}</div>
+                  {isBusinessView ? <div className="pt-2 text-xs text-[rgba(0,0,0,0.55)]">{row.staffMembers.length}</div> : null}
+                  {isBusinessView ? <div className="pt-2 text-xs text-[rgba(0,0,0,0.55)]">{row.servicePriceCount}</div> : null}
+                  {isBusinessView ? <div className="pt-2 text-xs text-[rgba(0,0,0,0.55)]">{row.currentYearJobCount}</div> : null}
                   <div className="flex items-center justify-end gap-2">
-                    <Button variant="primary" onClick={saveNew} disabled={!draft.name.trim() || saving}>
-                      Save
-                    </Button>
-                    <Button onClick={cancelAdd} disabled={saving}>
-                      Cancel
-                    </Button>
+                    <button
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)]"
+                      title="Edit"
+                      onClick={() => navigate(`/customers/${row.id}`)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgba(239,68,68,0.9)] hover:text-[rgba(239,68,68,1)]"
+                      title="Delete"
+                      onClick={() => deleteRow(row)}
+                      disabled={saving}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
-              ) : null}
-
-              {filteredRows.map((row) => {
-                const isEditing = editingId === row.id;
-                return (
-                  <div
-                    key={row.id}
-                    className="group grid grid-cols-9 gap-2 px-4 py-3 transition hover:bg-[rgba(0,0,0,0.02)]"
-                  >
-                    <div className="text-xs text-[rgba(0,0,0,0.6)]">{row.id}</div>
-                    <div>
-                      {isEditing ? (
-                        <select
-                          className="h-9 w-full rounded-[8px] border border-[var(--ds-border)] px-2 text-sm"
-                          value={editDraft.type}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, type: event.target.value }))}
-                        >
-                          <option value="Personal">Personal</option>
-                          <option value="Business">Business</option>
-                        </select>
-                      ) : (
-                        <div className="truncate">{row.type}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.name}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, name: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="truncate">{row.name}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.phone}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, phone: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="truncate">{row.phone}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.email}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, email: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="truncate">{row.email}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.address}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, address: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="whitespace-normal break-words">{row.address}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.businessCode}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, businessCode: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="truncate">{row.businessCode}</div>
-                      )}
-                    </div>
-                    <div>
-                      {isEditing ? (
-                        <Input
-                          value={editDraft.notes}
-                          onChange={(event) => setEditDraft((prev) => ({ ...prev, notes: event.target.value }))}
-                        />
-                      ) : (
-                        <div className="truncate">{row.notes}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      {isEditing ? (
-                        <>
-                          <Button variant="primary" onClick={saveEdit} disabled={!editDraft.name.trim() || saving}>
-                            Save
-                          </Button>
-                          <Button onClick={cancelEdit} disabled={saving}>
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 opacity-0 transition group-hover:opacity-100">
-                          <button
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)]"
-                            title="Edit"
-                            onClick={() => startEdit(row)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[rgba(239,68,68,0.9)] hover:text-[rgba(239,68,68,1)]"
-                            title="Delete"
-                            onClick={() => deleteRow(row)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              ))}
             </div>
           </div>
         )}

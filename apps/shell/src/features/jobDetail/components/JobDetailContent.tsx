@@ -37,6 +37,9 @@ type JobDetailContentProps = {
     id: string,
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
+  onDeleteWofRecord?: (
+    id: string
+  ) => Promise<{ success: boolean; message?: string }>;
   onCreateWofRecord?: (
     payload: WofRecordUpdatePayload
   ) => Promise<{ success: boolean; message?: string }>;
@@ -77,14 +80,14 @@ type JobDetailContentProps = {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
-  onSaveCustomer?: (payload: {
-    type: "Personal" | "Business";
-    customerId?: string;
-    name?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-  }) => Promise<{ success: boolean; message?: string }>;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
+  onAttachXeroInvoice?: (invoiceNumber: string) => Promise<{ success: boolean; message?: string }>;
+  isAttachingXeroInvoice?: boolean;
+  onDetachXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isDetachingXeroInvoice?: boolean;
+  onArchiveJob?: () => Promise<{ success: boolean; message?: string }>;
+  isArchivingJob?: boolean;
   onDeleteJob?: () => void;
   isDeletingJob?: boolean;
   tagOptions?: TagOption[];
@@ -113,6 +116,7 @@ export function JobDetailContent({
   onRefreshWof,
   onDeleteWofServer,
   onUpdateWofRecord,
+  onDeleteWofRecord,
   onCreateWofRecord,
   onCreatePartsService,
   onUpdatePartsService,
@@ -130,7 +134,14 @@ export function JobDetailContent({
   onRefreshPaintService,
   onRefreshVehicle,
   onSaveVehicle,
-  onSaveCustomer,
+  onCreateXeroInvoice,
+  isCreatingXeroInvoice,
+  onAttachXeroInvoice,
+  isAttachingXeroInvoice,
+  onDetachXeroInvoice,
+  isDetachingXeroInvoice,
+  onArchiveJob,
+  isArchivingJob,
   onDeleteJob,
   isDeletingJob,
   tagOptions,
@@ -161,6 +172,7 @@ export function JobDetailContent({
           onRefreshWof={onRefreshWof}
           onDeleteWofServer={onDeleteWofServer}
           onUpdateWofRecord={onUpdateWofRecord}
+          onDeleteWofRecord={onDeleteWofRecord}
           onCreateWofRecord={onCreateWofRecord}
           onCreatePartsService={onCreatePartsService}
           onUpdatePartsService={onUpdatePartsService}
@@ -178,7 +190,14 @@ export function JobDetailContent({
           onRefreshPaintService={onRefreshPaintService}
           onRefreshVehicle={onRefreshVehicle}
           onSaveVehicle={onSaveVehicle}
-          onSaveCustomer={onSaveCustomer}
+          onCreateXeroInvoice={onCreateXeroInvoice}
+          isCreatingXeroInvoice={isCreatingXeroInvoice}
+          onAttachXeroInvoice={onAttachXeroInvoice}
+          isAttachingXeroInvoice={isAttachingXeroInvoice}
+          onDetachXeroInvoice={onDetachXeroInvoice}
+          isDetachingXeroInvoice={isDetachingXeroInvoice}
+          onArchiveJob={onArchiveJob}
+          isArchivingJob={isArchivingJob}
           onDeleteJob={onDeleteJob}
           isDeletingJob={isDeletingJob}
           tagOptions={tagOptions}

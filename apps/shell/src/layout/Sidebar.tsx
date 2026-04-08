@@ -3,6 +3,8 @@ import { NavLink } from "react-router-dom";
 import { fetchPaintBoard } from "@/features/paint/api/paintApi";
 import { countOverdue, type PaintBoardJob } from "@/features/paint/paintBoard.utils";
 import { subscribeWorklogCostAlert } from "@/utils/refreshSignals";
+import { usePoUnreadSummary } from "@/features/jobs";
+import { requestJson } from "@/utils/api";
 import { Plus } from "lucide-react";
 
 const linkBase =
@@ -15,6 +17,8 @@ const linkIdle =
 export function Sidebar() {
   const [paintOverdueCount, setPaintOverdueCount] = useState(0);
   const [worklogAlertCount, setWorklogAlertCount] = useState(0);
+  const [wofTodoCount, setWofTodoCount] = useState(0);
+  const poUnreadSummary = usePoUnreadSummary();
 
   useEffect(() => {
     let cancelled = false;
@@ -24,9 +28,10 @@ export function Sidebar() {
       const list = Array.isArray(res.data?.jobs) ? (res.data.jobs as PaintBoardJob[]) : [];
       if (!cancelled) setPaintOverdueCount(countOverdue(list));
     };
-    load();
+    const timer = window.setTimeout(() => void load(), 300);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -35,6 +40,32 @@ export function Sidebar() {
     if (stored) setWorklogAlertCount(Number(stored) || 0);
     return subscribeWorklogCostAlert((count) => setWorklogAlertCount(count));
   }, []);
+
+  // --- 保留正式版中的 WOF 排班表计数逻辑 ---
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      const res = await requestJson<{ jobs?: Array<unknown> }>("/api/jobs/wof-schedule");
+      if (!res.ok || cancelled) return;
+      const count = Array.isArray(res.data?.jobs)
+        ? res.data.jobs.filter((job: any) => job?.wofStatus === "Todo" || job?.wofStatus === "Checked").length
+        : 0;
+      setWofTodoCount(count);
+    };
+
+    const initialTimer = window.setTimeout(() => void load(), 300);
+    const timer = window.setInterval(() => {
+      void load();
+    }, 60000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, []);
+
   return (
     <div className="h-full p-4 flex flex-col gap-6 flex-1 min-h-0">
       <div>
@@ -87,21 +118,21 @@ export function Sidebar() {
             </span>
           </NavLink>
 
-        <NavLink
-          to="/worklog"
-          className={({ isActive }) =>
-            `${linkBase} ${isActive ? linkActive : linkIdle}`
-          }
-        >
-          <span className="flex items-center justify-between gap-2">
-            <span>Worklog</span>
-            {worklogAlertCount > 0 ? (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                {worklogAlertCount}
-              </span>
-            ) : null}
-          </span>
-        </NavLink>
+          <NavLink
+            to="/worklog"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span>Worklog</span>
+              {worklogAlertCount > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {worklogAlertCount}
+                </span>
+              ) : null}
+            </span>
+          </NavLink>
 
           <NavLink
             to="/parts-flow"
@@ -118,7 +149,59 @@ export function Sidebar() {
               `${linkBase} ${isActive ? linkActive : linkIdle}`
             }
           >
-            Invoice
+            Invoice Payment
+          </NavLink>
+
+          <NavLink
+            to="/wof-schedule"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span>WOF 排班表</span>
+              {wofTodoCount > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {wofTodoCount}
+                </span>
+              ) : null}
+            </span>
+          </NavLink>
+
+          <NavLink
+            to="/po-dashboard-preview"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span>PO Ops Preview</span>
+              {poUnreadSummary.totalUnreadReplies > 0 ? (
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                  {poUnreadSummary.totalUnreadReplies}
+                </span>
+              ) : null}
+            </span>
+          </NavLink>
+
+          {/* --- [从 eric 版融合] 内部采购商城前台 --- */}
+          <NavLink
+            to="/shop"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            Internal Shop
+          </NavLink>
+
+          {/* --- [从 eric 版融合] 老板专属采购审核看板 --- */}
+          <NavLink
+            to="/procurement-admin"
+            className={({ isActive }) =>
+              `${linkBase} ${isActive ? linkActive : linkIdle}`
+            }
+          >
+            Procurement Admin
           </NavLink>
         </div>
 
@@ -150,6 +233,30 @@ export function Sidebar() {
               }
             >
               WOF Fails
+            </NavLink>
+            <NavLink
+              to="/service-settings"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : linkIdle}`
+              }
+            >
+              Service Settings
+            </NavLink>
+            <NavLink
+              to="/xero-item-codes"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : linkIdle}`
+              }
+            >
+              Xero Item Code
+            </NavLink>
+            <NavLink
+              to="/integrations"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : linkIdle}`
+              }
+            >
+              Account Switch
             </NavLink>
           </div>
         </div>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import { requestJson } from "@/utils/api";
 import { notifyWorklogCostAlert } from "@/utils/refreshSignals";
 import { Button, useToast } from "@/components/ui";
@@ -36,10 +35,11 @@ export function WorklogPage() {
     let cancelled = false;
 
     const loadJobs = async () => {
-      const res = await requestJson<any[]>("/api/jobs");
-      if (!res.ok || !Array.isArray(res.data) || cancelled) return;
+      const res = await requestJson<any[] | { items?: any[] }>("/api/jobs?page=1&pageSize=200");
+      const rows = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.items) ? res.data.items : [];
+      if (!res.ok || cancelled) return;
       setApiJobs(
-        res.data
+        rows
           .filter((job) => job?.id && job?.plate)
           .map((job) => ({
             id: String(job.id),
@@ -101,7 +101,13 @@ export function WorklogPage() {
     };
   }, []);
 
-  const jobs = useMemo(() => [...apiJobs], [apiJobs]);
+  const jobs = useMemo(() => {
+    const merged = new Map<string, WorklogJob>();
+    [...apiJobs].forEach((job) => {
+      merged.set(job.rego, job);
+    });
+    return Array.from(merged.values());
+  }, [apiJobs]);
 
   const staffColorMap = useMemo(
     () => buildStaffColorMap(staffList.map((staff) => staff.name)),
@@ -295,27 +301,26 @@ export function WorklogPage() {
   };
 
   const handleDownloadTemplate = () => {
-    const headers = ["日期", "员工", "开始-结束时间", "Rego", "工时备注"];
-    const sample = ["2026-03-05", "张三", "9.30-13.45", "ABC123", "示例工时备注"];
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, sample]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Worklog");
-    XLSX.writeFile(workbook, "worklog-import-template.xlsx");
+    const csv = [
+      ["日期", "员工", "开始-结束时间", "Rego", "工时备注"],
+      ["2026-03-05", "张三", "9.30-13.45", "ABC123", "示例工时备注"],
+    ]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "worklog-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const normalizeDateValue = (value: unknown) => {
     if (!value) return "";
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
       return value.toISOString().slice(0, 10);
-    }
-    if (typeof value === "number") {
-      const parsed = XLSX.SSF.parse_date_code(value);
-      if (parsed) {
-        const year = String(parsed.y).padStart(4, "0");
-        const month = String(parsed.m).padStart(2, "0");
-        const day = String(parsed.d).padStart(2, "0");
-        return `${year}-${month}-${day}`;
-      }
     }
     const text = String(value).trim();
     if (!text) return "";
@@ -329,15 +334,36 @@ export function WorklogPage() {
 
   const handleImportFile = async (file: File) => {
     try {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      if (!worksheet) {
-        toast.error("未找到可读取的表格");
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        toast.error("当前环境仅支持导入 CSV，请先下载模板并使用 CSV 格式导入");
         return;
       }
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
+      const text = await file.text();
+      const [headerLine, ...dataLines] = text
+        .replace(/^\uFEFF/, "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      if (!headerLine) {
+        toast.error("表格没有数据");
+        return;
+      }
+
+      const parseCsvLine = (line: string) => {
+        const matches = line.match(/("([^"]|"")*"|[^,]+)/g) ?? [];
+        return matches.map((cell) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
+      };
+
+      const headers = parseCsvLine(headerLine);
+      const rows: Array<Record<string, unknown>> = dataLines.map((line) => {
+        const cells = parseCsvLine(line);
+        return headers.reduce<Record<string, unknown>>((acc, header, index) => {
+          acc[header] = cells[index] ?? "";
+          return acc;
+        }, {});
+      });
+
       if (!rows.length) {
         toast.error("表格没有数据");
         return;
@@ -346,7 +372,7 @@ export function WorklogPage() {
       const imported: WorklogEntry[] = [];
       const errors: string[] = [];
 
-      rows.forEach((row, index) => {
+      rows.forEach((row: Record<string, unknown>, index: number) => {
         const rowNumber = index + 2;
         const workDate = normalizeDateValue(row["日期"] ?? row["Date"]);
         const staffName = String(row["员工"] ?? row["Staff"] ?? "").trim();

@@ -7,15 +7,30 @@ import { InvoicePage } from "./pages/InvoicePage";
 import { NewJobPage } from "./pages/NewJobPage";
 import { TagsPage } from "./pages/tags/TagsPage";
 import { CustomersPage } from "./pages/customers/CustomersPage";
+import { CustomerProfilePage } from "./pages/customers/CustomerProfilePage";
 import { WofFailReasonsPage } from "./pages/wofFails/WofFailReasonsPage";
+import { XeroItemCodesPage } from "./pages/settings/XeroItemCodesPage";
+import { ServiceCatalogPage } from "./pages/settings/ServiceCatalogPage";
+import { IntegrationsPage } from "./pages/settings/IntegrationsPage";
 import { PartFlowPage } from "./pages/PartFlowPages/PartFlowPage";
 import { PaintBoardPage } from "./pages/paint/PaintBoardPage";
 import { PaintTechBoardPage } from "./pages/paint/PaintTechBoardPage";
 import { WorklogPage } from "./pages/worklog/WorklogPage";
+import { PoDashboardPreviewPage } from "./pages/PoDashboardPreviewPage";
+import { WofSchedulePage } from "./pages/WofSchedulePage"; // 保留原有的 WofSchedule
 import { ToastProvider } from "@/components/ui";
+
+// --- [从 Eric 版引入] 采购相关组件 ---
+import Shopfront from "./components/Shopfront";
+import { ProcurementAdmin } from "./pages/procurement/ProcurementAdmin";
+// ----------------------------------
 
 const router = createBrowserRouter([
   { path: "/paint-tech", element: <PaintTechBoardPage /> },
+
+  // --- [新增] 给师傅用的独立全屏页面 ---
+  { path: "/staff-shop", element: <Shopfront /> },
+
   {
     path: "/",
     element: <AppFrame />,
@@ -23,13 +38,26 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "jobs", element: <JobsPage /> },
       { path: "paint-board", element: <PaintBoardPage /> },
+      { path: "wof-schedule", element: <WofSchedulePage /> }, // 保留
+      { path: "po-dashboard-preview", element: <PoDashboardPreviewPage /> },
       { path: "worklog", element: <WorklogPage /> },
       { path: "parts-flow", element: <PartFlowPage /> },
       { path: "jobs/:id", element: <JobDetailPage /> },
       { path: "invoice", element: <InvoicePage /> },
       { path: "tags", element: <TagsPage /> },
       { path: "customers", element: <CustomersPage /> },
+      { path: "customers/new", element: <CustomerProfilePage /> },
+      { path: "customers/:id", element: <CustomerProfilePage /> },
       { path: "wof-fails", element: <WofFailReasonsPage /> },
+      { path: "xero-item-codes", element: <XeroItemCodesPage /> },
+      { path: "service-settings", element: <ServiceCatalogPage /> },
+      { path: "integrations", element: <IntegrationsPage /> },
+      
+      // --- [新增] 采购系统路由 ---
+      { path: "shop", element: <Shopfront /> },
+      { path: "procurement-admin", element: <ProcurementAdmin /> },
+      // -----------------------
+
       {
         path: "/jobs/new",
         element: <NewJobPage />

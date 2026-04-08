@@ -6,9 +6,15 @@ using CarjamImporter.Persistence;
 using CarjamImporter.Playwright;
 using QuestPDF.Infrastructure;
 using Workshop.Api.Data;
+using Workshop.Api.Middleware;
 using Workshop.Api.Models;
+using Workshop.Api.Options;
 using Workshop.Api.Services;
 using Workshop.Api.Utils;
+
+// --- [融合新增] 引入库存模块命名空间 ---
+using Workshop.Api.Procurement;
+// ------------------------------------
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +23,31 @@ QuestPDF.Settings.License = LicenseType.Community;
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddMemoryCache();
+var redisConfiguration =
+    builder.Configuration.GetConnectionString("Redis")
+    ?? builder.Configuration["Redis:Configuration"];
+var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "workshop-api:";
+if (!string.IsNullOrWhiteSpace(redisConfiguration))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConfiguration;
+        options.InstanceName = redisInstanceName;
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+builder.Services.AddHttpClient();
+builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
+builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
+builder.Services.Configure<GmailSyncOptions>(builder.Configuration.GetSection(GmailSyncOptions.SectionName));
+builder.Services.Configure<ImageOcrOptions>(builder.Configuration.GetSection(ImageOcrOptions.SectionName));
+builder.Services.Configure<InventoryItemOptions>(builder.Configuration.GetSection(InventoryItemOptions.SectionName));
+builder.Services.Configure<PoFollowUpOptions>(builder.Configuration.GetSection(PoFollowUpOptions.SectionName));
+builder.Services.Configure<XeroPaymentOptions>(builder.Configuration.GetSection(XeroPaymentOptions.SectionName));
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -72,12 +103,44 @@ dataSourceBuilder.MapEnum<PartsServiceStatus>("parts_service_status");
 dataSourceBuilder.MapEnum<WorklogServiceType>("worklog_service_type");
 var dataSource = dataSourceBuilder.Build();
 
-builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseNpgsql(dataSource));
+builder.Services.AddSingleton<DbQueryCountingInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, opt) =>
+    opt.UseNpgsql(dataSource)
+        .AddInterceptors(sp.GetRequiredService<DbQueryCountingInterceptor>()));
+
+// --- [融合新增] 注册库存模块的 ProcurementDbContext ---
+builder.Services.AddDbContext<ProcurementDbContext>((sp, opt) =>
+    opt.UseNpgsql(dataSource)
+        .AddInterceptors(sp.GetRequiredService<DbQueryCountingInterceptor>()));
+// ---------------------------------------------------
 
 builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
+builder.Services.AddScoped<NztaExpiryLookupService>();
+builder.Services.AddSingleton<IAppCache, DistributedAppCache>();
+builder.Services.AddScoped<InventoryItemService>();
+builder.Services.AddScoped<ServiceCatalogService>();
+builder.Services.AddScoped<XeroTokenConfiguration>();
+builder.Services.AddScoped<XeroTokenStore>();
+builder.Services.AddScoped<XeroTokenService>();
+builder.Services.AddScoped<XeroInvoiceService>();
+builder.Services.AddScoped<XeroPaymentService>();
+builder.Services.AddScoped<JobInvoiceService>();
+builder.Services.AddScoped<InvoiceOutboxService>();
+builder.Services.AddScoped<GmailAccountService>();
+builder.Services.AddScoped<GmailTokenService>();
+builder.Services.AddScoped<GmailThreadSyncService>();
+builder.Services.AddScoped<BusinessHoursService>();
+builder.Services.AddScoped<JobPoStateService>();
+builder.Services.AddScoped<GmailFollowUpSenderService>();
+builder.Services.AddScoped<PoAutoFollowUpService>();
+builder.Services.AddSingleton<AppleVisionImageOcrService>();
+builder.Services.AddHostedService<PoStateSchemaInitializerService>();
+builder.Services.AddHostedService<InvoiceOutboxBackgroundService>();
+builder.Services.AddHostedService<GmailBackgroundSyncService>();
+builder.Services.AddHostedService<PoAutoFollowUpBackgroundService>();
 
 // ========= Carjam Importer DI =========
 
@@ -103,6 +166,17 @@ builder.Services.AddScoped<CarjamScraper>();
 // ========= Build pipeline =========
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+    
+    // 注意：如果 Eric 的 ProcurementDbContext 也需要自动执行 Migration，
+    // 可以在这里添加：
+    // var procurementDb = scope.ServiceProvider.GetRequiredService<ProcurementDbContext>();
+    // procurementDb.Database.Migrate();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -111,6 +185,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AppCors");
 app.UseHttpsRedirection();
+app.UseMiddleware<RequestTimingMiddleware>();
 app.MapControllers();
 
 app.Run();

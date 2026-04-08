@@ -4,9 +4,15 @@ import { Link } from "react-router-dom";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { Button, Input, SectionCard, Select } from "@/components/ui";
 import { CustomerTypeToggle, VehicleInfoBanner } from "@/features/newJob/components";
-import type { BusinessOption, CustomerType, ImportState, ServiceOption, ServiceType, VehicleInfo } from "./newJob.types";
-
-type MechOptionId = "tire" | "oil" | "brake" | "battery" | "filter" | "other";
+import type {
+  BusinessOption,
+  ChildServiceOption,
+  CustomerType,
+  ImportState,
+  ServiceOption,
+  ServiceType,
+  VehicleInfo,
+} from "./newJob.types";
 
 type VehicleSectionProps = {
   rego: string;
@@ -27,12 +33,12 @@ export function VehicleSection({
 }: VehicleSectionProps) {
   return (
     <SectionCard title="车辆信息" titleIcon={<CarFront size={18} />} titleClassName="text-lg font-semibold">
-      <div className="mt-3 grid grid-cols-4 gap-3">
-        <div className="col-span-1 space-y-1">
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[320px_minmax(0,1fr)] xl:items-start">
+        <div className="min-w-0 space-y-1">
           <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
             车牌号 <span className="text-red-500">*</span>
           </label>
-          <div className="flex gap-2 items-end">
+          <div className="flex flex-wrap gap-2 items-end">
             <div className="flex-shrink-0">
               <Input
                 placeholder="输入车牌"
@@ -56,10 +62,8 @@ export function VehicleSection({
             >
               {importState === "loading" ? "抓取中" : "抓取"}
             </Button>
-            {rego ? (
-              <span className="text-base text-[rgba(0,0,0,0.45)] flex-shrink-0">长度 {rego.length}</span>
-            ) : null}
           </div>
+          {rego ? <div className="text-base text-[rgba(0,0,0,0.45)]">长度 {rego.length}</div> : null}
           {importState === "loading" && (
             <div className="text-base text-[rgba(37,99,235,0.85)] mt-1">正在抓取车辆信息…</div>
           )}
@@ -77,9 +81,12 @@ type ServicesSectionProps = {
   selectedServices: ServiceType[];
   onToggleService: (service: ServiceType) => void;
   options: ServiceOption[];
-  mechOptionChoices: { id: MechOptionId; label: string }[];
-  mechOptions: MechOptionId[];
-  onToggleMechOption: (id: MechOptionId) => void;
+  mechOptionChoices: ChildServiceOption[];
+  mechOptions: string[];
+  onToggleMechOption: (id: string) => void;
+  paintOptionChoices: ChildServiceOption[];
+  paintOptions: string[];
+  onTogglePaintOption: (id: string) => void;
   showPaintPanels: boolean;
   paintPanels: string;
   onPaintPanelsChange: (value: string) => void;
@@ -92,6 +99,9 @@ export function ServicesSection({
   mechOptionChoices,
   mechOptions,
   onToggleMechOption,
+  paintOptionChoices,
+  paintOptions,
+  onTogglePaintOption,
   showPaintPanels,
   paintPanels,
   onPaintPanelsChange,
@@ -181,6 +191,31 @@ export function ServicesSection({
                 </div>
               ) : null}
 
+              {service.id === "paint" && selected ? (
+                <div className="mt-4 pl-9">
+                  {paintOptionChoices.length ? (
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {paintOptionChoices.map((opt) => (
+                        <label
+                          key={opt.id}
+                          className="flex items-center gap-2 text-base text-[rgba(0,0,0,0.82)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={paintOptions.includes(opt.id)}
+                            onChange={() => onTogglePaintOption(opt.id)}
+                            className="h-4 w-4 accent-[#dc2626]"
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-base text-[rgba(0,0,0,0.50)]">暂无已配置的喷漆子服务</div>
+                  )}
+                </div>
+              ) : null}
+
 
             </div>
           );
@@ -206,6 +241,9 @@ type CustomerSectionProps = {
   businessId: string;
   businessOptions: BusinessOption[];
   onBusinessChange: (value: string) => void;
+  personalNameSuggestions: string[];
+  onPersonalNameBlur?: () => void;
+  matchHint?: string;
 };
 
 export function CustomerSection({
@@ -224,6 +262,9 @@ export function CustomerSection({
   businessId,
   businessOptions,
   onBusinessChange,
+  personalNameSuggestions,
+  onPersonalNameBlur,
+  matchHint,
 }: CustomerSectionProps) {
   return (
     <SectionCard title="客户信息" titleIcon={<UserRound size={18} />} titleClassName="text-lg font-semibold">
@@ -235,6 +276,12 @@ export function CustomerSection({
           <CustomerTypeToggle value={customerType} onChange={onCustomerTypeChange} />
         </div>
 
+        {matchHint ? (
+          <div className="rounded-[10px] border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+            {matchHint}
+          </div>
+        ) : null}
+
         {customerType === "personal" ? (
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -244,8 +291,15 @@ export function CustomerSection({
               <Input
                 placeholder="输入客户名字"
                 value={personalName}
+                list="new-job-personal-customer-options"
                 onChange={(event) => onPersonalNameChange(event.target.value)}
+                onBlur={onPersonalNameBlur}
               />
+              <datalist id="new-job-personal-customer-options">
+                {personalNameSuggestions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">
@@ -276,9 +330,9 @@ export function CustomerSection({
             <div className="">
               <label className="text-base text-[rgba(0,0,0,0.55)] mb-1 block">地址</label>
               <AddressAutocomplete
+                placeholder="输入地址"
                 value={customerAddress}
                 onChange={onCustomerAddressChange}
-                placeholder="输入地址"
               />
             </div>
           </div>

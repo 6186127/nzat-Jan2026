@@ -1,22 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { JobRow, JobsFilters } from "@/types/JobType";
 import { DEFAULT_JOBS_FILTERS } from "./jobs.defaults";
-import { filterJobs } from "@/features/jobs/jobs.utils";
-import { parseTimestamp } from "@/utils/date";
-
-
-function sortJobsDefault(rows: JobRow[]): JobRow[] {
-  return [...rows].sort((a, b) => {
-    if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
-
-
-    const da = parseTimestamp(a.createdAt)?.getTime() ?? NaN;
-    const db = parseTimestamp(b.createdAt)?.getTime() ?? NaN;
-    if (!Number.isNaN(da) && !Number.isNaN(db)) return db - da;
-
-    return 0;
-  });
-}
 
 
 type Options = {
@@ -61,12 +45,6 @@ const didMountRef = useRef(false);
   };
 
 
-  const visibleRows = useMemo(() => {
-    const filtered = filterJobs(allRows, filters);
-    return sortJobsDefault(filtered);
-  }, [allRows, filters]);
-
-
   const resetFilters = () => setFilters(DEFAULT_JOBS_FILTERS);
 
   return {
@@ -88,6 +66,6 @@ const didMountRef = useRef(false);
     pageSize,
 
     // results
-    visibleRows,
+    visibleRows: allRows,
   };
 }

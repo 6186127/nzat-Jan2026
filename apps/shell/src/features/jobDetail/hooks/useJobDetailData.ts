@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   JobDetailData,
+  JobDetailTabKey,
   MechService,
   PaintService,
   PartsService,
@@ -16,9 +17,12 @@ import {
   fetchTags,
   updateJobNotes,
   updateJobTags,
+  updateJobStatus,
   updateVehicleInfo,
   deleteJob as apiDeleteJob,
-  updateJobCustomer,
+  createJobXeroDraftInvoice as apiCreateJobXeroDraftInvoice,
+  attachJobXeroInvoice as apiAttachJobXeroInvoice,
+  detachJobXeroInvoice as apiDetachJobXeroInvoice,
 } from "../api/jobDetailApi";
 import { notifyPaintBoardRefresh } from "@/utils/refreshSignals";
 import {
@@ -33,6 +37,7 @@ import {
   createWofRecord,
   createWofResult,
   createWofServer,
+  deleteWofRecord,
   deleteWofServer,
   fetchWofFailReasons,
   fetchWofServer,
@@ -59,10 +64,25 @@ import { useToast } from "@/components/ui";
 
 type UseJobDetailDataArgs = {
   jobId?: string;
-  onDeleted?: () => void;
+  activeTab?: JobDetailTabKey;
 };
 
-export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
+export type DeleteJobStepResult = {
+  status?: string;
+  message?: string;
+};
+
+export type DeleteJobActionResult = {
+  success: boolean;
+  message?: string;
+  steps?: {
+    xero?: DeleteJobStepResult;
+    gmail?: DeleteJobStepResult;
+    jobStep?: DeleteJobStepResult;
+  };
+};
+
+export function useJobDetailData({ jobId, activeTab }: UseJobDetailDataArgs) {
   const isMountedRef = useRef(true);
   const toast = useToast();
   const [jobData, setJobData] = useState<JobDetailData | null>(null);
@@ -81,7 +101,17 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingJob, setDeletingJob] = useState(false);
+  const [archivingJob, setArchivingJob] = useState(false);
+  const [creatingXeroInvoice, setCreatingXeroInvoice] = useState(false);
+  const [attachingXeroInvoice, setAttachingXeroInvoice] = useState(false);
+  const [detachingXeroInvoice, setDetachingXeroInvoice] = useState(false);
   const [hasWofRecord, setHasWofRecord] = useState(false);
+  const [wofInitialized, setWofInitialized] = useState(false);
+  const [wofFailReasonsInitialized, setWofFailReasonsInitialized] = useState(false);
+  const [partsInitialized, setPartsInitialized] = useState(false);
+  const [mechInitialized, setMechInitialized] = useState(false);
+  const [paintInitialized, setPaintInitialized] = useState(false);
+  const [tagOptionsInitialized, setTagOptionsInitialized] = useState(false);
 
   const refreshWofServer = useCallback(async () => {
     if (!jobId) return;
@@ -98,11 +128,13 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         setWofCheckItems(Array.isArray(wofData?.checkItems) ? wofData.checkItems : []);
         const results = Array.isArray(wofData?.results) ? wofData.results : [];
         setWofRecords(results.map(mapWofRecord));
+        setWofInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setWofRecords([]);
         setWofCheckItems([]);
+        setWofInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -122,10 +154,12 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       if (isMountedRef.current) {
         const list = Array.isArray(res.data) ? res.data : [];
         setPartsServices(list);
+        setPartsInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setPartsServices([]);
+        setPartsInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -145,10 +179,12 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       if (isMountedRef.current) {
         const list = Array.isArray(res.data) ? res.data : [];
         setMechServices(list);
+        setMechInitialized(true);
       }
     } catch {
       if (isMountedRef.current) {
         setMechServices([]);
+        setMechInitialized(true);
       }
     } finally {
       if (isMountedRef.current) {
@@ -166,11 +202,33 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         throw new Error(res.error || "加载喷漆服务失败");
       }
       const service = res.data?.service ? res.data.service : null;
-      setPaintService(service);
+      if (isMountedRef.current) {
+        setPaintService(service);
+        setPaintInitialized(true);
+      }
     } catch {
-      setPaintService(null);
+      if (isMountedRef.current) {
+        setPaintService(null);
+        setPaintInitialized(true);
+      }
     } finally {
-      setPaintLoading(false);
+      if (isMountedRef.current) {
+        setPaintLoading(false);
+      }
+    }
+  }, [jobId]);
+
+  const refreshJobSummary = useCallback(async () => {
+    if (!jobId) return;
+
+    const jobRes = await fetchJob(jobId);
+    if (jobRes.ok) {
+      const data = jobRes.data as any;
+      const job = data?.job ?? data;
+      setJobData(job ?? null);
+      if (typeof data?.hasWofRecord === "boolean") {
+        setHasWofRecord(data.hasWofRecord);
+      }
     }
   }, [jobId]);
 
@@ -183,10 +241,25 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       return;
     }
     if (jobId) {
-      await refreshWofServer();
-      toast.success("已创建 WOF 记录");
+      await Promise.all([refreshJobSummary(), refreshWofServer()]);
+      if (res.data?.alreadyExists) {
+        toast.success("WOF 服务已存在");
+      } else if (res.data?.xeroSyncQueued) {
+        toast.success("已创建 WOF 服务，Xero draft 正在后台更新");
+      } else {
+        toast.success("已创建 WOF 服务");
+      }
     }
-  }, [jobId, wofLoading, hasWofRecord, wofRecords.length, wofCheckItems.length, refreshWofServer, toast]);
+  }, [
+    jobId,
+    wofLoading,
+    hasWofRecord,
+    wofRecords.length,
+    wofCheckItems.length,
+    refreshJobSummary,
+    refreshWofServer,
+    toast,
+  ]);
 
   const saveWofResult = useCallback(
     async (payload: { result: "Pass" | "Fail"; expiryDate?: string; failReasonId?: string; note?: string }) => {
@@ -200,11 +273,11 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         return { success: false, message: res.error || "保存失败" };
       }
 
-      await refreshWofServer();
+      await Promise.all([refreshWofServer(), refreshJobSummary()]);
       toast.success("保存成功");
       return { success: true, message: "保存成功" };
     },
-    [jobId, refreshWofServer, toast]
+    [jobId, refreshJobSummary, refreshWofServer, toast]
   );
 
   const deleteWofServerForJob = useCallback(async () => {
@@ -218,10 +291,10 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       return { success: false, message: res.error || "删除失败" };
     }
 
-    await refreshWofServer();
-    toast.success("删除成功");
+    await Promise.all([refreshJobSummary(), refreshWofServer()]);
+    toast.success(res.data?.xeroSyncQueued ? "删除成功，Xero draft 正在后台更新" : "删除成功");
     return { success: true, message: "删除成功" };
-  }, [jobId, refreshWofServer, toast]);
+  }, [jobId, refreshJobSummary, refreshWofServer, toast]);
 
   const createPaintServiceRow = useCallback(
     async (status?: string, panels?: number) => {
@@ -337,11 +410,11 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
         return { success: false, message: res.error || "保存失败" };
       }
 
-      await refreshWofServer();
+      await Promise.all([refreshWofServer(), refreshJobSummary()]);
       toast.success("保存成功");
       return { success: true, message: "保存成功" };
     },
-    [jobId, refreshWofServer, toast]
+    [jobId, refreshJobSummary, refreshWofServer, toast]
   );
 
   const updateWofRecordRow = useCallback(
@@ -363,6 +436,26 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     [jobId, refreshWofServer, toast]
   );
 
+  const deleteWofRecordRow = useCallback(
+    async (recordId: string) => {
+      if (!jobId) {
+        return { success: false, message: "缺少工单 ID" };
+      }
+
+      const res = await deleteWofRecord(jobId, recordId);
+      if (!res.ok) {
+        toast.error(res.error || "删除失败");
+        return { success: false, message: res.error || "删除失败" };
+      }
+
+      await refreshWofServer();
+      await refreshJobSummary();
+      toast.success("删除成功");
+      return { success: true, message: "删除成功" };
+    },
+    [jobId, refreshJobSummary, refreshWofServer, toast]
+  );
+
   const importWofRecordsForJob = useCallback(async () => {
     if (!jobId) {
       return { success: false, message: "缺少工单 ID" };
@@ -377,7 +470,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       return { success: false, message: res.error || "导入失败" };
     }
 
-    await refreshWofServer();
+    await Promise.all([refreshWofServer(), refreshJobSummary()]);
     const inserted = Number(res.data?.inserted ?? 0);
     const updated = Number(res.data?.updated ?? 0);
     const skipped = Number(res.data?.skipped ?? 0);
@@ -388,7 +481,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
       success: true,
       message,
     };
-  }, [jobId, wofLoading, refreshWofServer, toast]);
+  }, [jobId, wofLoading, refreshJobSummary, refreshWofServer, toast]);
 
   const createPartsServiceRow = useCallback(
     async (payload: { description: string; status?: PartsServiceStatus }) => {
@@ -555,26 +648,147 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     [jobId, refreshPartsServices, toast]
   );
 
-  const deleteJob = useCallback(async () => {
-    if (!jobId) return;
-    if (!window.confirm("确定删除该工单及相关数据？")) return;
+  const deleteJob = useCallback(async (): Promise<DeleteJobActionResult> => {
+    if (!jobId) {
+      return { success: false, message: "缺少工单 ID" };
+    }
     setDeletingJob(true);
     setDeleteError(null);
     try {
       const res = await apiDeleteJob(jobId);
       if (!res.ok) {
-        throw new Error(res.error || "删除失败");
+        return {
+          success: false,
+          message: res.error || "删除失败",
+          steps: (res.data as { steps?: DeleteJobActionResult["steps"] } | null)?.steps,
+        };
       }
-      toast.success("已删除");
-      onDeleted?.();
+
+      return {
+        success: true,
+        message: "已删除",
+        steps: (res.data as { steps?: DeleteJobActionResult["steps"] } | null)?.steps,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : "删除失败";
-      setDeleteError(message);
-      toast.error(message);
+      return { success: false, message };
     } finally {
       setDeletingJob(false);
     }
-  }, [jobId, onDeleted, toast]);
+  }, [jobId]);
+
+  const archiveJob = useCallback(async () => {
+    if (!jobId) return { success: false, message: "缺少工单 ID" };
+    if (jobData?.status === "Archived") return { success: true, message: "工单已归档" };
+
+    setArchivingJob(true);
+    try {
+      const res = await updateJobStatus(jobId, "Archived");
+      if (!res.ok) {
+        const message = res.error || "归档失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      setJobData((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "Archived",
+            }
+          : prev
+      );
+      toast.success("已归档");
+      return { success: true, message: "已归档" };
+    } finally {
+      setArchivingJob(false);
+    }
+  }, [jobData?.status, jobId, toast]);
+
+  useEffect(() => {
+    if (!jobData || jobData.invoice) return;
+    const processingStatus = jobData.invoiceProcessing?.status;
+    if (processingStatus !== "pending" && processingStatus !== "processing") return;
+
+    const timer = window.setInterval(() => {
+      void refreshJobSummary();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [jobData, refreshJobSummary]);
+
+  const createJobXeroDraftInvoice = useCallback(async () => {
+    if (!jobId || !jobData) {
+      return { success: false, message: "缺少工单数据" };
+    }
+
+    setCreatingXeroInvoice(true);
+    try {
+      const res = await apiCreateJobXeroDraftInvoice(jobId);
+      if (!res.ok) {
+        const message = res.error || "创建 Xero invoice 失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      await refreshJobSummary();
+      const message = res.data?.alreadyExists ? "Xero invoice 已存在或已在后台处理中" : "Xero invoice 已加入后台创建队列";
+      toast.success(message);
+      return { success: true, message };
+    } finally {
+      setCreatingXeroInvoice(false);
+    }
+  }, [jobData, jobId, refreshJobSummary, toast]);
+
+  const attachJobXeroInvoice = useCallback(async (invoiceNumber: string) => {
+    if (!jobId) {
+      return { success: false, message: "缺少工单 ID" };
+    }
+
+    const normalizedInvoiceNumber = invoiceNumber.trim();
+    if (!normalizedInvoiceNumber) {
+      return { success: false, message: "Invoice Number 为必填" };
+    }
+
+    setAttachingXeroInvoice(true);
+    try {
+      const res = await apiAttachJobXeroInvoice(jobId, normalizedInvoiceNumber);
+      if (!res.ok) {
+        const message = res.error || "关联 Xero invoice 失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      await refreshJobSummary();
+      const message = res.data?.alreadyExists ? "Xero invoice 已存在或已在后台处理中" : "已加入后台关联 Xero invoice 队列";
+      toast.success(message);
+      return { success: true, message };
+    } finally {
+      setAttachingXeroInvoice(false);
+    }
+  }, [jobId, refreshJobSummary, toast]);
+
+  const detachJobXeroInvoice = useCallback(async () => {
+    if (!jobId) {
+      return { success: false, message: "缺少工单 ID" };
+    }
+
+    setDetachingXeroInvoice(true);
+    try {
+      const res = await apiDetachJobXeroInvoice(jobId);
+      if (!res.ok) {
+        const message = res.error || "解除 Invoice 绑定失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      await refreshJobSummary();
+      toast.success("Invoice 绑定已解除");
+      return { success: true, message: "Invoice 绑定已解除" };
+    } finally {
+      setDetachingXeroInvoice(false);
+    }
+  }, [jobId, refreshJobSummary, toast]);
 
   const saveTags = useCallback(
     async (tagIds: string[]) => {
@@ -672,76 +886,70 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     [jobId, toast]
   );
 
-  const saveCustomerInfo = useCallback(
-    async (payload: {
-      type: "Personal" | "Business";
-      customerId?: string;
-      name?: string;
-      phone?: string;
-      email?: string;
-      address?: string;
-    }) => {
-      if (!jobId) return { success: false, message: "缺少工单 ID" };
-
-      const res = await updateJobCustomer(jobId, payload);
-      if (!res.ok) {
-        const message = res.error || "保存客户失败";
-        toast.error(message);
-        return { success: false, message };
+  const loadWofFailReasons = useCallback(async () => {
+    const res = await fetchWofFailReasons();
+    if (!res.ok) {
+      if (isMountedRef.current) {
+        setWofFailReasons([]);
+        setWofFailReasonsInitialized(true);
       }
+      return;
+    }
 
-      const nextCustomer = res.data?.customer;
-      if (nextCustomer) {
-        setJobData((prev) =>
-          prev
-            ? {
-                ...prev,
-                customer: {
-                  ...prev.customer,
-                  ...nextCustomer,
-                },
-              }
-            : prev
-        );
+    if (isMountedRef.current) {
+      const list = Array.isArray(res.data) ? res.data : [];
+      const active = list.filter((item) => item?.isActive !== false);
+      setWofFailReasons(active.length ? active : list);
+      setWofFailReasonsInitialized(true);
+    }
+  }, []);
+
+  const loadTagOptions = useCallback(async () => {
+    const res = await fetchTags();
+    if (!res.ok) {
+      if (isMountedRef.current) {
+        setTagOptions([]);
+        setTagOptionsInitialized(true);
       }
-      toast.success("客户信息已更新");
-      return { success: true, message: "客户信息已更新", customer: nextCustomer };
-    },
-    [jobId, toast]
-  );
+      return;
+    }
+
+    if (isMountedRef.current) {
+      const tags = Array.isArray(res.data) ? res.data : [];
+      setTagOptions(
+        tags
+          .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
+          .map((tag: any) => ({ id: String(tag.id), label: tag.name }))
+      );
+      setTagOptionsInitialized(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    setWofRecords([]);
+    setWofCheckItems([]);
+    setWofFailReasons([]);
+    setPartsServices([]);
+    setMechServices([]);
+    setPaintService(null);
+    setTagOptions([]);
+    setHasWofRecord(false);
+    setWofLoading(false);
+    setPartsLoading(false);
+    setMechLoading(false);
+    setPaintLoading(false);
+    setWofInitialized(false);
+    setWofFailReasonsInitialized(false);
+    setPartsInitialized(false);
+    setMechInitialized(false);
+    setPaintInitialized(false);
+    setTagOptionsInitialized(false);
+  }, [jobId]);
 
   useEffect(() => {
     let cancelled = false;
     isMountedRef.current = true;
-
-    const loadWofFailReasons = async () => {
-      const res = await fetchWofFailReasons();
-      if (!res.ok) {
-        if (!cancelled) setWofFailReasons([]);
-        return;
-      }
-      if (!cancelled) {
-        const list = Array.isArray(res.data) ? res.data : [];
-        const active = list.filter((item) => item?.isActive !== false);
-        setWofFailReasons(active.length ? active : list);
-      }
-    };
-
-    const loadTagOptions = async () => {
-      const res = await fetchTags();
-      if (!res.ok) {
-        if (!cancelled) setTagOptions([]);
-        return;
-      }
-      if (!cancelled) {
-        const tags = Array.isArray(res.data) ? res.data : [];
-        setTagOptions(
-          tags
-            .filter((tag: any) => tag?.isActive !== false && typeof tag?.name === "string")
-            .map((tag: any) => ({ id: String(tag.id), label: tag.name }))
-        );
-      }
-    };
 
     const loadJob = async () => {
       if (!jobId) {
@@ -767,31 +975,54 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
           if (typeof (data as any)?.hasWofRecord === "boolean") {
             setHasWofRecord((data as any).hasWofRecord);
           }
+          setLoading(false);
         }
-
-        await refreshWofServer();
-        await refreshPartsServices();
-        await refreshMechServices();
-        await refreshPaintService();
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "加载工单失败");
           setJobData(null);
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     };
 
-    loadJob();
-    loadWofFailReasons();
-    loadTagOptions();
+    void loadJob();
 
     return () => {
       cancelled = true;
       isMountedRef.current = false;
     };
-  }, [jobId, refreshWofServer, refreshPartsServices, refreshMechServices, refreshPaintService]);
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId || tagOptionsInitialized) return;
+    void loadTagOptions();
+  }, [jobId, tagOptionsInitialized, loadTagOptions]);
+
+  useEffect(() => {
+    if (!jobId || partsInitialized || partsLoading) return;
+    void refreshPartsServices();
+  }, [jobId, partsInitialized, partsLoading, refreshPartsServices]);
+
+  useEffect(() => {
+    if (activeTab !== "WOF") return;
+    if (!wofInitialized && !wofLoading) {
+      void refreshWofServer();
+    }
+    if (!wofFailReasonsInitialized) {
+      void loadWofFailReasons();
+    }
+  }, [activeTab, loadWofFailReasons, refreshWofServer, wofFailReasonsInitialized, wofInitialized, wofLoading]);
+
+  useEffect(() => {
+    if (activeTab !== "Mechanical" || mechInitialized || mechLoading) return;
+    void refreshMechServices();
+  }, [activeTab, mechInitialized, mechLoading, refreshMechServices]);
+
+  useEffect(() => {
+    if ((activeTab !== "Paint" && activeTab !== "Worklog") || paintInitialized || paintLoading) return;
+    void refreshPaintService();
+  }, [activeTab, paintInitialized, paintLoading, refreshPaintService]);
 
   return {
     jobData,
@@ -799,6 +1030,10 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     loadError,
     deleteError,
     deletingJob,
+    archivingJob,
+    creatingXeroInvoice,
+    attachingXeroInvoice,
+    detachingXeroInvoice,
     hasWofRecord,
     wofRecords,
     wofCheckItems,
@@ -818,6 +1053,7 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     deleteWofServer: deleteWofServerForJob,
     createWofRecordRow,
     updateWofRecord: updateWofRecordRow,
+    deleteWofRecord: deleteWofRecordRow,
     importWofRecords: importWofRecordsForJob,
     createPartsService: createPartsServiceRow,
     updatePartsService: updatePartsServiceRow,
@@ -830,7 +1066,11 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     updatePartsNote: updatePartsNoteRow,
     deletePartsNote: deletePartsNoteRow,
     refreshPartsServices,
+    archiveJob,
     deleteJob,
+    createJobXeroDraftInvoice,
+    attachJobXeroInvoice,
+    detachJobXeroInvoice,
     saveTags,
     saveJobNotes,
     createPaintService: createPaintServiceRow,
@@ -840,6 +1080,5 @@ export function useJobDetailData({ jobId, onDeleted }: UseJobDetailDataArgs) {
     refreshPaintService,
     refreshVehicleInfo,
     saveVehicleInfo,
-    saveCustomerInfo,
   };
 }

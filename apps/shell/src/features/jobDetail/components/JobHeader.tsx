@@ -1,6 +1,7 @@
 import { Archive, Trash2, AlertCircle, Plus, Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, TagPill, Textarea } from "@/components/ui";
+import { XeroButton, getXeroInvoiceUrl } from "@/components/common/XeroButton";
 import { JOB_DETAIL_TEXT } from "@/features/jobDetail/jobDetail.constants";
 import type { TagOption } from "@/components/MultiTagSelect";
 import { MultiTagSelect } from "@/components/MultiTagSelect";
@@ -19,10 +20,16 @@ interface JobHeaderProps {
   customerName: string;
   customerCode?: string;
   customerPhone?: string;
+  externalInvoiceId?: string;
+  needsPo?: boolean;
   vin?: string | null;
   nzFirstRegistration?: string | null;
   paintPanels?: number | null;
   hasPaintService?: boolean;
+  onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
+  isCreatingXeroInvoice?: boolean;
+  onArchive?: () => Promise<{ success: boolean; message?: string }> | void;
+  isArchiving?: boolean;
   onDelete?: () => void;
   isDeleting?: boolean;
   tagOptions?: TagOption[];
@@ -42,11 +49,13 @@ export function JobHeader({
   vehicleModel,
   customerName,
   customerCode,
-  customerPhone,
+  externalInvoiceId,
   vin,
   nzFirstRegistration,
   paintPanels,
   hasPaintService,
+  onArchive,
+  isArchiving,
   onDelete,
   isDeleting,
   tagOptions = [],
@@ -156,22 +165,9 @@ export function JobHeader({
     handlePrint("paint");
   };
 
-  const needsPo = (noteDraft || notes).includes("需要PO");
-  const handlePoEmail = () => {
-    if (!needsPo) return;
-    const subject = `PO申请 - ${vehiclePlate}`;
-    const body = [
-      `工单号：${jobId}`,
-      `车牌：${vehiclePlate}`,
-      `车型：${vehicleModel || ""}`,
-      `客户：${customerCode || customerName}`,
-      `电话：${customerPhone || ""}`,
-      `备注：`,
-      noteDraft || notes || "",
-      "",
-      "（模板内容待定，可在此处调整）",
-    ].join("\n");
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const openXero = () => {
+    const url = getXeroInvoiceUrl(externalInvoiceId);
+    window.open(url, "_blank", "noopener,noreferrer");
   };
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -241,7 +237,9 @@ export function JobHeader({
         </div>
 
         <div className="flex items-center gap-3 ml-auto">
-          <Button leftIcon={<Archive className="w-4 h-4" />}>{JOB_DETAIL_TEXT.buttons.archive}</Button>
+          <Button leftIcon={<Archive className="w-4 h-4" />} onClick={() => void onArchive?.()} disabled={isArchiving || status === "Archived"}>
+            {isArchiving ? "归档中..." : JOB_DETAIL_TEXT.buttons.archive}
+          </Button>
           <Button
             leftIcon={<Trash2 className="w-4 h-4" />}
             className="border-red-300 text-red-700 hover:bg-red-50"
@@ -300,16 +298,18 @@ export function JobHeader({
         </div>
 
         <div className="flex flex-col items-center gap-2 ml-40">
-         {needsPo ? ( <Button variant="primary" onClick={handlePoEmail} disabled={!needsPo}>
-            PO邮件
-          </Button>): null}
-        
           <Button variant="primary" onClick={handlePaintClick}>
             喷漆打印
           </Button>
           <Button variant="primary" onClick={() => handlePrint("mech")}>
             机修打印
           </Button>
+          {externalInvoiceId ? (
+            <XeroButton
+              onClick={openXero}
+              showIcon={false}
+            />
+          ) : null}
         </div>
       </div>
     </div>

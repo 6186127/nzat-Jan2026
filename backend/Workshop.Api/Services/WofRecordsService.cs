@@ -1,8 +1,5 @@
 using System.Data;
 using System.Globalization;
-using System.IO;
-using System.Text;
-using ExcelDataReader;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
@@ -17,19 +14,17 @@ public class WofRecordsService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly InvoiceOutboxService _invoiceOutboxService;
 
-    public WofRecordsService(AppDbContext db, IConfiguration config)
+    public WofRecordsService(AppDbContext db, IConfiguration config, InvoiceOutboxService invoiceOutboxService)
     {
         _db = db;
         _config = config;
+        _invoiceOutboxService = invoiceOutboxService;
     }
 
     public async Task<WofServiceResult> GetWofRecords(long id, CancellationToken ct)
     {
-        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
-        if (!jobExists)
-            return WofServiceResult.NotFound("Job not found.");
-
         var rows = await _db.JobWofRecords.AsNoTracking()
             .Where(x => x.JobId == id)
             .OrderByDescending(x => x.OccurredAt)
@@ -60,6 +55,13 @@ public class WofRecordsService
                 x.UpdatedAt
             })
             .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
+            if (!jobExists)
+                return WofServiceResult.NotFound("Job not found.");
+        }
 
         var checkItems = rows.Select(x => new
             {
@@ -115,100 +117,365 @@ public class WofRecordsService
     {
         var spreadsheetId = _config["WofImport:SpreadsheetId"];
         var credentialsPath = _config["WofImport:GoogleCredentialsPath"];
-        if (!string.IsNullOrWhiteSpace(spreadsheetId) && !string.IsNullOrWhiteSpace(credentialsPath))
-        {
-            return await ImportWofRecordsFromGoogleSheet(id, ct);
-        }
-
-        var filePath = _config["WofImport:FilePath"];
-        if (string.IsNullOrWhiteSpace(filePath))
-            return WofServiceResult.BadRequest("Missing WofImport:FilePath configuration.");
-
-        if (!System.IO.File.Exists(filePath))
-            return WofServiceResult.NotFound($"Excel file not found: {filePath}");
-
-        var sheetName = _config["WofImport:SheetName"];
-        var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
-        var sourceFile = Path.GetFileName(filePath);
-    
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
-        DataTable table;
-        await using (var stream = System.IO.File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-        using (var reader = ExcelReaderFactory.CreateReader(stream))
-        {
-            var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
-            {
-                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = true }
-            });
-
-            if (!string.IsNullOrWhiteSpace(sheetName))
-            {
-                if (!dataSet.Tables.Contains(sheetName))
-                    return WofServiceResult.BadRequest($"Sheet '{sheetName}' not found.");
-                table = dataSet.Tables[sheetName]!;
-            }
-            else
-            {
-                if (dataSet.Tables.Count == 0)
-                    return WofServiceResult.BadRequest("No worksheet found in the Excel file.");
-                table = dataSet.Tables[0];
-            }
-        }
-
-        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
-    }
-
-    public async Task<WofServiceResult> ImportWofRecordsFromStream(long id, Stream stream, string? sourceFileName, CancellationToken ct)
-    {
-        var sheetName = _config["WofImport:SheetName"];
-        var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
-        var sourceFile = string.IsNullOrWhiteSpace(sourceFileName)
-            ? "upload.xlsx"
-            : Path.GetFileName(sourceFileName);
-
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
-        DataTable table;
-        using (var reader = ExcelReaderFactory.CreateReader(stream))
-        {
-            var dataSet = reader.AsDataSet(new ExcelDataSetConfiguration
-            {
-                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = true }
-            });
-
-            if (!string.IsNullOrWhiteSpace(sheetName))
-            {
-                if (!dataSet.Tables.Contains(sheetName))
-                    return WofServiceResult.BadRequest($"Sheet '{sheetName}' not found.");
-                table = dataSet.Tables[sheetName]!;
-            }
-            else
-            {
-                if (dataSet.Tables.Count == 0)
-                    return WofServiceResult.BadRequest("No worksheet found in the Excel file.");
-                table = dataSet.Tables[0];
-            }
-        }
-
-        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
-    }
-
-    private async Task<WofServiceResult> ImportWofRecordsFromGoogleSheet(long id, CancellationToken ct)
-    {
-        var spreadsheetId = _config["WofImport:SpreadsheetId"];
-        var credentialsPath = _config["WofImport:GoogleCredentialsPath"];
         if (string.IsNullOrWhiteSpace(spreadsheetId))
             return WofServiceResult.BadRequest("Missing WofImport:SpreadsheetId configuration.");
         if (string.IsNullOrWhiteSpace(credentialsPath))
             return WofServiceResult.BadRequest("Missing WofImport:GoogleCredentialsPath configuration.");
+
+        return await ImportWofRecordsFromGoogleSheet(id, ct);
+    }
+
+    public async Task<WofServiceResult> SyncAllRecordsFromGoogleSheet(CancellationToken ct)
+    {
+        var loadResult = await LoadGoogleSheetTableAsync(ct);
+        if (!loadResult.Ok || loadResult.Table is null)
+            return loadResult.Result ?? WofServiceResult.BadRequest("Failed to load Google Sheet.");
+
+        var table = loadResult.Table;
+        var sheetName = loadResult.SheetName;
+        var sourceFile = loadResult.SourceFile!;
+        var organisationFallback = loadResult.OrganisationFallback!;
+
+        var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < table.Columns.Count; i++)
+        {
+            var name = NormalizeHeader(table.Columns[i].ColumnName);
+            if (!string.IsNullOrWhiteSpace(name) && !columnMap.ContainsKey(name))
+                columnMap[name] = i;
+        }
+
+        int? colDate = FindColumn(columnMap, "date", "occurredat", "occurred_at", "inspectiondate");
+        int? colRego = FindColumn(columnMap, "rego", "registration", "plate", "reg");
+        int? colMakeModel = FindColumn(columnMap, "makeandmodel", "makemodel", "make_model", "make&model");
+        int? colOdo = FindColumn(columnMap, "odo", "odometer", "kms", "km");
+        int? colRecordState = FindColumn(columnMap, "recordstate", "result", "state", "status");
+        int? colNewWofDate = FindColumn(columnMap, "newwofdate", "new_wof_date", "newwof", "isnewwof", "is_new_wof");
+        int? colAuthCode = FindColumn(columnMap, "authcode", "auth_code");
+        int? colCheckSheet = FindColumn(columnMap, "checksheet", "check_sheet");
+        int? colCsNo = FindColumn(columnMap, "csno", "cs_no");
+        int? colWofLabel = FindColumn(columnMap, "woflabel", "wof_label");
+        int? colLabelNo = FindColumn(columnMap, "labelno", "label_no");
+        int? colFailReasons = FindColumn(columnMap, "failreasons", "failreason", "fail_reasons");
+        int? colPrevExpiry = FindColumn(columnMap, "previous_expiry_date");
+        int? colOrganisation = FindColumn(columnMap, "organisationname", "organizationname", "organisation", "organization");
+        int? colNote = FindColumn(columnMap, "note", "notes");
+        int? colUiState = FindColumn(columnMap, "uistate", "wofuistate", "wof_ui_state");
+
+        if (colDate is null || colRego is null)
+            return WofServiceResult.BadRequest("Missing required columns: Date, Rego.");
+
+        var jobs = await (
+                from j in _db.Jobs.AsNoTracking()
+                join v in _db.Vehicles.AsNoTracking() on j.VehicleId equals v.Id
+                where !EF.Functions.ILike(j.Status, "archived")
+                where v.Plate != null && v.Plate != ""
+                orderby j.CreatedAt descending
+                select new
+                {
+                    j.Id,
+                    v.Plate,
+                }
+            )
+            .ToListAsync(ct);
+
+        var latestJobByPlate = jobs
+            .GroupBy(x => NormalizePlate(x.Plate))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+            .ToDictionary(x => x.Key, x => x.First().Id, StringComparer.OrdinalIgnoreCase);
+
+        var targetJobIds = latestJobByPlate.Values.Distinct().ToArray();
+        var existingImportedRecords = targetJobIds.Length == 0
+            ? new Dictionary<(long JobId, int ExcelRowNo), JobWofRecord>()
+            : await _db.JobWofRecords
+                .Where(x => targetJobIds.Contains(x.JobId) && x.SourceFile == sourceFile)
+                .ToDictionaryAsync(x => (x.JobId, x.ExcelRowNo), ct);
+
+        var now = DateTime.UtcNow;
+        var totalRows = 0;
+        var inserted = 0;
+        var updated = 0;
+        var skipped = 0;
+        var missingRego = 0;
+        var unmatchedRego = 0;
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        for (var rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
+        {
+            var row = table.Rows[rowIndex];
+            totalRows++;
+            var rego = GetString(row, colRego);
+            if (string.IsNullOrWhiteSpace(rego))
+            {
+                missingRego++;
+                skipped++;
+                continue;
+            }
+
+            var regoKey = NormalizePlate(rego);
+            if (!latestJobByPlate.TryGetValue(regoKey, out var jobId))
+            {
+                unmatchedRego++;
+                skipped++;
+                continue;
+            }
+
+            var occurredAt = EnsureUtc(GetDateTime(row, colDate) ?? now);
+            var recordState = ParseRecordState(GetString(row, colRecordState)) ?? WofRecordState.Pass;
+            var uiState = ParseUiState(GetString(row, colUiState)) ?? MapUiState(recordState);
+            var excelRowNo = rowIndex + 2;
+            var newWofDate = GetDateOnly(row, colNewWofDate);
+            var key = (jobId, excelRowNo);
+
+            if (existingImportedRecords.TryGetValue(key, out var existing))
+            {
+                existing.OccurredAt = occurredAt;
+                existing.Rego = rego.Trim();
+                existing.MakeModel = PreferIncoming(existing.MakeModel, GetString(row, colMakeModel));
+                existing.Odo = PreferIncoming(existing.Odo, GetString(row, colOdo));
+                existing.RecordState = recordState;
+                existing.IsNewWof = newWofDate.HasValue ? true : existing.IsNewWof;
+                existing.NewWofDate = newWofDate ?? existing.NewWofDate;
+                existing.AuthCode = PreferIncoming(existing.AuthCode, GetString(row, colAuthCode));
+                existing.CheckSheet = PreferIncoming(existing.CheckSheet, GetString(row, colCheckSheet));
+                existing.CsNo = PreferIncoming(existing.CsNo, GetString(row, colCsNo));
+                existing.WofLabel = PreferIncoming(existing.WofLabel, GetString(row, colWofLabel));
+                existing.LabelNo = PreferIncoming(existing.LabelNo, GetString(row, colLabelNo));
+                existing.FailReasons = PreferIncoming(existing.FailReasons, GetString(row, colFailReasons));
+                existing.PreviousExpiryDate = GetDateOnly(row, colPrevExpiry) ?? existing.PreviousExpiryDate;
+                existing.OrganisationName = PreferIncoming(existing.OrganisationName, GetString(row, colOrganisation)) ?? organisationFallback;
+                existing.Note = PreferIncoming(existing.Note, GetString(row, colNote));
+                existing.WofUiState = existing.WofUiState == WofUiState.Printed ? existing.WofUiState : uiState;
+                existing.SourceFile = sourceFile;
+                existing.ExcelRowNo = excelRowNo;
+                existing.ImportedAt = now;
+                existing.UpdatedAt = now;
+                updated++;
+                continue;
+            }
+
+            _db.JobWofRecords.Add(new JobWofRecord
+            {
+                JobId = jobId,
+                OccurredAt = occurredAt,
+                Rego = rego.Trim(),
+                MakeModel = GetString(row, colMakeModel),
+                Odo = GetString(row, colOdo),
+                RecordState = recordState,
+                IsNewWof = newWofDate.HasValue ? true : null,
+                NewWofDate = newWofDate,
+                AuthCode = GetString(row, colAuthCode),
+                CheckSheet = GetString(row, colCheckSheet),
+                CsNo = GetString(row, colCsNo),
+                WofLabel = GetString(row, colWofLabel),
+                LabelNo = GetString(row, colLabelNo),
+                FailReasons = GetString(row, colFailReasons),
+                PreviousExpiryDate = GetDateOnly(row, colPrevExpiry),
+                OrganisationName = GetString(row, colOrganisation) ?? organisationFallback,
+                ExcelRowNo = excelRowNo,
+                SourceFile = sourceFile,
+                Note = GetString(row, colNote),
+                WofUiState = uiState,
+                ImportedAt = now,
+                UpdatedAt = now,
+            });
+            inserted++;
+        }
+
+        if (inserted > 0 || updated > 0)
+        {
+            await SetWofStateRecordedAsync(latestJobByPlate.Values, now, ct);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+
+        return WofServiceResult.Ok(new
+        {
+            inserted,
+            updated,
+            skipped,
+            totalRows,
+            unmatchedRego,
+            missingRego,
+            sourceFile,
+            sheetName = string.IsNullOrWhiteSpace(sheetName) ? "default" : sheetName,
+            matchedJobs = latestJobByPlate.Count,
+        });
+    }
+
+    public async Task<WofServiceResult> CreateWofService(long id, CancellationToken ct)
+    {
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == id, ct);
+        if (!jobExists)
+            return WofServiceResult.NotFound("Job not found.");
+
+        var existingSelection = await (
+                from selection in _db.JobServiceSelections.AsNoTracking()
+                join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                where selection.JobId == id && catalogItem.ServiceType == "wof"
+                select selection.Id
+            )
+            .AnyAsync(ct);
+
+        var selectedItem = await _db.ServiceCatalogItems
+            .AsNoTracking()
+            .Where(x => x.IsActive && x.ServiceType == "wof" && (x.Category == "child" || x.Category == "root"))
+            .OrderByDescending(x => x.Category == "child")
+            .ThenBy(x => x.SortOrder)
+            .ThenBy(x => x.Id)
+            .Select(x => new { x.Id, x.Name })
+            .FirstOrDefaultAsync(ct);
+
+        if (selectedItem is null)
+            return WofServiceResult.BadRequest("No active WOF service catalog item is configured.");
+
+        var now = DateTime.UtcNow;
+        if (!existingSelection)
+        {
+            _db.JobServiceSelections.Add(new JobServiceSelection
+            {
+                JobId = id,
+                ServiceCatalogItemId = selectedItem.Id,
+                ServiceNameSnapshot = selectedItem.Name.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+        var existingState = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == id, ct);
+        if (existingState is null)
+        {
+            _db.JobWofStates.Add(new JobWofState
+            {
+                JobId = id,
+                ManualStatus = "Todo",
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+        else
+        {
+            existingState.UpdatedAt = now;
+        }
+
+        if (existingSelection)
+        {
+            await _db.SaveChangesAsync(ct);
+            return WofServiceResult.Ok(new { success = true, alreadyExists = true });
+        }
+
+        var linkedDraftExists = await _db.JobInvoices.AsNoTracking()
+            .AnyAsync(
+                x => x.JobId == id
+                    && x.Provider == "xero"
+                    && x.ExternalInvoiceId != null
+                    && x.ExternalStatus != null
+                    && x.ExternalStatus.ToUpper() == "DRAFT",
+                ct);
+
+        if (linkedDraftExists)
+        {
+            var existingSyncMessage = await _db.OutboxMessages.AsNoTracking()
+                .Where(x => x.AggregateType == InvoiceOutboxService.JobAggregateType
+                    && x.AggregateId == id
+                    && x.MessageType == InvoiceOutboxService.SyncWofDraftMessageType
+                    && (x.Status == "pending" || x.Status == "processing"))
+                .FirstOrDefaultAsync(ct);
+
+            if (existingSyncMessage is null)
+                _db.OutboxMessages.Add(_invoiceOutboxService.BuildSyncWofDraftMessage(id, now));
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        return WofServiceResult.Ok(new
+        {
+            success = true,
+            alreadyExists = false,
+            serviceCatalogItemId = selectedItem.Id,
+            xeroSyncQueued = linkedDraftExists
+        });
+    }
+
+    public async Task<WofServiceResult> UpdateWofStatus(long jobId, string? status, CancellationToken ct)
+    {
+        var jobExists = await _db.Jobs.AsNoTracking().AnyAsync(x => x.Id == jobId, ct);
+        if (!jobExists)
+            return WofServiceResult.NotFound("Job not found.");
+
+        var hasWofService = await (
+                from selection in _db.JobServiceSelections.AsNoTracking()
+                join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                where selection.JobId == jobId && catalogItem.ServiceType == "wof"
+                select selection.Id
+            )
+            .AnyAsync(ct);
+
+        if (!hasWofService)
+            return WofServiceResult.BadRequest("This job does not have a WOF service.");
+
+        var normalized = string.IsNullOrWhiteSpace(status) ? "Todo" : status.Trim();
+        if (!string.Equals(normalized, "Todo", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(normalized, "Checked", StringComparison.OrdinalIgnoreCase))
+        {
+            return WofServiceResult.BadRequest("WOF status must be Todo or Checked.");
+        }
+
+        var now = DateTime.UtcNow;
+        var state = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (state is null)
+        {
+            state = new JobWofState
+            {
+                JobId = jobId,
+                CreatedAt = now,
+            };
+            _db.JobWofStates.Add(state);
+        }
+
+        state.ManualStatus = string.Equals(normalized, "Checked", StringComparison.OrdinalIgnoreCase)
+            ? "Checked"
+            : "Todo";
+        state.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        return WofServiceResult.Ok(new
+        {
+            success = true,
+            wofStatus = string.Equals(state.ManualStatus, "Checked", StringComparison.OrdinalIgnoreCase) ? "Checked" : "Todo"
+        });
+    }
+
+    private async Task<WofServiceResult> ImportWofRecordsFromGoogleSheet(long id, CancellationToken ct)
+    {
+        var loadResult = await LoadGoogleSheetTableAsync(ct);
+        if (!loadResult.Ok || loadResult.Table is null)
+            return loadResult.Result ?? WofServiceResult.BadRequest("Failed to load Google Sheet.");
+
+        return await ImportWofRecordsFromTable(
+            id,
+            loadResult.Table,
+            loadResult.SheetName,
+            loadResult.OrganisationFallback!,
+            loadResult.SourceFile!,
+            ct);
+    }
+
+    private async Task<GoogleSheetLoadResult> LoadGoogleSheetTableAsync(CancellationToken ct)
+    {
+        var spreadsheetId = _config["WofImport:SpreadsheetId"];
+        var credentialsPath = _config["WofImport:GoogleCredentialsPath"];
+        if (string.IsNullOrWhiteSpace(spreadsheetId))
+            return GoogleSheetLoadResult.Fail(WofServiceResult.BadRequest("Missing WofImport:SpreadsheetId configuration."));
+        if (string.IsNullOrWhiteSpace(credentialsPath))
+            return GoogleSheetLoadResult.Fail(WofServiceResult.BadRequest("Missing WofImport:GoogleCredentialsPath configuration."));
         if (!System.IO.File.Exists(credentialsPath))
-            return WofServiceResult.NotFound($"Google credentials not found: {credentialsPath}");
+            return GoogleSheetLoadResult.Fail(WofServiceResult.NotFound($"Google credentials not found: {credentialsPath}"));
 
         var sheetName = _config["WofImport:SheetName"];
         var range = _config["WofImport:GoogleRange"];
-
         var organisationFallback = _config["WofImport:OrganisationName"] ?? "Unknown";
+
         var credential = GoogleCredential.FromFile(credentialsPath)
             .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
         var service = new SheetsService(new BaseClientService.Initializer
@@ -226,23 +493,21 @@ public class WofRecordsService
         }
 
         if (string.IsNullOrWhiteSpace(range))
-        {
             range = !string.IsNullOrWhiteSpace(sheetName) ? sheetName : "Sheet1";
-        }
         if (string.IsNullOrWhiteSpace(sheetName) && range.Contains("!"))
-        {
             sheetName = range.Split('!')[0];
-        }
 
         var request = service.Spreadsheets.Values.Get(spreadsheetId, range);
         var response = await request.ExecuteAsync(ct);
         var values = response.Values;
         if (values == null || values.Count == 0)
-            return WofServiceResult.BadRequest("No rows found in the Google Sheet.");
+            return GoogleSheetLoadResult.Fail(WofServiceResult.BadRequest("No rows found in the Google Sheet."));
 
-        var table = BuildDataTable(values);
-        var sourceFile = $"google:{spreadsheetId}";
-        return await ImportWofRecordsFromTable(id, table, sheetName, organisationFallback, sourceFile, ct);
+        return GoogleSheetLoadResult.Success(
+            BuildDataTable(values),
+            sheetName,
+            organisationFallback,
+            $"google:{spreadsheetId}");
     }
 
     private static DataTable BuildDataTable(IList<IList<object>> values)
@@ -423,7 +688,10 @@ public class WofRecordsService
         }
 
         if (inserted > 0)
+        {
+            await SetWofStateRecordedAsync(new[] { id }, now, ct);
             await _db.SaveChangesAsync(ct);
+        }
 
         await tx.CommitAsync(ct);
 
@@ -500,7 +768,7 @@ public class WofRecordsService
 
         var parsedUiState = ParseUiState(request.WofUiState);
         if (!string.IsNullOrWhiteSpace(request.WofUiState) && parsedUiState is null)
-            return WofServiceResult.BadRequest("WofUiState must be Pass, Fail, Recheck or Printed.");
+            return WofServiceResult.BadRequest("WofUiState must be Pass, Fail or Recheck.");
         var uiState = parsedUiState ?? MapUiState(recordState.Value);
 
         record.OccurredAt = EnsureUtc(occurredAt.Value);
@@ -528,6 +796,7 @@ public class WofRecordsService
             record.ImportedAt = importedAt.Value;
         record.UpdatedAt = DateTime.UtcNow;
 
+        await SetWofStateRecordedAsync(new[] { jobId }, DateTime.UtcNow, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new { success = true });
@@ -535,14 +804,93 @@ public class WofRecordsService
 
     public async Task<WofServiceResult> DeleteWofServer(long id, CancellationToken ct)
     {
+        var removedSelections = await (
+                from selection in _db.JobServiceSelections.AsNoTracking()
+                join catalogItem in _db.ServiceCatalogItems.AsNoTracking() on selection.ServiceCatalogItemId equals catalogItem.Id
+                where selection.JobId == id && catalogItem.ServiceType == "wof"
+                select new InvoiceOutboxService.RemovedServiceSelectionPayload(
+                    selection.ServiceCatalogItemId,
+                    selection.ServiceNameSnapshot)
+            )
+            .ToListAsync(ct);
+
+        var linkedDraftExists = await _db.JobInvoices.AsNoTracking()
+            .AnyAsync(
+                x => x.JobId == id
+                    && x.Provider == "xero"
+                    && x.ExternalInvoiceId != null
+                    && x.ExternalStatus != null
+                    && x.ExternalStatus.ToUpper() == "DRAFT",
+                ct);
+
+        var wofCatalogItemIds = _db.ServiceCatalogItems.AsNoTracking()
+            .Where(x => x.ServiceType == "wof")
+            .Select(x => x.Id);
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
         var deleted = await _db.JobWofRecords
             .Where(x => x.JobId == id)
+            .ExecuteDeleteAsync(ct);
+
+        var deletedSelections = await _db.JobServiceSelections
+            .Where(x => x.JobId == id && wofCatalogItemIds.Contains(x.ServiceCatalogItemId))
+            .ExecuteDeleteAsync(ct);
+
+        await _db.JobWofStates
+            .Where(x => x.JobId == id)
+            .ExecuteDeleteAsync(ct);
+
+        var xeroSyncQueued = false;
+        if (linkedDraftExists && removedSelections.Count > 0)
+        {
+            var existingRemoveMessage = await _db.OutboxMessages.AsNoTracking()
+                .Where(x => x.AggregateType == InvoiceOutboxService.JobAggregateType
+                    && x.AggregateId == id
+                    && x.MessageType == InvoiceOutboxService.RemoveWofDraftItemsMessageType
+                    && (x.Status == "pending" || x.Status == "processing"))
+                .FirstOrDefaultAsync(ct);
+
+            if (existingRemoveMessage is null)
+            {
+                _db.OutboxMessages.Add(_invoiceOutboxService.BuildRemoveWofDraftItemsMessage(id, removedSelections, DateTime.UtcNow));
+                await _db.SaveChangesAsync(ct);
+                xeroSyncQueued = true;
+            }
+        }
+
+        await tx.CommitAsync(ct);
+
+        if (deleted == 0 && deletedSelections == 0)
+            return WofServiceResult.NotFound("WOF record not found.");
+
+        return WofServiceResult.Ok(new { success = true, deleted, deletedSelections, xeroSyncQueued });
+    }
+
+    public async Task<WofServiceResult> DeleteWofRecord(long jobId, long recordId, CancellationToken ct)
+    {
+        var deleted = await _db.JobWofRecords
+            .Where(x => x.JobId == jobId && x.Id == recordId)
             .ExecuteDeleteAsync(ct);
 
         if (deleted == 0)
             return WofServiceResult.NotFound("WOF record not found.");
 
-        return WofServiceResult.Ok(new { success = true });
+        var hasRemainingRecords = await _db.JobWofRecords.AsNoTracking()
+            .AnyAsync(x => x.JobId == jobId, ct);
+
+        if (!hasRemainingRecords)
+        {
+            var state = await _db.JobWofStates.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+            if (state is not null)
+            {
+                state.ManualStatus = "Todo";
+                state.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
+        return WofServiceResult.Ok(new { success = true, deleted });
     }
 
     public async Task<WofServiceResult> CreateWofRecord(long jobId, WofRecordUpdateRequest request, CancellationToken ct)
@@ -590,7 +938,7 @@ public class WofRecordsService
 
         var parsedUiState = ParseUiState(request.WofUiState);
         if (!string.IsNullOrWhiteSpace(request.WofUiState) && parsedUiState is null)
-            return WofServiceResult.BadRequest("WofUiState must be Pass, Fail, Recheck or Printed.");
+            return WofServiceResult.BadRequest("WofUiState must be Pass, Fail or Recheck.");
         var uiState = parsedUiState ?? MapUiState(recordState.Value);
 
         var now = DateTime.UtcNow;
@@ -625,6 +973,7 @@ public class WofRecordsService
         };
 
         _db.JobWofRecords.Add(record);
+        await SetWofStateRecordedAsync(new[] { jobId }, now, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new
@@ -712,6 +1061,7 @@ public class WofRecordsService
         };
 
         _db.JobWofRecords.Add(record);
+        await SetWofStateRecordedAsync(new[] { id }, now, ct);
         await _db.SaveChangesAsync(ct);
 
         return WofServiceResult.Ok(new
@@ -738,6 +1088,9 @@ public class WofRecordsService
         var chars = value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray();
         return new string(chars);
     }
+
+    private static string? PreferIncoming(string? currentValue, string? incomingValue)
+        => string.IsNullOrWhiteSpace(incomingValue) ? currentValue : incomingValue.Trim();
 
     private static int? FindColumn(IReadOnlyDictionary<string, int> map, params string[] names)
     {
@@ -955,6 +1308,35 @@ public class WofRecordsService
 
     private static string FormatDateTime(DateTime dateTime)
         => DateTimeHelper.FormatUtc(dateTime);
+
+    private async Task SetWofStateRecordedAsync(IEnumerable<long> jobIds, DateTime now, CancellationToken ct)
+    {
+        var ids = jobIds.Distinct().ToArray();
+        if (ids.Length == 0)
+            return;
+
+        var existingStates = await _db.JobWofStates
+            .Where(x => ids.Contains(x.JobId))
+            .ToDictionaryAsync(x => x.JobId, ct);
+
+        foreach (var jobId in ids)
+        {
+            if (existingStates.TryGetValue(jobId, out var state))
+            {
+                state.ManualStatus = "Recorded";
+                state.UpdatedAt = now;
+                continue;
+            }
+
+            _db.JobWofStates.Add(new JobWofState
+            {
+                JobId = jobId,
+                ManualStatus = "Recorded",
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+    }
 }
 
 public record WofServiceResult(int StatusCode, object? Payload, string? Error)
@@ -985,3 +1367,18 @@ public record WofRecordUpdateRequest(
     string? Note,
     string? WofUiState,
     string? ImportedAt);
+
+sealed record GoogleSheetLoadResult(
+    bool Ok,
+    DataTable? Table,
+    string? SheetName,
+    string? OrganisationFallback,
+    string? SourceFile,
+    WofServiceResult? Result)
+{
+    public static GoogleSheetLoadResult Success(DataTable table, string? sheetName, string organisationFallback, string sourceFile)
+        => new(true, table, sheetName, organisationFallback, sourceFile, null);
+
+    public static GoogleSheetLoadResult Fail(WofServiceResult result)
+        => new(false, null, null, null, null, result);
+}

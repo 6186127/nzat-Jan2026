@@ -1,5 +1,12 @@
+import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useJobDetailState } from "@/features/jobDetail";
+import { DeleteJobDialog } from "@/components/common/DeleteJobDialog";
+import {
+  createDeletingDeleteJobSteps,
+  createInitialDeleteJobSteps,
+  resolveDeleteJobDialogSteps,
+} from "@/components/common/DeleteJobDialogState";
 import { Alert, EmptyState } from "@/components/ui";
 import { JobDetailContent } from "@/features/jobDetail/components/JobDetailContent";
 import { useJobDetailData } from "@/features/jobDetail/hooks/useJobDetailData";
@@ -9,6 +16,11 @@ export function JobDetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteModalPhase, setDeleteModalPhase] = useState<"confirm" | "status">("confirm");
+  const [deleteSteps, setDeleteSteps] = useState(() => createInitialDeleteJobSteps());
+  const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
+  const [deleteSucceeded, setDeleteSucceeded] = useState(false);
   const tabParam = searchParams.get("tab");
   const initialTab: JobDetailTabKey = isJobDetailTab(tabParam) ? tabParam : "WOF";
   const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen } = useJobDetailState({ initialTab });
@@ -18,6 +30,10 @@ export function JobDetailPage() {
     loadError,
     deleteError,
     deletingJob,
+    archivingJob,
+    creatingXeroInvoice,
+    attachingXeroInvoice,
+    detachingXeroInvoice,
     hasWofRecord,
     wofRecords,
     wofCheckItems,
@@ -34,6 +50,7 @@ export function JobDetailPage() {
     setDeleteError,
     createWofServer,
     deleteWofServer,
+    deleteWofRecord,
     createWofRecordRow,
     updateWofRecord,
     importWofRecords,
@@ -47,6 +64,10 @@ export function JobDetailPage() {
     updateMechService,
     deleteMechService,
     deleteJob,
+    archiveJob,
+    createJobXeroDraftInvoice,
+    attachJobXeroInvoice,
+    detachJobXeroInvoice,
     saveTags,
     saveJobNotes,
     createPaintService,
@@ -56,8 +77,34 @@ export function JobDetailPage() {
     refreshPaintService,
     refreshVehicleInfo,
     saveVehicleInfo,
-    saveCustomerInfo,
-  } = useJobDetailData({ jobId: id, onDeleted: () => navigate("/jobs") });
+  } = useJobDetailData({ jobId: id, activeTab });
+
+  const openDeleteModal = () => {
+    setDeleteModalOpen(true);
+    setDeleteModalPhase("confirm");
+    setDeleteSteps(createInitialDeleteJobSteps());
+    setDeleteModalError(null);
+    setDeleteSucceeded(false);
+    setDeleteError(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModalOpen(false);
+    if (deleteSucceeded) {
+      navigate("/jobs");
+    }
+  };
+
+  const confirmDelete = async () => {
+    setDeleteModalPhase("status");
+    setDeleteModalError(null);
+    setDeleteSteps(createDeletingDeleteJobSteps());
+
+    const result = await deleteJob();
+    setDeleteSteps(resolveDeleteJobDialogSteps(result.steps, result.success));
+    setDeleteModalError(result.success ? null : result.message || "删除失败");
+    setDeleteSucceeded(result.success);
+  };
 
   if (loading) {
     return <div className="py-10 text-center text-sm text-[var(--ds-muted)]">加载中...</div>;
@@ -100,6 +147,7 @@ export function JobDetailPage() {
         onRefreshWof={importWofRecords}
         onDeleteWofServer={deleteWofServer}
         onUpdateWofRecord={updateWofRecord}
+        onDeleteWofRecord={deleteWofRecord}
         onCreateWofRecord={createWofRecordRow}
         onCreatePartsService={createPartsService}
         onUpdatePartsService={updatePartsService}
@@ -115,16 +163,32 @@ export function JobDetailPage() {
         onUpdatePaintPanels={updatePaintPanels}
         onDeletePaintService={deletePaintService}
         onRefreshPaintService={refreshPaintService}
-        onDeleteJob={deleteJob}
+        onCreateXeroInvoice={createJobXeroDraftInvoice}
+        isCreatingXeroInvoice={creatingXeroInvoice}
+        onAttachXeroInvoice={attachJobXeroInvoice}
+        isAttachingXeroInvoice={attachingXeroInvoice}
+        onDetachXeroInvoice={detachJobXeroInvoice}
+        isDetachingXeroInvoice={detachingXeroInvoice}
+        onArchiveJob={archiveJob}
+        isArchivingJob={archivingJob}
+        onDeleteJob={openDeleteModal}
         isDeletingJob={deletingJob}
         tagOptions={tagOptions}
         onSaveTags={saveTags}
         onSaveNotes={saveJobNotes}
         onRefreshVehicle={refreshVehicleInfo}
         onSaveVehicle={saveVehicleInfo}
-        onSaveCustomer={saveCustomerInfo}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+      />
+      <DeleteJobDialog
+        open={deleteModalOpen}
+        isDeleting={deletingJob}
+        phase={deleteModalPhase}
+        errorMessage={deleteModalError}
+        steps={deleteSteps}
+        onConfirm={() => void confirmDelete()}
+        onClose={closeDeleteModal}
       />
     </div>
   );
@@ -138,6 +202,7 @@ function isJobDetailTab(value: string | null): value is JobDetailTabKey {
     value === "Paint" ||
     value === "Worklog" ||
     value === "Log" ||
-    value === "Invoice"
+    value === "Invoice" ||
+    value === "PO"
   );
 }
