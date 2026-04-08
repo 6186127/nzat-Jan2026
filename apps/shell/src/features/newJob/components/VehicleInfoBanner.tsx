@@ -31,6 +31,8 @@ export function VehicleInfoBanner({ info }: VehicleInfoBannerProps) {
           <div>
             <span className="text-[rgba(0,0,0,0.55)] ml-2 ">VIN：</span>
             {info.vin || "—"}
+            <span className="text-[rgba(0,0,0,0.55)] ml-4 ">WOF Expiry Day：</span>
+            {info.wofExpiry || "—"}
           </div>
           
         </div>

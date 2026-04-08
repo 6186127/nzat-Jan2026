@@ -13,11 +13,16 @@ public class VehiclesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly CarjamScraper _scraper;
+    private readonly NztaExpiryLookupService _nztaExpiryLookupService;
 
-    public VehiclesController(AppDbContext db, CarjamScraper scraper)
+    public VehiclesController(
+        AppDbContext db,
+        CarjamScraper scraper,
+        NztaExpiryLookupService nztaExpiryLookupService)
     {
         _db = db;
         _scraper = scraper;
+        _nztaExpiryLookupService = nztaExpiryLookupService;
     }
 
     // [HttpPost("import-by-plate")]
@@ -69,11 +74,22 @@ public class VehiclesController : ControllerBase
 
         var normalized = NormalizePlate(plate);
         var vehicle = await _db.Vehicles
-            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Plate == normalized, ct);
 
         if (vehicle is null)
             return NotFound(new { error = "Vehicle not found." });
+
+        if (vehicle.WofExpiry is null)
+        {
+            var nztaExpiry = await _nztaExpiryLookupService.LookupInspectionExpiryAsync(normalized, ct);
+            if (nztaExpiry.ExpiryDate is not null &&
+                !string.Equals(nztaExpiry.InspectionType, "COF", StringComparison.OrdinalIgnoreCase))
+            {
+                vehicle.WofExpiry = nztaExpiry.ExpiryDate;
+                vehicle.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
 
         var latestJobCustomer = await (
                 from j in _db.Jobs.AsNoTracking()
@@ -135,6 +151,7 @@ public class VehiclesController : ControllerBase
                 vehicle.FuelType,
                 vehicle.BodyStyle,
                 vehicle.NzFirstRegistration,
+                vehicle.WofExpiry,
                 vehicle.Odometer,
                 vehicle.UpdatedAt
             },

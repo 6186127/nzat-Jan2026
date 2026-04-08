@@ -22,17 +22,20 @@ public class NewJobController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IAppCache _cache;
     private readonly InvoiceOutboxService _invoiceOutboxService;
+    private readonly NztaExpiryLookupService _nztaExpiryLookupService;
     private readonly ILogger<NewJobController> _logger;
 
     public NewJobController(
         AppDbContext db,
         IAppCache cache,
         InvoiceOutboxService invoiceOutboxService,
+        NztaExpiryLookupService nztaExpiryLookupService,
         ILogger<NewJobController> logger)
     {
         _db = db;
         _cache = cache;
         _invoiceOutboxService = invoiceOutboxService;
+        _nztaExpiryLookupService = nztaExpiryLookupService;
         _logger = logger;
     }
 
@@ -76,6 +79,40 @@ public class NewJobController : ControllerBase
                 req.Plate);
         }
 
+        var plate = NormalizePlate(req.Plate);
+        NztaExpiryLookupResult? nztaExpiry = null;
+        var nztaExpiryStopwatch = Stopwatch.StartNew();
+        try
+        {
+            nztaExpiry = await _nztaExpiryLookupService.LookupInspectionExpiryAsync(plate, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        finally
+        {
+            nztaExpiryStopwatch.Stop();
+        }
+
+        if (nztaExpiry?.ExpiryDate is not null)
+        {
+            _logger.LogInformation(
+                "New job NZTA {InspectionType} expiry lookup completed in {ElapsedMs} ms for plate {Plate}: {ExpiryDate}",
+                nztaExpiry.InspectionType ?? "inspection",
+                nztaExpiryStopwatch.Elapsed.TotalMilliseconds,
+                plate,
+                nztaExpiry.ExpiryDate);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "New job NZTA expiry lookup did not return a WOF/COF expiry in {ElapsedMs} ms for plate {Plate}: {Error}",
+                nztaExpiryStopwatch.Elapsed.TotalMilliseconds,
+                plate,
+                nztaExpiry?.Error ?? "unknown error");
+        }
+
         var now = DateTime.UtcNow;
         var transactionStopwatch = Stopwatch.StartNew();
         using var tx = await _db.Database.BeginTransactionAsync(ct);
@@ -105,7 +142,6 @@ public class NewJobController : ControllerBase
                 businessCustomer.Notes = customerNotes;
             }
         }
-        var plate = NormalizePlate(req.Plate);
         var vehicle = await _db.Vehicles.FirstOrDefaultAsync(x => x.Plate == plate, ct);
 
         if (vehicle is null)
@@ -116,6 +152,16 @@ public class NewJobController : ControllerBase
                 Customer = customer,
                 UpdatedAt = now,
             };
+            ApplyNztaInspectionExpiry(vehicle, nztaExpiry, now);
+        }
+        else if (ApplyNztaInspectionExpiry(vehicle, nztaExpiry, now))
+        {
+            _logger.LogInformation(
+                "Vehicle {VehicleId} {InspectionType} expiry updated from NZTA for plate {Plate}: {ExpiryDate}",
+                vehicle.Id,
+                nztaExpiry?.InspectionType ?? "inspection",
+                plate,
+                nztaExpiry?.ExpiryDate);
         }
 
         var job = new Job
@@ -519,6 +565,22 @@ public class NewJobController : ControllerBase
 
     private static string NormalizePlate(string plate)
         => new string(plate.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+    private static bool ApplyNztaInspectionExpiry(Vehicle vehicle, NztaExpiryLookupResult? nztaExpiry, DateTime now)
+    {
+        if (nztaExpiry?.ExpiryDate is null)
+            return false;
+
+        if (string.Equals(nztaExpiry.InspectionType, "COF", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (vehicle.WofExpiry == nztaExpiry.ExpiryDate)
+            return false;
+
+        vehicle.WofExpiry = nztaExpiry.ExpiryDate;
+        vehicle.UpdatedAt = now;
+        return true;
+    }
 
     private sealed record SelectedServiceCatalogItems(
         IReadOnlyList<ServiceCatalogItem> RootItems,

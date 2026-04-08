@@ -12,6 +12,7 @@ export type VehicleInfo = {
   vin?: string;
   fuelType?: string;
   nzFirstRegistration?: string;
+  wofExpiry?: string;
 };
 
 export type ServiceOption = {

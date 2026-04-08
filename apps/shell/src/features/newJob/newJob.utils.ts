@@ -22,6 +22,7 @@ export function extractVehicleInfo(payload: unknown): VehicleInfo {
       vin?: unknown;
       fuelType?: unknown;
       nzFirstRegistration?: unknown;
+      wofExpiry?: unknown;
     };
   } | null;
   const make = data?.vehicle?.make ? String(data.vehicle.make) : "";
@@ -37,6 +38,7 @@ export function extractVehicleInfo(payload: unknown): VehicleInfo {
   const nzFirstRegistration = data?.vehicle?.nzFirstRegistration
     ? String(data.vehicle.nzFirstRegistration)
     : "";
+  const wofExpiry = data?.vehicle?.wofExpiry ? String(data.vehicle.wofExpiry) : "";
 
   return {
     model: [make, model].filter(Boolean).join(" "),
@@ -45,5 +47,6 @@ export function extractVehicleInfo(payload: unknown): VehicleInfo {
     vin: vin || undefined,
     fuelType: fuelType || undefined,
     nzFirstRegistration: nzFirstRegistration || undefined,
+    wofExpiry: wofExpiry || undefined,
   };
 }

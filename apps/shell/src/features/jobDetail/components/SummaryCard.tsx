@@ -151,8 +151,11 @@ export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle
             </p>
             <p className="text-sm text-[var(--ds-muted)]">{vehicle.vin}</p>
           
-             <p className="text-sm text-[var(--ds-muted)]">
+            <p className="text-sm text-[var(--ds-muted)]">
               NZ First Registration: {vehicle.nzFirstRegistration}
+            </p>
+            <p className="text-sm text-[var(--ds-muted)]">
+              WOF Expiry Day: {vehicle.wofExpiry || "—"}
             </p>
           </div>
         </div>
