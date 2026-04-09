@@ -18,11 +18,13 @@ public class CustomersController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly IAppCache _cache;
+    private readonly ReferenceDataCacheService _referenceDataCache;
 
-    public CustomersController(AppDbContext db, IAppCache cache)
+    public CustomersController(AppDbContext db, IAppCache cache, ReferenceDataCacheService referenceDataCache)
     {
         _db = db;
         _cache = cache;
+        _referenceDataCache = referenceDataCache;
     }
 
     public record CustomerStaffUpsertRequest(
@@ -328,26 +330,25 @@ public class CustomersController : ControllerBase
         List<CustomerServicePriceResponse> servicePrices;
         try
         {
-            servicePrices = await (
-                    from price in _db.CustomerServicePrices.AsNoTracking()
-                    where price.CustomerId == id
-                    join service in _db.ServiceCatalogItems.AsNoTracking()
-                        on price.ServiceCatalogItemId equals service.Id into serviceGroup
-                    from service in serviceGroup.DefaultIfEmpty()
-                    join inventory in _db.InventoryItems.AsNoTracking()
-                        on price.XeroItemCode equals inventory.ItemCode into inventoryGroup
-                    from inventory in inventoryGroup.DefaultIfEmpty()
-                    orderby price.Id
-                    select new CustomerServicePriceResponse(
-                        price.Id.ToString(CultureInfo.InvariantCulture),
-                        price.ServiceCatalogItemId.ToString(CultureInfo.InvariantCulture),
-                        service != null ? service.Name : "",
-                        price.XeroItemCode,
-                        inventory != null ? inventory.SalesUnitPrice : null,
-                        price.IsActive
-                    )
-                )
-                .ToListAsync(ct);
+            var cachedPrices = await _referenceDataCache.GetCustomerServicePricesAsync(id, ct);
+            var serviceById = await _referenceDataCache.GetServiceCatalogItemsByIdsAsync(
+                cachedPrices.Select(x => x.ServiceCatalogItemId),
+                ct);
+            var inventoryByCode = await _referenceDataCache.GetInventoryByCodesAsync(
+                cachedPrices.Select(x => x.XeroItemCode),
+                ct);
+
+            servicePrices = cachedPrices
+                .OrderBy(x => x.Id)
+                .Select(price => new CustomerServicePriceResponse(
+                    price.Id.ToString(CultureInfo.InvariantCulture),
+                    price.ServiceCatalogItemId.ToString(CultureInfo.InvariantCulture),
+                    serviceById.TryGetValue(price.ServiceCatalogItemId, out var service) ? service.Name : "",
+                    price.XeroItemCode,
+                    inventoryByCode.TryGetValue(price.XeroItemCode, out var inventory) ? inventory.SalesUnitPrice : null,
+                    price.IsActive
+                ))
+                .ToList();
         }
         catch (PostgresException ex) when (ex.SqlState == "42P01")
         {
@@ -391,6 +392,7 @@ public class CustomersController : ControllerBase
     {
         await _cache.RemoveAsync(CustomerListCacheKey, ct);
         await _cache.RemoveAsync(GetCustomerProfileCacheKey(customerId), ct);
+        await _referenceDataCache.InvalidateCustomerServicePricesAsync(customerId, ct);
     }
 
     private static string GetCustomerProfileCacheKey(long customerId)
@@ -469,22 +471,17 @@ public class CustomersController : ControllerBase
             .Distinct()
             .ToArray();
 
-        var validServiceIds = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => serviceIds.Contains(x.Id))
-            .Select(x => x.Id)
-            .ToListAsync(ct);
-
-        var validServiceIdSet = validServiceIds.ToHashSet();
+        var validServiceIdSet = (await _referenceDataCache.GetServiceCatalogItemsByIdsAsync(serviceIds, ct))
+            .Keys
+            .ToHashSet();
         var itemCodes = cleaned
             .Select(x => (x.XeroItemCode ?? "").Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var validItemCodes = await _db.InventoryItems.AsNoTracking()
-            .Where(x => itemCodes.Contains(x.ItemCode))
-            .Select(x => x.ItemCode)
-            .ToListAsync(ct);
-        var validItemCodeSet = validItemCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var validItemCodeSet = (await _referenceDataCache.GetInventoryByCodesAsync(itemCodes, ct))
+            .Keys
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var normalized = new List<CustomerServicePrice>();
         foreach (var row in cleaned)

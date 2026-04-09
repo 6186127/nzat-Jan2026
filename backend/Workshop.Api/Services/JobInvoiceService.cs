@@ -13,6 +13,7 @@ public sealed class JobInvoiceService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly AppDbContext _db;
+    private readonly ReferenceDataCacheService _referenceDataCache;
     private readonly XeroInvoiceService _xeroInvoiceService;
     private readonly XeroPaymentService _xeroPaymentService;
     private readonly XeroPaymentOptions _xeroPaymentOptions;
@@ -20,12 +21,14 @@ public sealed class JobInvoiceService
 
     public JobInvoiceService(
         AppDbContext db,
+        ReferenceDataCacheService referenceDataCache,
         XeroInvoiceService xeroInvoiceService,
         XeroPaymentService xeroPaymentService,
         Microsoft.Extensions.Options.IOptions<XeroPaymentOptions> xeroPaymentOptions,
         ILogger<JobInvoiceService> logger)
     {
         _db = db;
+        _referenceDataCache = referenceDataCache;
         _xeroInvoiceService = xeroInvoiceService;
         _xeroPaymentService = xeroPaymentService;
         _xeroPaymentOptions = xeroPaymentOptions.Value;
@@ -452,10 +455,10 @@ public sealed class JobInvoiceService
             .ThenBy(x => x.Id)
             .ToListAsync(ct);
 
-        var wofSelectionIds = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => x.ServiceType == "wof")
+        var wofSelectionIds = (await _referenceDataCache.GetServiceCatalogItemsAsync(ct))
+            .Where(x => string.Equals(x.ServiceType, "wof", StringComparison.OrdinalIgnoreCase))
             .Select(x => x.Id)
-            .ToListAsync(ct);
+            .ToHashSet();
 
         var wofSelections = serviceSelections
             .Where(x => wofSelectionIds.Contains(x.ServiceCatalogItemId))
@@ -1106,14 +1109,9 @@ public sealed class JobInvoiceService
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
 
-        var catalogItemsById = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => selectionIds.Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, ct);
-        var overrideByServiceId = (await _db.CustomerServicePrices.AsNoTracking()
-            .Where(x => x.CustomerId == customer.Id && x.IsActive && selectionIds.Contains(x.ServiceCatalogItemId))
-            .OrderByDescending(x => x.UpdatedAt)
-            .ThenByDescending(x => x.Id)
-            .ToListAsync(ct))
+        var catalogItemsById = await _referenceDataCache.GetServiceCatalogItemsByIdsAsync(selectionIds, ct);
+        var overrideByServiceId = (await _referenceDataCache.GetCustomerServicePricesAsync(customer.Id, ct))
+            .Where(x => x.IsActive && selectionIds.Contains(x.ServiceCatalogItemId))
             .GroupBy(x => x.ServiceCatalogItemId)
             .ToDictionary(x => x.Key, x => x.First().XeroItemCode.Trim());
 
@@ -1144,13 +1142,7 @@ public sealed class JobInvoiceService
         if (normalizedCodes.Length == 0)
             return new Dictionary<string, InventoryItem>(StringComparer.OrdinalIgnoreCase);
 
-        var matchedInventoryItems = await _db.InventoryItems.AsNoTracking()
-            .Where(x => normalizedCodes.Contains(x.ItemCode))
-            .ToListAsync(ct);
-
-        return matchedInventoryItems
-            .GroupBy(x => x.ItemCode, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+        return await _referenceDataCache.GetInventoryByCodesAsync(normalizedCodes, ct);
     }
 
     private static List<XeroInvoiceLineItemInput> BuildCatalogMappedServiceLineItems(

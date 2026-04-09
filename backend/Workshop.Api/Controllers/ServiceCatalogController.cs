@@ -12,11 +12,16 @@ public class ServiceCatalogController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ServiceCatalogService _serviceCatalogService;
+    private readonly ReferenceDataCacheService _referenceDataCache;
 
-    public ServiceCatalogController(AppDbContext db, ServiceCatalogService serviceCatalogService)
+    public ServiceCatalogController(
+        AppDbContext db,
+        ServiceCatalogService serviceCatalogService,
+        ReferenceDataCacheService referenceDataCache)
     {
         _db = db;
         _serviceCatalogService = serviceCatalogService;
+        _referenceDataCache = referenceDataCache;
     }
 
     public sealed record ServiceCatalogUpsertRequest(
@@ -34,11 +39,7 @@ public class ServiceCatalogController : ControllerBase
     {
         await _serviceCatalogService.EnsureSeededAsync(ct);
 
-        var rows = await _db.ServiceCatalogItems.AsNoTracking()
-            .OrderBy(x => x.Category)
-            .ThenBy(x => x.SortOrder)
-            .ThenBy(x => x.Id)
-            .ToListAsync(ct);
+        var rows = await _referenceDataCache.GetServiceCatalogItemsAsync(ct);
 
         return Ok(new
         {
@@ -79,6 +80,7 @@ public class ServiceCatalogController : ControllerBase
 
         _db.ServiceCatalogItems.Add(row);
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateServiceCatalogAsync(ct);
         return Ok(ToResponse(row));
     }
 
@@ -110,6 +112,7 @@ public class ServiceCatalogController : ControllerBase
         row.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateServiceCatalogAsync(ct);
         return Ok(ToResponse(row));
     }
 
@@ -126,6 +129,7 @@ public class ServiceCatalogController : ControllerBase
 
         _db.ServiceCatalogItems.Remove(row);
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateServiceCatalogAsync(ct);
         return Ok(new { success = true });
     }
 

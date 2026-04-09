@@ -12,11 +12,16 @@ public class InventoryItemsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly InventoryItemService _inventoryItemService;
+    private readonly ReferenceDataCacheService _referenceDataCache;
 
-    public InventoryItemsController(AppDbContext db, InventoryItemService inventoryItemService)
+    public InventoryItemsController(
+        AppDbContext db,
+        InventoryItemService inventoryItemService,
+        ReferenceDataCacheService referenceDataCache)
     {
         _db = db;
         _inventoryItemService = inventoryItemService;
+        _referenceDataCache = referenceDataCache;
     }
 
     [HttpGet]
@@ -45,20 +50,14 @@ public class InventoryItemsController : ControllerBase
     public async Task<IActionResult> List([FromQuery] string? query, CancellationToken ct)
     {
         var search = query?.Trim();
-        var itemsQuery = _db.InventoryItems.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var pattern = $"%{search}%";
-            itemsQuery = itemsQuery.Where(x =>
-                EF.Functions.ILike(x.ItemCode, pattern) ||
-                EF.Functions.ILike(x.ItemName, pattern) ||
-                EF.Functions.ILike(x.SalesDescription ?? "", pattern) ||
-                EF.Functions.ILike(x.PurchasesDescription ?? "", pattern) ||
-                EF.Functions.ILike(x.Status, pattern));
-        }
-
-        var items = await itemsQuery
+        var items = (await _referenceDataCache.GetInventoryItemsAsync(ct))
+            .Where(x =>
+                string.IsNullOrWhiteSpace(search) ||
+                ContainsIgnoreCase(x.ItemCode, search) ||
+                ContainsIgnoreCase(x.ItemName, search) ||
+                ContainsIgnoreCase(x.SalesDescription, search) ||
+                ContainsIgnoreCase(x.PurchasesDescription, search) ||
+                ContainsIgnoreCase(x.Status, search))
             .OrderBy(x => x.ItemCode)
             .Select(x => new InventoryItemManageDto(
                 x.Id,
@@ -79,7 +78,7 @@ public class InventoryItemsController : ControllerBase
                 x.InventoryType,
                 x.CreatedAt,
                 x.UpdatedAt))
-            .ToListAsync(ct);
+            .ToList();
 
         return Ok(items);
     }
@@ -120,6 +119,7 @@ public class InventoryItemsController : ControllerBase
 
         _db.InventoryItems.Add(entity);
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateInventoryAsync(ct);
 
         return Created($"/api/inventory-items/manage/{entity.Id}", MapManageDto(entity));
     }
@@ -159,6 +159,7 @@ public class InventoryItemsController : ControllerBase
         entity.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateInventoryAsync(ct);
         return Ok(MapManageDto(entity));
     }
 
@@ -228,6 +229,11 @@ public class InventoryItemsController : ControllerBase
             x.InventoryType,
             x.CreatedAt,
             x.UpdatedAt);
+
+    private static bool ContainsIgnoreCase(string? source, string? value)
+        => !string.IsNullOrWhiteSpace(source)
+           && !string.IsNullOrWhiteSpace(value)
+           && source.Contains(value, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record UpsertInventoryItemRequest(

@@ -28,18 +28,14 @@ var redisConfiguration =
     builder.Configuration.GetConnectionString("Redis")
     ?? builder.Configuration["Redis:Configuration"];
 var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "workshop-api:";
-if (!string.IsNullOrWhiteSpace(redisConfiguration))
+if (string.IsNullOrWhiteSpace(redisConfiguration))
+    throw new InvalidOperationException("Missing Redis configuration. Set ConnectionStrings:Redis or Redis:Configuration.");
+
+builder.Services.AddStackExchangeRedisCache(options =>
 {
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = redisConfiguration;
-        options.InstanceName = redisInstanceName;
-    });
-}
-else
-{
-    builder.Services.AddDistributedMemoryCache();
-}
+    options.Configuration = redisConfiguration;
+    options.InstanceName = redisInstanceName;
+});
 builder.Services.AddHttpClient();
 builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
 builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
@@ -121,6 +117,7 @@ builder.Services.AddScoped<PartsServicesService>();
 builder.Services.AddScoped<NztaExpiryLookupService>();
 builder.Services.AddSingleton<NztaExpiryBackfillService>();
 builder.Services.AddSingleton<IAppCache, DistributedAppCache>();
+builder.Services.AddScoped<ReferenceDataCacheService>();
 builder.Services.AddScoped<InventoryItemService>();
 builder.Services.AddScoped<ServiceCatalogService>();
 builder.Services.AddScoped<XeroTokenConfiguration>();

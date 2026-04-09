@@ -21,6 +21,7 @@ public class NewJobController : ControllerBase
 
     private readonly AppDbContext _db;
     private readonly IAppCache _cache;
+    private readonly ReferenceDataCacheService _referenceDataCache;
     private readonly InvoiceOutboxService _invoiceOutboxService;
     private readonly InvoiceOutboxKickService _invoiceOutboxKickService;
     private readonly NztaExpiryBackfillService _nztaExpiryBackfillService;
@@ -29,6 +30,7 @@ public class NewJobController : ControllerBase
     public NewJobController(
         AppDbContext db,
         IAppCache cache,
+        ReferenceDataCacheService referenceDataCache,
         InvoiceOutboxService invoiceOutboxService,
         InvoiceOutboxKickService invoiceOutboxKickService,
         NztaExpiryBackfillService nztaExpiryBackfillService,
@@ -36,6 +38,7 @@ public class NewJobController : ControllerBase
     {
         _db = db;
         _cache = cache;
+        _referenceDataCache = referenceDataCache;
         _invoiceOutboxService = invoiceOutboxService;
         _invoiceOutboxKickService = invoiceOutboxKickService;
         _nztaExpiryBackfillService = nztaExpiryBackfillService;
@@ -443,9 +446,7 @@ public class NewJobController : ControllerBase
         if (requestedIds.Length == 0)
             return new SelectedServiceCatalogItems([], [], [], []);
 
-        var items = await _db.ServiceCatalogItems.AsNoTracking()
-            .Where(x => requestedIds.Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, ct);
+        var items = await _referenceDataCache.GetServiceCatalogItemsByIdsAsync(requestedIds, ct);
 
         List<ServiceCatalogItem> MapIds(IEnumerable<long> ids, string category, string? serviceType, string label)
         {
