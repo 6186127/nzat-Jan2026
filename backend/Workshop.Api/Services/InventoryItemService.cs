@@ -21,19 +21,22 @@ public sealed class InventoryItemService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly XeroTokenService _xeroTokenService;
     private readonly XeroTokenStore _xeroTokenStore;
+    private readonly ReferenceDataCacheService _referenceDataCache;
 
     public InventoryItemService(
         AppDbContext db,
         IOptions<InventoryItemOptions> options,
         IHttpClientFactory httpClientFactory,
         XeroTokenService xeroTokenService,
-        XeroTokenStore xeroTokenStore)
+        XeroTokenStore xeroTokenStore,
+        ReferenceDataCacheService referenceDataCache)
     {
         _db = db;
         _options = options.Value;
         _httpClientFactory = httpClientFactory;
         _xeroTokenService = xeroTokenService;
         _xeroTokenStore = xeroTokenStore;
+        _referenceDataCache = referenceDataCache;
     }
 
     public async Task<List<InventoryItemLookupDto>> SearchAsync(string? query, int limit, CancellationToken ct)
@@ -41,14 +44,16 @@ public sealed class InventoryItemService
         var normalized = query?.Trim();
         var resolvedLimit = Math.Clamp(limit, 1, 50);
 
-        var items = _db.InventoryItems.AsNoTracking()
-            .Where(x => string.IsNullOrWhiteSpace(normalized) ||
-                        EF.Functions.ILike(x.ItemCode, $"%{normalized}%") ||
-                        EF.Functions.ILike(x.ItemName, $"%{normalized}%") ||
-                        (x.SalesDescription != null && EF.Functions.ILike(x.SalesDescription, $"%{normalized}%")) ||
-                        (x.PurchasesDescription != null && EF.Functions.ILike(x.PurchasesDescription, $"%{normalized}%")));
+        var items = await _referenceDataCache.GetInventoryItemsAsync(ct);
+        var filtered = items
+            .Where(x =>
+                string.IsNullOrWhiteSpace(normalized) ||
+                ContainsIgnoreCase(x.ItemCode, normalized) ||
+                ContainsIgnoreCase(x.ItemName, normalized) ||
+                ContainsIgnoreCase(x.SalesDescription, normalized) ||
+                ContainsIgnoreCase(x.PurchasesDescription, normalized));
 
-        return await items
+        return filtered
             .OrderBy(x => x.ItemCode)
             .Take(resolvedLimit)
             .Select(x => new InventoryItemLookupDto
@@ -61,7 +66,7 @@ public sealed class InventoryItemService
                 TaxRate = x.SalesTaxRate ?? x.PurchasesTaxRate ?? "No GST",
                 Status = x.Status,
             })
-            .ToListAsync(ct);
+            .ToList();
     }
 
     public async Task<InventoryItemImportResult> ImportFromConfiguredFileAsync(CancellationToken ct)
@@ -152,6 +157,7 @@ public sealed class InventoryItemService
         await _db.InventoryItems.ExecuteDeleteAsync(ct);
         await _db.InventoryItems.AddRangeAsync(imported, ct);
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateInventoryAsync(ct);
         await UpsertSyncStateAsync(syncedAt, $"Synced {imported.Count} item(s) from Xero.", null, ct);
         await tx.CommitAsync(ct);
 
@@ -224,6 +230,7 @@ public sealed class InventoryItemService
         await _db.InventoryItems.ExecuteDeleteAsync(ct);
         await _db.InventoryItems.AddRangeAsync(imported, ct);
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateInventoryAsync(ct);
         await tx.CommitAsync(ct);
 
         return InventoryItemImportResult.Success(imported.Count, path);
@@ -244,6 +251,11 @@ public sealed class InventoryItemService
 
     private static string? NullIfWhiteSpace(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool ContainsIgnoreCase(string? source, string? value)
+        => !string.IsNullOrWhiteSpace(source)
+           && !string.IsNullOrWhiteSpace(value)
+           && source.Contains(value, StringComparison.OrdinalIgnoreCase);
 
     private async Task UpsertSyncStateAsync(DateTime? lastSyncedAt, string? lastResult, string? lastError, CancellationToken ct)
     {

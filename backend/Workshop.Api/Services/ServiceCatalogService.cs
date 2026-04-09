@@ -7,10 +7,12 @@ namespace Workshop.Api.Services;
 public class ServiceCatalogService
 {
     private readonly AppDbContext _db;
+    private readonly ReferenceDataCacheService _referenceDataCache;
 
-    public ServiceCatalogService(AppDbContext db)
+    public ServiceCatalogService(AppDbContext db, ReferenceDataCacheService referenceDataCache)
     {
         _db = db;
+        _referenceDataCache = referenceDataCache;
     }
 
     public async Task EnsureSeededAsync(CancellationToken ct)
@@ -116,5 +118,6 @@ public class ServiceCatalogService
         );
 
         await _db.SaveChangesAsync(ct);
+        await _referenceDataCache.InvalidateServiceCatalogAsync(ct);
     }
 }

@@ -14,6 +14,13 @@ services:
       - db_data:/var/lib/postgresql/data
       - /www/wwwroot/NZAT.NET/db/init:/docker-entrypoint-initdb.d:ro
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
   api:
     image: ghcr.io/lynn61liu/nzat-api:latest
     restart: unless-stopped
@@ -23,6 +30,8 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: ${DB_CONN_STRING}
       ConnectionStrings__Carjam: ${DB_CONN_STRING}
+      ConnectionStrings__Redis: ${REDIS_CONN_STRING}
+      Redis__InstanceName: ${REDIS_INSTANCE_NAME:-workshop-api:}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       Gmail__ClientId: ${GMAIL_CLIENT_ID}
       Gmail__ClientSecret: ${GMAIL_CLIENT_SECRET}
@@ -42,6 +51,7 @@ services:
       XeroPolling__Enabled: ${XERO_POLLING_ENABLED:-true}
     depends_on:
       - db
+      - redis
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
@@ -58,3 +68,4 @@ services:
 volumes:
   db_data:
   api_data:
+  redis_data:

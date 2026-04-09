@@ -28,18 +28,14 @@ var redisConfiguration =
     builder.Configuration.GetConnectionString("Redis")
     ?? builder.Configuration["Redis:Configuration"];
 var redisInstanceName = builder.Configuration["Redis:InstanceName"] ?? "workshop-api:";
-if (!string.IsNullOrWhiteSpace(redisConfiguration))
+if (string.IsNullOrWhiteSpace(redisConfiguration))
+    throw new InvalidOperationException("Missing Redis configuration. Set ConnectionStrings:Redis or Redis:Configuration.");
+
+builder.Services.AddStackExchangeRedisCache(options =>
 {
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = redisConfiguration;
-        options.InstanceName = redisInstanceName;
-    });
-}
-else
-{
-    builder.Services.AddDistributedMemoryCache();
-}
+    options.Configuration = redisConfiguration;
+    options.InstanceName = redisInstanceName;
+});
 builder.Services.AddHttpClient();
 builder.Services.Configure<XeroOptions>(builder.Configuration.GetSection(XeroOptions.SectionName));
 builder.Services.Configure<GmailOptions>(builder.Configuration.GetSection(GmailOptions.SectionName));
@@ -119,7 +115,9 @@ builder.Services.AddScoped<WofRecordsService>();
 builder.Services.AddScoped<WofPrintService>();
 builder.Services.AddScoped<PartsServicesService>();
 builder.Services.AddScoped<NztaExpiryLookupService>();
+builder.Services.AddSingleton<NztaExpiryBackfillService>();
 builder.Services.AddSingleton<IAppCache, DistributedAppCache>();
+builder.Services.AddScoped<ReferenceDataCacheService>();
 builder.Services.AddScoped<InventoryItemService>();
 builder.Services.AddScoped<ServiceCatalogService>();
 builder.Services.AddScoped<XeroTokenConfiguration>();
@@ -129,8 +127,10 @@ builder.Services.AddScoped<XeroInvoiceService>();
 builder.Services.AddScoped<XeroPaymentService>();
 builder.Services.AddScoped<JobInvoiceService>();
 builder.Services.AddScoped<InvoiceOutboxService>();
+builder.Services.AddSingleton<InvoiceOutboxKickService>();
 builder.Services.AddScoped<GmailAccountService>();
 builder.Services.AddScoped<GmailTokenService>();
+builder.Services.AddScoped<GmailMessageSenderService>();
 builder.Services.AddScoped<GmailThreadSyncService>();
 builder.Services.AddScoped<BusinessHoursService>();
 builder.Services.AddScoped<JobPoStateService>();
