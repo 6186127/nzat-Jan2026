@@ -7,11 +7,35 @@ export type ApiResult<T> = {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+function isLoopbackHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function getEffectiveApiBase() {
+  if (!API_BASE || typeof window === "undefined") return API_BASE;
+
+  try {
+    const configuredUrl = new URL(API_BASE, window.location.origin);
+    const currentHost = window.location.hostname;
+
+    // A stale build-time localhost API base breaks deployed pages. When that
+    // happens, fall back to same-origin /api requests routed by Nginx.
+    if (!isLoopbackHost(currentHost) && isLoopbackHost(configuredUrl.hostname)) {
+      return "";
+    }
+  } catch {
+    return API_BASE;
+  }
+
+  return API_BASE;
+}
+
 export function withApiBase(url: string) {
-  if (!API_BASE) return url;
+  const effectiveApiBase = getEffectiveApiBase();
+  if (!effectiveApiBase) return url;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${API_BASE}${url}`;
-  return `${API_BASE}/${url}`;
+  if (url.startsWith("/")) return `${effectiveApiBase}${url}`;
+  return `${effectiveApiBase}/${url}`;
 }
 
 export async function requestJson<T>(url: string, options?: RequestInit): Promise<ApiResult<T>> {

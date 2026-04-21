@@ -170,11 +170,9 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
-    
-    // 注意：如果 Eric 的 ProcurementDbContext 也需要自动执行 Migration，
-    // 可以在这里添加：
-    // var procurementDb = scope.ServiceProvider.GetRequiredService<ProcurementDbContext>();
-    // procurementDb.Database.Migrate();
+
+    var procurementDb = scope.ServiceProvider.GetRequiredService<ProcurementDbContext>();
+    procurementDb.Database.Migrate();
 }
 
 if (app.Environment.IsDevelopment())
