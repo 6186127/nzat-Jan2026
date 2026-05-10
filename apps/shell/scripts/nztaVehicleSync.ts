@@ -37,6 +37,7 @@ const BROWSER_PROFILE_DIR = path.resolve(
 const RECAPTCHA_READY_TIMEOUT_MS = 45000;
 const RECAPTCHA_READY_POLL_MS = 500;
 const MANUAL_WARMUP_TIMEOUT_MS = 180000;
+const SKIPPED_PLATE_PATTERNS = ["AB980", "NCZ326", "756", "MPE194", "NWM435", "NPP113", "PAT359"] as const;
 
 type PendingVehicle = {
   id: number;
@@ -153,7 +154,7 @@ async function main() {
         break;
 
       }
-      if (vehicle.plate.length > 8 || vehicle.plate.includes("AB980") || vehicle.plate.includes("MPE194") || vehicle.plate.includes("NWM435")) {
+      if (vehicle.plate.length > 8 || SKIPPED_PLATE_PATTERNS.some((pattern) => vehicle.plate.includes(pattern))) {
         log(`Skipping vehicle id==${vehicle.id} with invalid plate length (${vehicle.plate.length} chars): ${vehicle.plate}`);
         attemptedIds.add(vehicle.id);
         continue;
