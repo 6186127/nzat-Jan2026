@@ -153,24 +153,26 @@ export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSideb
           </div>
 
           <div>
-            <button
-              onClick={() => setCustomerExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between rounded-[10px] border border-[var(--ds-border)] bg-[rgba(0,0,0,0.02)] px-3 py-3 hover:bg-[rgba(0,0,0,0.04)]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-[10px] bg-[var(--ds-border)] flex items-center justify-center">
-                  <User className="h-4 w-4 text-[var(--ds-primary)]" />
+            <div className="rounded-[10px] border border-[var(--ds-border)] bg-[rgba(0,0,0,0.02)] px-3 py-3">
+              <button
+                onClick={() => setCustomerExpanded((prev) => !prev)}
+                className="flex w-full min-w-0 items-center justify-between hover:bg-[rgba(0,0,0,0.04)]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-[10px] bg-[var(--ds-border)] flex items-center justify-center">
+                    <User className="h-4 w-4 text-[var(--ds-primary)]" />
+                  </div>
+                  <span className="text-sm font-semibold text-[var(--ds-text)]">
+                    {JOB_DETAIL_TEXT.labels.customerDetails}
+                  </span>
                 </div>
-                <span className="text-sm font-semibold text-[var(--ds-text)]">
-                  {JOB_DETAIL_TEXT.labels.customerDetails}
-                </span>
-              </div>
-              {customerExpanded ? (
-                <ChevronUp className="h-4 w-4 text-[var(--ds-muted)]" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-[var(--ds-muted)]" />
-              )}
-            </button>
+                {customerExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-[var(--ds-muted)]" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-[var(--ds-muted)]" />
+                )}
+              </button>
+            </div>
 
             {customerExpanded ? (
               <div className="mt-3 rounded-[10px] border border-[var(--ds-border)] p-3 space-y-4">
@@ -217,7 +219,7 @@ export function RightSidebar({ vehicle, customer, isOpen, onToggle }: RightSideb
                   </div>
                 ) : null}
 
-                {customer.notes ? (
+                {customer.notes || (isEditingCustomer && customer.type === "Personal") ? (
                   <div className="border-t border-[var(--ds-border)] pt-3">
                     <div className="text-xs font-semibold text-[var(--ds-text)] mb-2">Notes</div>
                     <div className="text-sm text-[var(--ds-muted)] bg-[rgba(255,214,64,0.14)] border border-[rgba(255,214,64,0.45)] rounded-[8px] p-3">

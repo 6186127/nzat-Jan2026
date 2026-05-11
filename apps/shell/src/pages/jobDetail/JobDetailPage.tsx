@@ -77,6 +77,7 @@ export function JobDetailPage() {
     refreshPaintService,
     refreshVehicleInfo,
     saveVehicleInfo,
+    saveCustomerInfo,
   } = useJobDetailData({ jobId: id, activeTab });
 
   const openDeleteModal = () => {
@@ -178,6 +179,7 @@ export function JobDetailPage() {
         onSaveNotes={saveJobNotes}
         onRefreshVehicle={refreshVehicleInfo}
         onSaveVehicle={saveVehicleInfo}
+        onSaveCustomer={saveCustomerInfo}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
       />

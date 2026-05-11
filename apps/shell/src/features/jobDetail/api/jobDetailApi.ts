@@ -63,6 +63,19 @@ export function updateVehicleInfo(
   });
 }
 
+export function updateJobCustomer(
+  jobId: string,
+  payload:
+    | { type: "Business"; customerId: string }
+    | { type: "Personal"; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null }
+) {
+  return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/customer`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createJobXeroDraftInvoice(jobId: string) {
   return requestJson<any>(`/api/jobs/${encodeURIComponent(jobId)}/xero-draft-invoice`, {
     method: "POST",

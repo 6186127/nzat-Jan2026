@@ -18,6 +18,7 @@ import {
   updateJobNotes,
   updateJobTags,
   updateJobStatus,
+  updateJobCustomer,
   updateVehicleInfo,
   deleteJob as apiDeleteJob,
   createJobXeroDraftInvoice as apiCreateJobXeroDraftInvoice,
@@ -886,6 +887,60 @@ export function useJobDetailData({ jobId, activeTab }: UseJobDetailDataArgs) {
     [jobId, toast]
   );
 
+  const saveCustomerInfo = useCallback(
+    async (
+      payload:
+        | { type: "Business"; customerId: string }
+        | { type: "Personal"; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null }
+    ) => {
+      if (!jobId) return { success: false, message: "缺少工单 ID" };
+
+      const res = await updateJobCustomer(jobId, payload);
+      if (!res.ok) {
+        const message = res.error || "保存客户信息失败";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      const nextCustomer = res.data?.customer ?? {};
+      const nextInvoice = res.data?.invoice ?? null;
+      const nextSteps = res.data?.steps;
+      const overallSuccess = typeof res.data?.success === "boolean" ? Boolean(res.data.success) : true;
+      const message = res.data?.message || (overallSuccess ? "客户信息已更新" : "客户信息已更新，但 invoice Contact Name 更新失败");
+      setJobData((prev) =>
+        prev
+          ? {
+              ...prev,
+              customer: {
+                ...prev.customer,
+                ...nextCustomer,
+              },
+              invoice: nextInvoice
+                ? {
+                    ...prev.invoice,
+                    ...nextInvoice,
+                  }
+                : prev.invoice,
+              vehicle:
+                payload.type === "Business"
+                  ? {
+                      ...prev.vehicle,
+                      customerId: Number(nextCustomer.id ?? prev.vehicle.customerId ?? 0) || prev.vehicle.customerId,
+                    }
+                  : prev.vehicle,
+            }
+          : prev
+      );
+      if (overallSuccess) {
+        toast.success("客户信息已更新");
+      } else {
+        toast.error(message);
+      }
+      return { success: overallSuccess, message, customer: nextCustomer, steps: nextSteps, invoice: nextInvoice };
+    },
+    [jobId, toast]
+  );
+
   const loadWofFailReasons = useCallback(async () => {
     const res = await fetchWofFailReasons();
     if (!res.ok) {
@@ -1080,5 +1135,6 @@ export function useJobDetailData({ jobId, activeTab }: UseJobDetailDataArgs) {
     refreshPaintService,
     refreshVehicleInfo,
     saveVehicleInfo,
+    saveCustomerInfo,
   };
 }

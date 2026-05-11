@@ -2018,11 +2018,147 @@ public class JobsController : ControllerBase
         });
     }
 
+    public record UpdateJobCustomerRequest(
+        string? Type,
+        string? CustomerId,
+        string? Name,
+        string? Phone,
+        string? Email,
+        string? Address,
+        string? Notes
+    );
+
+    [HttpPut("{id:long}/customer")]
+    public async Task<IActionResult> UpdateCustomer(long id, [FromBody] UpdateJobCustomerRequest req, CancellationToken ct)
+    {
+        var job = await _db.Jobs
+            .Include(x => x.Vehicle)
+            .Include(x => x.Customer)
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (job is null)
+            return NotFound(new { error = "Job not found." });
+
+        var normalizedType = req.Type?.Trim();
+        if (string.Equals(normalizedType, "Business", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!long.TryParse(req.CustomerId, out var customerId))
+                return BadRequest(new { error = "CustomerId is required." });
+
+            var customer = await _db.Customers.FirstOrDefaultAsync(x => x.Id == customerId, ct);
+            if (customer is null)
+                return NotFound(new { error = "Customer not found." });
+            if (!string.Equals(customer.Type, "Business", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { error = "Selected customer must be Business." });
+
+            var previousCustomerId = job.CustomerId;
+            job.CustomerId = customer.Id;
+            if (job.Vehicle is not null)
+                job.Vehicle.CustomerId = customer.Id;
+            job.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync(ct);
+
+            var replacementStep = new
+            {
+                status = "success",
+                message = "商户关联已更新。"
+            };
+
+            var invoiceContactName = customer.Name?.Trim();
+            var invoiceSync = string.IsNullOrWhiteSpace(invoiceContactName)
+                ? JobInvoiceContactUpdateResult.Skipped("商户名称为空，跳过 invoice Contact Name 更新。")
+                : await _jobInvoiceService.UpdateContactNameForJobAsync(id, invoiceContactName, ct);
+
+            await InvalidateCustomerListCachesAsync(previousCustomerId, customer.Id, ct);
+            await InvalidateJobDetailCachesAsync(id, ct);
+
+            return Ok(new
+            {
+                success = invoiceSync.Ok,
+                message = invoiceSync.Ok ? "客户信息已更新" : "客户信息已更新，但 invoice Contact Name 更新失败",
+                customer = new
+                {
+                    id = customer.Id.ToString(CultureInfo.InvariantCulture),
+                    type = customer.Type,
+                    name = customer.Name,
+                    phone = customer.Phone ?? "",
+                    email = customer.Email ?? "",
+                    address = customer.Address ?? "",
+                    businessCode = customer.BusinessCode ?? "",
+                    accountTerms = "",
+                    discount = "",
+                    notes = customer.Notes ?? ""
+                },
+                invoice = MapInvoice(invoiceSync.Invoice),
+                steps = new
+                {
+                    replacement = replacementStep,
+                    invoice = new
+                    {
+                        status = invoiceSync.Ok ? "success" : "failed",
+                        message = invoiceSync.Ok
+                            ? (invoiceSync.Message ?? "Invoice Contact Name 已更新。")
+                            : (invoiceSync.Error ?? "Invoice Contact Name 更新失败。")
+                    }
+                }
+            });
+        }
+
+        if (string.Equals(normalizedType, "Personal", StringComparison.OrdinalIgnoreCase))
+        {
+            if (job.Customer is null)
+                return BadRequest(new { error = "Job has no customer to update." });
+            if (!string.Equals(job.Customer.Type, "Personal", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { error = "Only Personal customers can be edited directly." });
+            if (string.IsNullOrWhiteSpace(req.Name))
+                return BadRequest(new { error = "Name is required." });
+
+            job.Customer.Name = req.Name.Trim();
+            job.Customer.Phone = req.Phone?.Trim();
+            job.Customer.Email = req.Email?.Trim();
+            job.Customer.Address = req.Address?.Trim();
+            job.Customer.Notes = req.Notes?.Trim();
+            job.UpdatedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync(ct);
+            await InvalidateCustomerListCachesAsync(job.Customer.Id, job.Customer.Id, ct);
+            await InvalidateJobDetailCachesAsync(id, ct);
+
+            return Ok(new
+            {
+                customer = new
+                {
+                    id = job.Customer.Id.ToString(CultureInfo.InvariantCulture),
+                    type = job.Customer.Type,
+                    name = job.Customer.Name,
+                    phone = job.Customer.Phone ?? "",
+                    email = job.Customer.Email ?? "",
+                    address = job.Customer.Address ?? "",
+                    businessCode = job.Customer.BusinessCode ?? "",
+                    accountTerms = "",
+                    discount = "",
+                    notes = job.Customer.Notes ?? ""
+                }
+            });
+        }
+
+        return BadRequest(new { error = "Type must be Business or Personal." });
+    }
+
     private async Task InvalidateJobDetailCachesAsync(long jobId, CancellationToken ct)
     {
         await _appCache.RemoveAsync(GetJobDetailCacheKey(jobId), ct);
         await _appCache.RemoveAsync(GetPaintServiceCacheKey(jobId), ct);
         await TouchJobsListVersionAsync(ct);
+    }
+
+    private async Task InvalidateCustomerListCachesAsync(long? previousCustomerId, long? nextCustomerId, CancellationToken ct)
+    {
+        await _appCache.RemoveAsync("customer:list:v1", ct);
+        if (previousCustomerId.HasValue)
+            await _appCache.RemoveAsync($"customer:profile:{previousCustomerId.Value}:v1", ct);
+        if (nextCustomerId.HasValue && nextCustomerId != previousCustomerId)
+            await _appCache.RemoveAsync($"customer:profile:{nextCustomerId.Value}:v1", ct);
     }
 
     private Task InvalidatePaintBoardCacheAsync(CancellationToken ct)
@@ -2094,4 +2230,29 @@ public class JobsController : ControllerBase
 
     private static string FormatDateTime(DateTime dateTime)
         => DateTimeHelper.FormatUtc(dateTime);
+
+    private static object? MapInvoice(JobInvoice? invoice)
+    {
+        if (invoice is null) return null;
+
+        return new
+        {
+            id = invoice.Id.ToString(CultureInfo.InvariantCulture),
+            jobId = invoice.JobId.ToString(CultureInfo.InvariantCulture),
+            provider = invoice.Provider,
+            externalInvoiceId = invoice.ExternalInvoiceId,
+            externalInvoiceNumber = invoice.ExternalInvoiceNumber,
+            externalStatus = invoice.ExternalStatus,
+            reference = invoice.Reference,
+            contactName = invoice.ContactName,
+            invoiceNote = invoice.InvoiceNote,
+            invoiceDate = invoice.InvoiceDate,
+            lineAmountTypes = invoice.LineAmountTypes,
+            tenantId = invoice.TenantId,
+            requestPayloadJson = invoice.RequestPayloadJson,
+            responsePayloadJson = invoice.ResponsePayloadJson,
+            createdAt = invoice.CreatedAt,
+            updatedAt = invoice.UpdatedAt,
+        };
+    }
 }

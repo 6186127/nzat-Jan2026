@@ -91,6 +91,19 @@ type MainColumnProps = {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
+  onSaveCustomer?: (
+    payload:
+      | { type: "Business"; customerId: string }
+      | { type: "Personal"; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null }
+  ) => Promise<{
+    success: boolean;
+    message?: string;
+    steps?: {
+      replacement?: { status?: string; message?: string };
+      invoice?: { status?: string; message?: string };
+    };
+    invoice?: unknown;
+  }>;
   onCreateXeroInvoice?: () => Promise<{ success: boolean; message?: string }>;
   isCreatingXeroInvoice?: boolean;
   onAttachXeroInvoice?: (invoiceNumber: string) => Promise<{ success: boolean; message?: string }>;
@@ -143,6 +156,7 @@ export function MainColumn({
   onRefreshPaintService,
   onRefreshVehicle,
   onSaveVehicle,
+  onSaveCustomer,
   onCreateXeroInvoice,
   isCreatingXeroInvoice,
   onAttachXeroInvoice,
@@ -283,6 +297,7 @@ export function MainColumn({
         customer={jobData.customer}
         onRefreshVehicle={onRefreshVehicle}
         onSaveVehicle={onSaveVehicle}
+        onSaveCustomer={onSaveCustomer}
       />
 
       <Card className="p-4">

@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Car, User, Building2, Phone, Mail, Link, RefreshCw, Pencil } from "lucide-react";
-import { Button, Card, Input } from "@/components/ui";
+import { Button, Card, Input, Select, Textarea } from "@/components/ui";
+import { CustomerUpdateProgressDialog } from "@/components/common/CustomerUpdateProgressDialog";
+import {
+  createInitialCustomerUpdateSteps,
+  resolveCustomerUpdateSteps,
+  type CustomerUpdateApiSteps,
+  type CustomerUpdateSteps,
+} from "@/components/common/CustomerUpdateProgressDialogState";
+import { loadBusinessCustomersCacheFirst } from "@/features/lookups/lookupCache";
 import type { VehicleInfo, CustomerInfo } from "@/types";
 
 interface SummaryCardProps {
@@ -14,15 +22,41 @@ interface SummaryCardProps {
     vin?: string | null;
     nzFirstRegistration?: string | null;
   }) => Promise<{ success: boolean; message?: string }>;
+  onSaveCustomer?: (
+    payload:
+      | { type: "Business"; customerId: string }
+      | { type: "Personal"; name: string; phone?: string | null; email?: string | null; address?: string | null; notes?: string | null }
+  ) => Promise<{ success: boolean; message?: string; steps?: CustomerUpdateApiSteps; invoice?: unknown }>;
 }
 
-export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle }: SummaryCardProps) {
+type BusinessCustomerOption = {
+  id: string;
+  label: string;
+  businessCode?: string;
+};
+
+export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle, onSaveCustomer }: SummaryCardProps) {
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState(false);
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
+  const [customerUpdateProgressOpen, setCustomerUpdateProgressOpen] = useState(false);
+  const [customerUpdateProgressError, setCustomerUpdateProgressError] = useState<string | null>(null);
+  const [customerUpdateSteps, setCustomerUpdateSteps] = useState<CustomerUpdateSteps>(createInitialCustomerUpdateSteps);
+  const [businessCustomers, setBusinessCustomers] = useState<BusinessCustomerOption[]>([]);
+  const [selectedBusinessCustomerId, setSelectedBusinessCustomerId] = useState(customer.id ?? "");
+  const [customerForm, setCustomerForm] = useState({
+    name: customer.name ?? "",
+    phone: customer.phone ?? "",
+    email: customer.email ?? "",
+    address: customer.address ?? "",
+    notes: customer.notes ?? "",
+  });
   const [vehicleForm, setVehicleForm] = useState({
     year: "",
     make: "",
@@ -42,6 +76,47 @@ export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle
     const timer = window.setTimeout(() => setRefreshError(null), 3000);
     return () => window.clearTimeout(timer);
   }, [refreshError]);
+
+  useEffect(() => {
+    setSelectedBusinessCustomerId(customer.id ?? "");
+    setCustomerForm({
+      name: customer.name ?? "",
+      phone: customer.phone ?? "",
+      email: customer.email ?? "",
+      address: customer.address ?? "",
+      notes: customer.notes ?? "",
+    });
+    setCustomerSaveError(null);
+    setEditingCustomer(false);
+  }, [customer]);
+
+  useEffect(() => {
+    if (!editingCustomer || customer.type !== "Business" || businessCustomers.length > 0) return;
+
+    let cancelled = false;
+    const loadCustomers = async () => {
+      try {
+        const options = await loadBusinessCustomersCacheFirst();
+        if (cancelled) return;
+        setBusinessCustomers(
+          (options ?? []).map((item) => ({
+            id: String(item.id ?? ""),
+            label: String(item.label ?? ""),
+            businessCode: item.businessCode ? String(item.businessCode) : "",
+          }))
+        );
+      } catch {
+        if (!cancelled) {
+          setCustomerSaveError("加载商户列表失败");
+        }
+      }
+    };
+
+    void loadCustomers();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessCustomers.length, customer.type, editingCustomer]);
 
   const handleRefreshVehicle = async () => {
     if (!onRefreshVehicle || refreshing) return;
@@ -98,6 +173,86 @@ export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle
     } else {
       setSaveError(res.message || "保存失败");
     }
+  };
+
+  const openEditCustomer = () => {
+    setSelectedBusinessCustomerId(customer.id ?? "");
+    setCustomerForm({
+      name: customer.name ?? "",
+      phone: customer.phone ?? "",
+      email: customer.email ?? "",
+      address: customer.address ?? "",
+      notes: customer.notes ?? "",
+    });
+    setCustomerSaveError(null);
+    setEditingCustomer(true);
+  };
+
+  const cancelEditCustomer = () => {
+    setCustomerSaveError(null);
+    setEditingCustomer(false);
+    setSelectedBusinessCustomerId(customer.id ?? "");
+    setCustomerForm({
+      name: customer.name ?? "",
+      phone: customer.phone ?? "",
+      email: customer.email ?? "",
+      address: customer.address ?? "",
+      notes: customer.notes ?? "",
+    });
+  };
+
+  const handleSaveCustomer = async () => {
+    if (!onSaveCustomer || savingCustomer) return;
+    if (customer.type === "Business" && !selectedBusinessCustomerId) {
+      setCustomerSaveError("请选择商户");
+      return;
+    }
+    if (customer.type === "Personal" && !customerForm.name.trim()) {
+      setCustomerSaveError("姓名不能为空");
+      return;
+    }
+
+    setSavingCustomer(true);
+    setCustomerSaveError(null);
+    if (customer.type === "Business") {
+      setCustomerUpdateSteps(createInitialCustomerUpdateSteps());
+      setCustomerUpdateProgressError(null);
+      setCustomerUpdateProgressOpen(true);
+    }
+    const result =
+      customer.type === "Business"
+        ? await onSaveCustomer({ type: "Business", customerId: selectedBusinessCustomerId })
+        : await onSaveCustomer({
+            type: "Personal",
+            name: customerForm.name.trim(),
+            phone: customerForm.phone.trim() || null,
+            email: customerForm.email.trim() || null,
+            address: customerForm.address.trim() || null,
+            notes: customerForm.notes.trim() || null,
+          });
+    setSavingCustomer(false);
+    if (customer.type === "Business") {
+      setCustomerUpdateSteps(
+        result.steps
+          ? resolveCustomerUpdateSteps(result.steps)
+          : {
+              replacement: {
+                status: "failed",
+                message: result.message || "商户关联更新失败。",
+              },
+              invoice: {
+                status: "pending",
+                message: "未开始更新 invoice Contact Name。",
+              },
+            }
+      );
+      setCustomerUpdateProgressError(result.success ? null : result.message || "保存失败");
+    }
+    if (!result.success) {
+      setCustomerSaveError(result.message || "保存失败");
+      return;
+    }
+    setEditingCustomer(false);
   };
 
   return (
@@ -172,7 +327,18 @@ export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle
             </div>
           </div>
           <div className="flex-1">
-            <p className="text-xs text-[var(--ds-muted)] mb-1">Customer ({customer.type})</p>
+            <p className="text-xs text-[var(--ds-muted)] mb-1">
+              Customer ({customer.type}){" "}
+              <button
+                type="button"
+                className="ml-2 text-[var(--ds-ghost)] hover:text-[var(--ds-text)]"
+                onClick={openEditCustomer}
+                aria-label="编辑客户信息"
+                disabled={!onSaveCustomer}
+              >
+                <Pencil className="inline h-4 w-4" />
+              </button>
+            </p>
             <p className="text-xl font-semibold text-[var(--ds-text)] mb-2">{customer.name}</p>
             <div className="space-y-1">
               {customer.type === "Business" && customer.businessCode ? (
@@ -250,6 +416,89 @@ export function SummaryCard({ vehicle, customer, onRefreshVehicle, onSaveVehicle
           </div>
         </div>
       ) : null}
+      {editingCustomer ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-[12px] bg-white p-5 shadow-xl">
+            <div className="text-lg font-semibold text-[var(--ds-text)]">编辑客户信息</div>
+            <div className="mt-4 space-y-3">
+              {customer.type === "Business" ? (
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--ds-muted)]">商户</label>
+                  <Select
+                    value={selectedBusinessCustomerId}
+                    onChange={(event) => setSelectedBusinessCustomerId(event.target.value)}
+                  >
+                    <option value="">请选择商户</option>
+                    {businessCustomers.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                        {item.businessCode ? ` (${item.businessCode})` : ""}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--ds-muted)]">姓名</label>
+                    <Input
+                      value={customerForm.name}
+                      onChange={(event) => setCustomerForm((prev) => ({ ...prev, name: event.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs text-[var(--ds-muted)]">电话</label>
+                      <Input
+                        value={customerForm.phone}
+                        onChange={(event) => setCustomerForm((prev) => ({ ...prev, phone: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-[var(--ds-muted)]">邮箱</label>
+                      <Input
+                        value={customerForm.email}
+                        onChange={(event) => setCustomerForm((prev) => ({ ...prev, email: event.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--ds-muted)]">地址</label>
+                    <Input
+                      value={customerForm.address}
+                      onChange={(event) => setCustomerForm((prev) => ({ ...prev, address: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--ds-muted)]">备注</label>
+                    <Textarea
+                      rows={4}
+                      value={customerForm.notes}
+                      onChange={(event) => setCustomerForm((prev) => ({ ...prev, notes: event.target.value }))}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            {customerSaveError ? <div className="mt-2 text-xs text-red-600">{customerSaveError}</div> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button onClick={cancelEditCustomer} disabled={savingCustomer}>
+                取消修改
+              </Button>
+              <Button variant="primary" onClick={handleSaveCustomer} disabled={savingCustomer}>
+                确认修改
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <CustomerUpdateProgressDialog
+        open={customerUpdateProgressOpen}
+        isUpdating={savingCustomer}
+        errorMessage={customerUpdateProgressError}
+        steps={customerUpdateSteps}
+        onClose={() => setCustomerUpdateProgressOpen(false)}
+      />
     </Card>
   );
 }

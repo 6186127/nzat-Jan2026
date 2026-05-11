@@ -876,6 +876,63 @@ public sealed class JobInvoiceService
         return JobInvoiceDeleteResult.Success(true, "Xero draft 已删除。");
     }
 
+    public async Task<JobInvoiceContactUpdateResult> UpdateContactNameForJobAsync(long jobId, string contactName, CancellationToken ct)
+    {
+        var normalizedContactName = contactName.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedContactName))
+            return JobInvoiceContactUpdateResult.Fail(400, "Contact name is required.");
+
+        var jobInvoice = await _db.JobInvoices.FirstOrDefaultAsync(x => x.JobId == jobId, ct);
+        if (jobInvoice is null)
+            return JobInvoiceContactUpdateResult.Skipped("未找到关联 invoice，跳过 Contact Name 更新。");
+
+        jobInvoice.ContactName = normalizedContactName;
+
+        if (!string.Equals(jobInvoice.Provider, "xero", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(jobInvoice.ExternalInvoiceId)
+            || !Guid.TryParse(jobInvoice.ExternalInvoiceId, out var invoiceId))
+        {
+            jobInvoice.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            return JobInvoiceContactUpdateResult.Success(jobInvoice, "已更新本地 invoice Contact Name。");
+        }
+
+        var request = BuildRequestFromPayload(jobInvoice.ResponsePayloadJson ?? jobInvoice.RequestPayloadJson, jobInvoice);
+        request.InvoiceId = invoiceId;
+        request.Contact.Name = normalizedContactName;
+
+        if (request.LineItems.Count == 0)
+        {
+            jobInvoice.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            return JobInvoiceContactUpdateResult.Success(jobInvoice, "已更新本地 invoice Contact Name，但未能同步 Xero：缺少 line items。");
+        }
+
+        var syncResult = await _xeroInvoiceService.CreateInvoiceAsync(
+            request,
+            new XeroInvoiceCreateOptions
+            {
+                SummarizeErrors = true,
+            },
+            ct);
+
+        if (!syncResult.Ok)
+        {
+            jobInvoice.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            return JobInvoiceContactUpdateResult.Fail(
+                syncResult.StatusCode,
+                syncResult.Error ?? "Failed to sync Xero draft invoice contact.",
+                syncResult.Payload,
+                jobInvoice);
+        }
+
+        ApplyInvoiceUpdate(jobInvoice, request, syncResult.Payload, syncResult.TenantId);
+        await _db.SaveChangesAsync(ct);
+
+        return JobInvoiceContactUpdateResult.Success(jobInvoice, "Invoice Contact Name 已更新。", syncResult.Payload);
+    }
+
     private async Task<JobInvoiceCreateResult> SyncInvoiceStatusAsync(JobInvoice jobInvoice, string targetStatus, CancellationToken ct)
     {
         var request = BuildRequestFromPayload(jobInvoice.ResponsePayloadJson, jobInvoice);
@@ -1761,6 +1818,46 @@ public sealed class JobInvoiceDeleteResult
             StatusCode = statusCode,
             Error = error,
             Payload = payload,
+        };
+}
+
+public sealed class JobInvoiceContactUpdateResult
+{
+    public bool Ok { get; private init; }
+    public bool WasSkipped { get; private init; }
+    public int StatusCode { get; private init; }
+    public string? Error { get; private init; }
+    public string? Message { get; private init; }
+    public object? Payload { get; private init; }
+    public JobInvoice? Invoice { get; private init; }
+
+    public static JobInvoiceContactUpdateResult Success(JobInvoice? invoice, string? message = null, object? payload = null) =>
+        new()
+        {
+            Ok = true,
+            StatusCode = 200,
+            Invoice = invoice,
+            Message = message,
+            Payload = payload,
+        };
+
+    public static JobInvoiceContactUpdateResult Skipped(string? message) =>
+        new()
+        {
+            Ok = true,
+            WasSkipped = true,
+            StatusCode = 200,
+            Message = message,
+        };
+
+    public static JobInvoiceContactUpdateResult Fail(int statusCode, string error, object? payload = null, JobInvoice? invoice = null) =>
+        new()
+        {
+            Ok = false,
+            StatusCode = statusCode,
+            Error = error,
+            Payload = payload,
+            Invoice = invoice,
         };
 }
 
